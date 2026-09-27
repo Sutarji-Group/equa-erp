@@ -1,0 +1,28 @@
+name: Cron tick
+
+# Pemicu pekerjaan terjadwal tiap 5 menit (Vercel Cron Hobby hanya harian — lihat docs/DECISIONS.md D-01).
+# Butuh secret repositori CRON_SECRET dan variabel/secret APP_URL. Dilewati bila kosong.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cron-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      APP_URL: ${{ secrets.APP_URL || vars.APP_URL }}
+    steps:
+      - name: Panggil /api/cron/tick
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
+            echo "CRON_SECRET atau APP_URL belum diisi — dilewati."
+            exit 0
+          fi
+          curl -fsS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/tick"

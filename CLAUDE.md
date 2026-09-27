@@ -29,3 +29,10 @@ Tailwind v4 + shadcn/ui · Zod · Dexie (IndexedDB) + Serwist (PWA) · Vitest ·
 
 ## Definisi selesai
 Lihat `docs/DECISIONS.md` D-06. `pnpm typecheck && pnpm lint && pnpm test` harus hijau sebelum commit.
+
+## Catatan teknis scaffold (Sprint 0)
+- Next.js 16 berbeda dari data latih: baca panduan di `node_modules/next/dist/docs/` sebelum memakai API Next (lihat `AGENTS.md`).
+  `middleware` → `src/proxy.ts`; Turbopack bawaan untuk `dev` & `build`; `next build` menjalankan `tsc` atas seluruh proyek (termasuk `tests/`).
+- DB: `getDb()` / `setDbForTests()` / `createPgliteDb()` di `src/db/client.ts`. PGlite berkas (`.data/pglite`) hanya boleh dibuka satu proses — hentikan `pnpm dev` sebelum `pnpm db:push`/`db:seed`.
+- Komponen shadcn/ui di `src/components/ui/` (gaya new-york, Tailwind v4, Radix `radix-ui`). Registri shadcn tidak dapat diakses dari mesin agen; komponen baru disalin manual dari repo shadcn-ui (`apps/v4/registry/new-york-v4/ui/`).
+- Pustaka isomorfik: `@/lib/time` (WIB), `@/lib/money` (rupiah), `@/lib/ids` (UUID v7), `@/lib/geo`, `@/lib/labels`, `@/lib/env` (server).
