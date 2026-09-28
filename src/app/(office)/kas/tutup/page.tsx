@@ -259,7 +259,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
             </Alert>
           ) : null}
           <CashActionForm action={closeCashDayAction.bind(null, date)} submitLabel="Tutup kas" disabled={!s.canClose} testId="form-tutup-kas">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-3" data-testid="isian-tutup-kas" data-system-amount={s.officeCashSystem}>
               <MoneyField label="Hitung fisik kas kantor (Rp)" name="officeCashPhysical" required />
               <SelectField label="Alasan selisih (bila ada)" name="officeCashReason" options={enumOptions("discrepancy_reason")} emptyLabel="Tidak ada selisih" />
               <Field label="Keterangan" name="officeCashNote" />

@@ -113,7 +113,7 @@ export function ReceiveDepositForm({
         </label>
       </div>
 
-      <div className="grid gap-1 rounded-md bg-muted/50 p-3 text-sm" aria-live="polite" data-testid="hitung-selisih">
+      <div className="grid gap-1 rounded-md bg-muted/50 p-3 text-sm" aria-live="polite" data-testid="hitung-selisih" data-expected-net={expectedNet}>
         <div className="flex justify-between">
           <span>Seharusnya − pengeluaran diterima</span>
           <span className="font-medium">{formatRupiah(expectedNet)}</span>
