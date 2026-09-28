@@ -538,6 +538,18 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   // Tambahan modul M8 (Produksi & Stok Air) — hanya tambah
   // ===================================================================================================================
   p("m8.depot_water_opening.create", "Mencatat stok air awal depot saat cut-over", [FA], { ref: "B-10, US-M6-05 KP-3" }),
+
+  // ===================================================================================================================
+  // Tambahan modul M11 (Akuntansi & Pajak) — hanya tambah
+  // ===================================================================================================================
+  p("m11.accounting.activate", "Mengaktifkan/menonaktifkan jurnal otomatis M11", [O], { kind: "approve", ref: "US-M11-01 KP-2, R04, PTB-47" }),
+  p("m11.retroactive.run", "Membangkitkan jurnal retroaktif sejak cut-over", [FA], { finance: true, ref: "US-M11-02 KP-4, PTB-47" }),
+  p("m11.retroactive.attest", "Memverifikasi jurnal retroaktif (akuntan)", [AC], { kind: "attest", ref: "US-M11-02 KP-4, US-M11-09 KP-4" }),
+  p("m11.recurring_journal.update", "Mengatur jurnal berulang bulanan", [FA], { finance: true, ref: "US-M11-03 KP-4" }),
+  p("m11.fixed_asset.import", "Mengimpor daftar aset dari template", [FA], { finance: true, ref: "US-M11-05 KP-1" }),
+  p("m11.fixed_asset.sign", "Menandatangani daftar aset impor", [O], { kind: "approve", ref: "US-M11-05 KP-1, NFR-34" }),
+  p("m11.cost_allocation.set", "Menetapkan kunci alokasi biaya bersama", [O], { kind: "approve", ref: "US-M11-01 KP-5" }),
+  p("m11.payable.read", "Melihat utang usaha (nota & jurnal manual)", [O, FA, AC], { ref: "US-M11-07" }),
 ];
 
 const BY_KEY = new Map<string, PermissionDef>(PERMISSIONS.map((perm) => [perm.key, perm]));

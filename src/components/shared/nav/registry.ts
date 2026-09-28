@@ -589,6 +589,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: Archive,
         permission: "m11.opening_balance.read",
       },
+      // --- Tambahan modul M11 (hanya tambah) ---
+      { id: "m11.payables", href: "/akuntansi/utang", label: "Utang usaha", icon: HandCoins, permission: "m11.payable.read" },
     ],
   },
   {

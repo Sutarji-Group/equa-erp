@@ -266,6 +266,8 @@ export const LABELS = {
     opening_payables: "Utang pemasok",
     chart_of_accounts: "Bagan akun & pemetaan jurnal",
     initial_accounts: "Akun pengguna awal",
+    /** Tambahan M11: kelompok ekuitas saldo awal (US-M11-09 KP-2). */
+    opening_equity: "Ekuitas saldo awal",
   },
   /** Status tanda tangan data awal. */
   signoff_status: {
@@ -1337,6 +1339,51 @@ export const LABELS = {
     travel: "Perjalanan & berhenti",
     geofence: "Geofence & pengisian",
     device: "Perangkat GPS",
+  },
+
+  // --- Tambahan modul M11 (Akuntansi & Pajak) — hanya tambah ---
+  /** Jenis jurnal berulang/template (US-M11-03 KP-1/KP-4). */
+  recurring_journal_template: {
+    salary: "Gaji",
+    rent: "Sewa",
+    electricity: "Listrik",
+    fuel: "BBM",
+    maintenance: "Pemeliharaan",
+    bank_fee: "Biaya bank",
+    other: "Lainnya",
+  },
+  /** Status utang dari jurnal manual bertanda utang (US-M11-07). */
+  journal_payable_status: {
+    open: "Belum dibayar",
+    partial: "Sebagian dibayar",
+    paid: "Lunas",
+  },
+  /** Jenis catatan akuntan per periode (US-M11-04 KP-5, US-M11-02 KP-4, US-M11-10 KP-5). */
+  period_review_kind: {
+    review: "Catatan tinjauan",
+    retroactive_verification: "Verifikasi jurnal retroaktif",
+    tg8: "Bukti TG-8 (tutup buku pertama)",
+  },
+  /** Kelompok prasyarat tutup periode (US-M11-10 KP-1) — daftar tampilan (bukan pgEnum). */
+  period_prerequisite: {
+    cash_days_closed: "Semua hari kas Ditutup",
+    bank_reconciled: "Rekonsiliasi bank nol selisih",
+    cash_reconciled: "Rekonsiliasi kas nol selisih / beralasan",
+    queue_empty: "Tidak ada jurnal di daftar tunggu",
+    depreciation_posted: "Penyusutan terposting",
+    manual_decided: "Jurnal manual > ambang diputuskan",
+    manual_reviewed: "Daftar tinjauan jurnal manual ditandai pemilik",
+    store_count_done: "Opname toko bulan ini selesai",
+    allocations_posted: "Alokasi L1 & biaya bersama terposting",
+    opening_posted: "Saldo awal terposting",
+    retroactive_verified: "Jurnal retroaktif diverifikasi akuntan",
+    accountant_note: "Catatan tinjauan akuntan (tutup buku pertama)",
+  },
+  /** Kunci alokasi biaya bersama (US-M11-01 KP-5) — daftar tampilan (bukan pgEnum). */
+  shared_cost_basis: {
+    none: "Dibiarkan di pusat biaya bersama",
+    revenue: "Proporsi omzet",
+    fixed: "Persentase tetap",
   },
 } as const satisfies Record<string, Record<string, string>>;
 
