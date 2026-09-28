@@ -158,6 +158,13 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("production.supply_difference", "Selisih pasokan depot di luar toleransi (diisi vs diterima)", "normal", ["dispatcher", "owner"], "Periksa pengisian, catatan sopir & konfirmasi depot; masuk neraca air", "US-M8-03 KP-2, PAR-69"),
   e("water.loss_explained", "Penjelasan susut air menunggu keputusan pemilik", "normal", ["owner"], "Terima penjelasan atau kembalikan ke operator", "US-M8-04 KP-2, BR-26"),
   e("water.loss_explanation_returned", "Penjelasan susut dikembalikan pemilik", "normal", ["production_operator"], "Lengkapi penjelasan susut dari aplikasi produksi", "US-M8-04 KP-2"),
+  // --- Tambahan modul M12 (Pelacakan Armada / GPS) — hanya tambah ---
+  e("gps.device_restored", "Perangkat GPS aktif kembali", "info", ["system_admin", "dispatcher"], "Informasi; kejadian ditutup dengan lama mati", "US-M12-08 KP-3"),
+  e("gps.vendor_outage", "Gangguan layanan vendor GPS (semua truk basi)", "high", ["system_admin"], "Hubungi vendor GPS; peringatan per truk tidak dikirim selama gangguan", "7.12.6, NFR-28"),
+  e("fleet.device_outage_pattern", "Perangkat GPS truk berulang mati/dicabut", "normal", ["owner"], "Tinjau pola per truk (indikasi pencabutan disengaja)", "US-M12-08 KP-3"),
+  e("fleet.geofence_mismatch", "Pengisian/pasokan tidak cocok dengan geofence", "normal", ["owner"], "Tinjau di Kejadian armada; pertimbangkan pada neraca air (M8)", "US-M12-06 KP-2/KP-4"),
+  e("fleet.zone_mismatch", "Jarak GPS alamat masuk zona tarif lain", "normal", ["owner"], "Tinjau selisih tarif; ubah zona hanya lewat Data master > Zona (persetujuan pemilik)", "US-M12-07 KP-2, US-M1-05 KP-6"),
+  e("fleet.explanation_requested", "Keterangan perjalanan diminta", "normal", [], "Isi keterangan di aplikasi sopir hari ini (BR-25)", "US-M12-04 KP-3, BR-25"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

@@ -286,7 +286,8 @@ export async function getBoard(ctx: ActorContext, date: string, opts: { tx?: Tx 
     };
   };
 
-  const lastPositions = truckRows.length
+  // US-M12-02 KP-4: posisi truk hanya untuk peran berizin peta armada (pemilik & Dispatcher), bukan semua pembaca papan.
+  const lastPositions = truckRows.length && can(ctx, "m12.position.read")
     ? await tx
         .selectDistinctOn([gpsPositions.truckId], { truckId: gpsPositions.truckId, lat: gpsPositions.lat, lng: gpsPositions.lng, at: gpsPositions.deviceTime, speedKmh: gpsPositions.speedKmh })
         .from(gpsPositions)

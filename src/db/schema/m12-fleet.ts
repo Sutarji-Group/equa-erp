@@ -62,6 +62,11 @@ export const gpsPositions = pgTable(
     clockSkewFlagged: boolean("clock_skew_flagged").notNull().default(false),
     tripId: uuid("trip_id").references((): AnyPgColumn => trips.id),
     userId: userRef("user_id"),
+    // --- Tambahan M12 (hanya tambah) ---
+    /** NFR-21: kunci penghubung vendor yang menerima posisi ini (`generic-json`, `osmand`, …). */
+    vendor: text("vendor"),
+    /** US-M12-01 KP-1: posisi mentah dari vendor (sebelum dipetakan ke format internal) — audit penggantian vendor (R05). */
+    raw: jsonb("raw").$type<Record<string, unknown>>(),
   },
   (t) => [
     index("gps_positions_truck_time_idx").on(t.truckId, t.deviceTime),
@@ -121,11 +126,20 @@ export const fleetEvents = pgTable(
     reviewedAt: tstz("reviewed_at"),
     doneAt: tstz("done_at"),
     ...timestamps(),
+    // --- Tambahan M12 (hanya tambah) ---
+    /**
+     * Kunci pemicu kejadian (mis. `loc:<rit>`, `move:<truk>:<mulai>`, `dev:<perangkat>:<mulai>`): job deteksi tiap 5
+     * menit & handler event dapat berjalan ulang tanpa menggandakan kejadian (BR-38: kejadian tidak dihapus).
+     */
+    dedupeKey: text("dedupe_key"),
   },
   (t) => [
     index("fleet_events_truck_date_idx").on(t.truckId, t.businessDate),
     index("fleet_events_status_kind_idx").on(t.status, t.kind),
     index("fleet_events_trip_idx").on(t.tripId),
+    uniqueIndex("fleet_events_dedupe_uq")
+      .on(t.tenantId, t.dedupeKey)
+      .where(sql`${t.dedupeKey} is not null`),
   ],
 );
 

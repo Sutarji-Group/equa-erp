@@ -632,6 +632,82 @@ export const PARAM_REGISTRY = {
       reference: "US-M8-01 KP-3, US-M8-04 KP-3, US-M8-05 KP-3, US-M8-06 KP-1, US-M8-07 KP-1",
       description:
         "Jam batas pembacaan meter pagi (08.00) dan malam (23.00) sebelum pengingat & notifikasi \"produksi belum tercatat\", jangka rata-rata susut informasi (7 hari), lama data harian utilisasi yang diekspor (6 bulan), jarak hari pengingat uji mutu (H-7), dan lama riwayat di aplikasi operator.",
+      },
+    }),
+
+  // --- Tambahan modul M12 (Pelacakan Armada / GPS) — hanya tambah ---
+  /** Angka aturan armada yang disebut PRD 7.12 tanpa nomor PAR (ambang [USULAN] & batas teknis penilaian jejak GPS). */
+  "m12.fleet_rules": defineParam({
+    schema: z
+      .object({
+        /** US-M12-01 KP-5: posisi berakurasi lebih buruk dari N m tetap disimpan tetapi tidak dipakai mendeteksi kejadian. */
+        max_accuracy_m: int(1),
+        /** Kecepatan (km/jam) minimal dianggap bergerak (status peta & waktu bergerak). */
+        moving_speed_kmh: int(1),
+        /** Radius (m) titik dianggap diam di tempat — batas getar GPS untuk titik berhenti (PAR-49/PAR-51). */
+        stop_radius_m: int(5),
+        /** Gerak lebih pendek dari N m dianggap getar GPS (bukan perjalanan). */
+        min_move_m: int(10),
+        /** Lompatan posisi yang menyiratkan kecepatan > N km/jam diabaikan dari jarak (posisi pencilan). */
+        max_plausible_speed_kmh: int(20),
+        /** 7.12.6: jeda antar-posisi lebih dari N menit ditandai "celah jejak" pada riwayat. */
+        track_gap_minutes: int(1),
+        /** US-M12-04 KP-2: titik Selesai ponsel vs posisi perangkat GPS berbeda > N m → sumber lokasi tidak konsisten. */
+        source_inconsistent_gt_m: int(1),
+        /** US-M12-04 KP-2: posisi perangkat GPS dicari dalam ± N menit dari waktu Selesai. */
+        inconsistency_window_minutes: int(1),
+        /** US-M12-06 KP-2: pengisian tanpa masuk geofence sumber dalam ± N menit → ditandai. */
+        fill_geofence_window_minutes: int(1),
+        /** US-M12-06 KP-2: truk di geofence sumber lebih dari N menit tanpa pengisian tercatat → ditandai. */
+        source_dwell_without_fill_minutes: int(1),
+        /** Histeresis keluar geofence (m di luar radius) agar getar GPS di tepi tidak membuat masuk/keluar berulang. */
+        geofence_exit_margin_m: int(0),
+        /** US-M12-08 KP-2: perangkat mati/dicabut lebih dari N menit dalam sehari tampil di H+0. */
+        device_dead_h0_minutes: int(1),
+        /** US-M12-08 KP-3: pola berulang = minimal N kejadian perangkat mati/dicabut … */
+        repeat_outage_count: int(2),
+        /** … dalam N hari terakhir per truk → dilaporkan ke pemilik. */
+        repeat_outage_days: int(1),
+        /** 7.12.6: semua perangkat basi sekaligus (minimal N perangkat) = gangguan vendor sistemik → hanya tim IT. */
+        vendor_outage_min_devices: int(2),
+        /** US-M12-02 KP-2: kecepatan rata-rata (km/jam) untuk perkiraan waktu tiba dari jarak rute. */
+        eta_avg_speed_kmh: int(1),
+        /** US-M12-02 KP-5: putar ulang N jam terakhir. */
+        replay_hours: int(1),
+        /** US-M12-07 KP-2: rata-rata jarak GPS N rit terakhir per alamat untuk pemeriksaan zona. */
+        zone_check_trip_count: int(1),
+        /** Jendela (jam ke belakang) penilaian jejak oleh job deteksi tiap 5 menit. */
+        detection_lookback_hours: int(1),
+      })
+      .strict(),
+    affectedRoles: ["dispatcher", "owner", "system_admin"],
+    fallback: {
+      max_accuracy_m: 100,
+      moving_speed_kmh: 5,
+      stop_radius_m: 60,
+      min_move_m: 200,
+      max_plausible_speed_kmh: 130,
+      track_gap_minutes: 5,
+      source_inconsistent_gt_m: 200,
+      inconsistency_window_minutes: 5,
+      fill_geofence_window_minutes: 30,
+      source_dwell_without_fill_minutes: 10,
+      geofence_exit_margin_m: 25,
+      device_dead_h0_minutes: 120,
+      repeat_outage_count: 3,
+      repeat_outage_days: 7,
+      vendor_outage_min_devices: 3,
+      eta_avg_speed_kmh: 30,
+      replay_hours: 24,
+      zone_check_trip_count: 3,
+      detection_lookback_hours: 12,
+    },
+    meta: {
+      name: "Aturan armada/GPS (akurasi, titik berhenti, konsistensi lokasi, geofence pengisian, perangkat mati, putar ulang, pemeriksaan zona)",
+      unit: null,
+      reference: "US-M12-01 KP-5, US-M12-02 KP-2/KP-5, US-M12-03, US-M12-04 KP-2, US-M12-06 KP-2, US-M12-07 KP-2, US-M12-08 KP-2/KP-3, 7.12.6",
+      description:
+        "Batas akurasi posisi yang dipakai deteksi, kecepatan & radius diam, jarak gerak minimal, penyaring lompatan posisi, celah jejak, ambang sumber lokasi tidak konsisten (± menit), jendela geofence pengisian & lama di sumber tanpa pengisian, histeresis geofence, perangkat mati yang tampil di H+0, pola perangkat mati berulang, gangguan vendor sistemik, kecepatan rata-rata perkiraan tiba, jangka putar ulang, jumlah rit pemeriksaan zona, dan jendela penilaian job deteksi.",
     },
   }),
 } as const satisfies Record<string, ParamDef>;

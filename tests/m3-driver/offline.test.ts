@@ -219,7 +219,8 @@ describe("M3 — bekerja tanpa sinyal, sinkron & dicatat kantor (US-M3-09), keam
     expect(res.result).toMatchObject({ inserted: 3, received: 3 });
     const again = await w.send(w.sopir, "gps.phone_positions", { truckId: w.truck.id, positions });
     expect(again.result).toMatchObject({ inserted: 0 });
-    const rows = await t.db.select().from(gpsPositions).where(eq(gpsPositions.truckId, w.truck.id));
+    // M12 (US-M12-01 KP-4) juga menyimpan titik status Berangkat/Tiba sebagai posisi sumber `status_point` → saring sumber ponsel.
+    const rows = await t.db.select().from(gpsPositions).where(and(eq(gpsPositions.truckId, w.truck.id), eq(gpsPositions.source, "phone")));
     expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.source === "phone" && r.tripId === a.id)).toBe(true);
     // Truk lain ditolak.

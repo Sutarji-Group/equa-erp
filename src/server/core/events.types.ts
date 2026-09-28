@@ -824,6 +824,24 @@ export interface FleetEventDetectedPayload {
   kind: FleetEventKind;
   startedAt: string;
   tripId?: string | null;
+  // --- Tambahan M12 (opsional, hanya tambah; payload mandiri PTB-47) ---
+  businessDate?: string;
+  endedAt?: string | null;
+  durationS?: number | null;
+  distanceM?: number | null;
+  lat?: number | null;
+  lng?: number | null;
+  deviceId?: string | null;
+  /** Pengguna aktif pada truk/perangkat saat kejadian (US-M12-05 KP-3). */
+  userId?: string | null;
+  /** BR-25: sopir mendapat tugas keterangan hari yang sama. */
+  requiresExplanation?: boolean;
+  /** Lokasi sah/geofence terkait (US-M12-06). */
+  locationType?: "water_source" | "outlet" | "pool" | null;
+  locationId?: string | null;
+  /** US-M12-06 KP-2/KP-4: pengisian M8 yang tidak cocok dengan geofence sumber (masukan neraca air). */
+  truckFillId?: string | null;
+  waterSourceId?: string | null;
 }
 export interface PeriodClosedPayload {
   periodId: string;

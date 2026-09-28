@@ -74,6 +74,7 @@ m11.period.read
 m11.reconciliation.read
 m11.tax.read
 m12.fleet_event.read
+m12.fuel_estimate.read
 m12.position.read
 m12.trip_history.read
 m2.crew_assignment.read
@@ -188,6 +189,8 @@ p3.support_request.read
 | Armada | `/armada/peta` | Peta truk | `m12.position.read` |  |
 | Armada | `/armada/riwayat` | Riwayat perjalanan | `m12.trip_history.read` |  |
 | Armada | `/armada/kejadian` | Kejadian armada | `m12.fleet_event.read` |  |
+| Armada | `/armada/perangkat` | Perangkat GPS | `m12.fleet_event.read` |  |
+| Armada | `/armada/bbm` | BBM & zona | `m12.fuel_estimate.read` |  |
 | Laporan | `/laporan/hari-ini` | Hari ini (H+0) | `m9.daily_summary.read` |  |
 | Laporan | `/laporan/bulanan` | Laba kotor bulanan | `m9.monthly_report.read` |  |
 | Laporan | `/laporan/katalog` | Katalog laporan | `m9.report.read` |  |
