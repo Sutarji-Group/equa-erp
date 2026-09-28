@@ -134,10 +134,13 @@ opsional `FleetEventDetectedPayload`), `src/server/core/params-registry.ts` (`m1
 `/armada/bbm`) + `docs/nav-permissions.md` (dibangkitkan), `src/db/seed/index.ts` (panggil `seedDemoM12Fleet`).
 Perubahan minimal M2 (sematan peta, US-M12-02 KP-4): `m2-orders/service/schedule.ts` (`lastPosition` hanya untuk izin
 `m12.position.read`), `(office)/jadwal/page.tsx` (`FleetLiveMap` hari ini untuk pemilik & Dispatcher).
+Penyesuaian uji M3 (satu kueri): `tests/m3-driver/offline.test.ts` US-M3-02 KP-5 menyaring `gps_positions.source =
+'phone'` — M12 kini juga menyimpan titik status Berangkat/Tiba sebagai `status_point` untuk truk yang sama (US-M12-01
+KP-4; nilai enum `status_point` sudah ada sejak F2), sehingga hitungan "3 baris per truk" tidak lagi berlaku tanpa saringan.
 
 ## 8. Uji & ketertelusuran
 
-`tests/m12-fleet/`: `domain` (adaptor, jejak, status, simulator), `ingest` (US-M12-01 KP-1..6), `live` (US-M12-02
+`tests/m12-fleet/`: `domain` (adaptor, jejak, status, simulator), `ingest` (US-M12-01 KP-1..6; KP-5 membandingkan deteksi jejak berakurasi baik vs buruk), `live` (US-M12-02
 KP-1..5 + rute `/api/gps/live` + papan jadwal), `history` (US-M12-03 KP-1..4), `completion` (US-M12-04 KP-1..5),
 `detection` (US-M12-05 KP-1..5 + 7.12.6), `geofence` (US-M12-06 KP-1..4), `fuel` (US-M12-07 KP-1..3), `devices`
 (US-M12-08 KP-1..4 + gangguan vendor), `registration`, `seed`. Pembantu: `tests/m12-fleet/helpers.ts` (`gpsTruck`,

@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { devices, fleetEvents, gpsPositions, phoneTrackingFlags, trips, tripTracks, truckDaySummaries, trucks } from "@/db/schema";
@@ -7,7 +7,7 @@ import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
 import { withTx } from "@/server/core/db";
 import * as params from "@/server/core/params";
-import { markDeviceOutage, purgeExpiredPositions } from "@/server/modules/m12-fleet";
+import { markDeviceOutage, purgeExpiredPositions, runTravelDetection } from "@/server/modules/m12-fleet";
 
 import { GET as ingestGet, POST as ingestPost } from "@/app/api/gps/ingest/[vendor]/route";
 
@@ -15,7 +15,7 @@ import { bootstrapForTests } from "../helpers/bootstrap";
 import { useTestDb } from "../helpers/db";
 import { createCustomer, createOrder, createScheduledTrip } from "../helpers/fixtures";
 import { departArrive, driverWorld, expectApplied, HERE } from "../m3-driver/helpers";
-import { drive, dwell, feed, fix, gpsTruck, minutesAfter, NOWHERE, POOL, SA1, wib } from "./helpers";
+import { chain, drive, dwell, feed, fix, gpsTruck, minutesAfter, NOWHERE, POOL, SA1, wib } from "./helpers";
 
 const TOKEN = "dev-gps-ingest-token";
 const DAY = "2026-09-21";
@@ -166,6 +166,23 @@ describe("M12 — penerimaan posisi GPS (US-M12-01)", () => {
     const [bad] = await t.db.select().from(gpsPositions).where(eq(gpsPositions.truckId, g2.truckId));
     expect(bad!.isValid).toBe(false);
     expect(bad!.clockSkewFlagged).toBe(false);
+
+    // Perjalanan yang sama tanpa rit: jejak berakurasi baik → kejadian; jejak berakurasi buruk → tersimpan, tanpa kejadian.
+    const t0 = wib(DAY, "13:00");
+    const route = (code: string) => chain([(s) => dwell(code, POOL, s, 8), (s) => drive(code, POOL, NOWHERE, s), (s) => dwell(code, NOWHERE, s, 10)], t0);
+    const good = await gpsTruck(t.db);
+    const noisy = await gpsTruck(t.db);
+    await feed(t.db, route(good.deviceCode));
+    const noisyFixes = route(noisy.deviceCode).map((f, i) => (i > 8 ? { ...f, accuracyM: 500 } : f));
+    await feed(t.db, noisyFixes);
+    await runTravelDetection(minutesAfter(t0, 40), t.db);
+    const kinds = ["off_schedule_trip", "off_hours_trip", "unknown_stop"] as const;
+    const evOf = (truckId: string) => t.db.select().from(fleetEvents).where(and(eq(fleetEvents.truckId, truckId), inArray(fleetEvents.kind, [...kinds])));
+    expect((await evOf(good.truckId)).map((e) => e.kind)).toEqual(["off_schedule_trip"]);
+    expect(await evOf(noisy.truckId)).toHaveLength(0);
+    const stored = await t.db.select().from(gpsPositions).where(eq(gpsPositions.truckId, noisy.truckId));
+    expect(stored).toHaveLength(noisyFixes.length);
+    expect(stored.filter((r) => !r.isValid)).toHaveLength(noisyFixes.length - 9);
   });
 
   it("US-M12-01 KP-6 posisi mentah lebih tua dari PAR-52 bulan dihapus job retensi; ringkasan per rit & per hari tetap tersimpan", async () => {
