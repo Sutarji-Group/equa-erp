@@ -10,6 +10,10 @@
  * - `digital_payment.succeeded` (Tahap 2) → `m4-cash:transfer_digital`
  * - `trip_payment.reversed` / `payment.reversed` → transfer yang belum cocok Dibatalkan
  * Kas kantor: `supplier_payment.recorded` tunai (M7) → mutasi kas kantor (B-21) → `m4-cash:supplier_payment_cash`.
+ * Kas kantor dari M5 (integrasi M4 + M5; PRD US-M5-02 KP-1 "tunai kantor → kas kantor M4"):
+ * - `collection.recorded` kanal `office` tunai → masuk "Pelunasan tunai kantor" → `m4-cash:office_cash_collection`
+ * - `payment.reversed` atas pelunasan tunai kantor → keluar (pembalik) → `m4-cash:office_cash_collection_reversal`
+ * - `customer_advance.refunded` tunai → keluar "Pengembalian uang muka" → `m4-cash:office_cash_advance_refund`
  *
  * Event yang dipancarkan M4: `deposit.received`, `deposit.closed`, `expense.verified`, `discrepancy.formed`,
  * `discrepancy.decided`, `discrepancy.reopened`, `transfer.matched`, `transfer.not_found`, `bank_deposit.recorded`,
@@ -22,8 +26,11 @@ import { on } from "@/server/core/events";
 
 import {
   onCollectionRecorded,
+  onCustomerAdvanceRefunded,
   onDepositSubmitted,
   onDigitalPayment,
+  onOfficeCashCollection,
+  onOfficeCashPaymentReversed,
   onPaymentReversed,
   onPosSaleRecorded,
   onShiftClosed,
@@ -42,4 +49,7 @@ export function registerEvents(): void {
   on("trip_payment.reversed", onTripPaymentReversed, { name: "m4-cash:transfer_cancel_trip_payment" });
   on("payment.reversed", onPaymentReversed, { name: "m4-cash:transfer_cancel_collection" });
   on("supplier_payment.recorded", onSupplierPayment, { name: "m4-cash:supplier_payment_cash" });
+  on("collection.recorded", onOfficeCashCollection, { name: "m4-cash:office_cash_collection" });
+  on("payment.reversed", onOfficeCashPaymentReversed, { name: "m4-cash:office_cash_collection_reversal" });
+  on("customer_advance.refunded", onCustomerAdvanceRefunded, { name: "m4-cash:office_cash_advance_refund" });
 }

@@ -25,7 +25,7 @@ import { authorize, runService } from "@/server/core/rbac";
 import { linkAttachment } from "@/server/core/storage";
 
 import { bankAccountSchema, bankDepositSchema, deactivateBankAccountSchema, openingBalanceSchema, reverseBankDepositSchema } from "../schemas";
-import { assertCashDayOpen, assertNotFuture, cashRules, officeCashBalance, openCashDate, postOfficeCash } from "./common";
+import { assertCashDayOpen, assertNotFuture, cashRules, officeCashBalance, officeCashOf, openCashDate, postOfficeCash } from "./common";
 import { cancelTransferForSource, recordIncomingTransfer } from "./transfers";
 
 export type BankAccountRow = typeof bankAccounts.$inferSelect;
@@ -317,6 +317,72 @@ export async function applySupplierPaymentToOfficeCash(
     reversalOfId: origMovement?.id ?? null,
   });
   if (mv) await tx.update(supplierPayments).set({ officeCashMovementId: mv.id }).where(and(eq(supplierPayments.id, p.supplierPaymentId), isNull(supplierPayments.officeCashMovementId)));
+  return mv?.id ?? null;
+}
+
+// =====================================================================================================================
+// Pelunasan & pengembalian uang muka tunai kantor (M5 → kas kantor; integrasi M4 + M5)
+// =====================================================================================================================
+
+/**
+ * Pelunasan tunai kantor (M5 `collection.recorded` kanal `office`; PRD US-M5-02 KP-1 "tunai kantor → kas kantor M4")
+ * → mutasi kas kantor masuk. Pembaliknya (`payment.reversed`, BR-38) → mutasi keluar yang merujuk mutasi asal.
+ * Idempoten: satu mutasi per pelunasan (indeks unik sumber) dan satu pembalik per mutasi asal.
+ */
+export async function applyCustomerCashToOfficeCash(
+  tx: Tx,
+  ctx: ActorContext,
+  p: { customerPaymentId: string; amount: number; businessDate: string; reversalId?: string | null; reason?: string | null; customerName?: string | null },
+): Promise<string | null> {
+  if (!Number.isInteger(p.amount) || p.amount <= 0) return null;
+  const reversal = !!p.reversalId;
+  let reversalOfId: string | null = null;
+  if (reversal) {
+    const orig = (await officeCashOf(tx, "customer_payment", p.customerPaymentId)).find((m) => m.kind === "customer_payment" && m.direction === "in");
+    // Pelunasan asal tidak pernah masuk kas kantor → tidak ada kas yang dibalik.
+    if (!orig) return null;
+    const done = await tx.select({ id: officeCashMovements.id }).from(officeCashMovements).where(eq(officeCashMovements.reversalOfId, orig.id)).limit(1);
+    if (done[0]) return null;
+    reversalOfId = orig.id;
+  }
+  // Hari kas yang sudah ditutup terkunci → mutasi masuk hari kas terbuka berikutnya (US-M4-06 KP-7).
+  const cashDate = await openCashDate(tx, ctx.tenantId, p.businessDate);
+  const who = p.customerName ? ` ${p.customerName}` : "";
+  const mv = await postOfficeCash(tx, ctx, {
+    tenantId: ctx.tenantId,
+    businessDate: cashDate.date,
+    kind: "customer_payment",
+    direction: reversal ? "out" : "in",
+    amount: p.amount,
+    sourceObjectType: "customer_payment",
+    sourceObjectId: reversal ? p.reversalId! : p.customerPaymentId,
+    description: `${reversal ? "Pembalik pelunasan" : "Pelunasan"} tunai kantor${who}${reversal && p.reason ? ` — ${p.reason}` : ""}${cashDate.shifted ? " (setelah kas ditutup)" : ""}`,
+    reversalOfId,
+  });
+  return mv?.id ?? null;
+}
+
+/**
+ * Pengembalian uang muka pelanggan secara tunai (M5 `customer_advance.refunded`, persetujuan pemilik `customer_refund`)
+ * → mutasi kas kantor keluar. Kunci sumber = permintaan persetujuan (satu uang muka dapat dikembalikan bertahap).
+ */
+export async function applyAdvanceRefundToOfficeCash(
+  tx: Tx,
+  ctx: ActorContext,
+  p: { sourceObjectType: string; sourceObjectId: string; amount: number; businessDate: string; customerName?: string | null },
+): Promise<string | null> {
+  if (!Number.isInteger(p.amount) || p.amount <= 0) return null;
+  const cashDate = await openCashDate(tx, ctx.tenantId, p.businessDate);
+  const mv = await postOfficeCash(tx, ctx, {
+    tenantId: ctx.tenantId,
+    businessDate: cashDate.date,
+    kind: "advance_refund",
+    direction: "out",
+    amount: p.amount,
+    sourceObjectType: p.sourceObjectType,
+    sourceObjectId: p.sourceObjectId,
+    description: `Pengembalian uang muka pelanggan${p.customerName ? ` ${p.customerName}` : ""} (tunai)${cashDate.shifted ? " (setelah kas ditutup)" : ""}`,
+  });
   return mv?.id ?? null;
 }
 

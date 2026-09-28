@@ -6,17 +6,17 @@
 
 ## Ringkasan
 
-- **Prioritas M:** 267/490 KP (54.5%) · story: 44 lengkap, 19 sebagian, 31 belum
-- **Semua prioritas:** 290/554 KP (52.3%) · story: 50 lengkap, 20 sebagian, 44 belum
-- Uji dipindai: 763 judul di 98 berkas; 563 judul merujuk user story.
+- **Prioritas M:** 326/490 KP (66.5%) · story: 56 lengkap, 14 sebagian, 24 belum
+- **Semua prioritas:** 352/554 KP (63.5%) · story: 63 lengkap, 15 sebagian, 36 belum
+- Uji dipindai: 898 judul di 121 berkas; 695 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
 | M1 — Master Data | 6 | 6 | 0 | 0 | 36/36 | 100.0 |
 | M2 — Pesanan & Penjadwalan Rit | 11 | 11 | 0 | 0 | 51/51 | 100.0 |
 | M3 — Aplikasi Sopir | 10 | 10 | 0 | 0 | 55/55 | 100.0 |
-| M4 — Kas & Setoran | 6 | 0 | 2 | 4 | 2/36 | 5.6 |
-| M5 — Piutang & Penagihan | 7 | 0 | 3 | 4 | 4/32 | 12.5 |
+| M4 — Kas & Setoran | 6 | 6 | 0 | 0 | 36/36 | 100.0 |
+| M5 — Piutang & Penagihan | 7 | 7 | 0 | 0 | 32/32 | 100.0 |
 | M6 — Penjualan Depot (POS) | 7 | 7 | 0 | 0 | 42/42 | 100.0 |
 | M7 — Penjualan Toko & Stok | 9 | 9 | 0 | 0 | 37/37 | 100.0 |
 | M8 — Produksi & Stok Air | 7 | 0 | 2 | 5 | 3/29 | 10.3 |
@@ -75,35 +75,35 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M3-06 | Menandai rit gagal, melaporkan kendala, dan memberi keterangan perjalanan | M | 4/4 | lengkap | — | 8 |
 | US-M3-07 | Melihat kas di tangan dan menyetor akhir hari | M | 6/6 | lengkap | — | 12 |
 | US-M3-08 | Mencatat pengeluaran rit | S | 3/3 | lengkap | — | 11 |
-| US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 5/5 | lengkap | — | 25 |
+| US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 5/5 | lengkap | — | 26 |
 | US-M3-10 | Keamanan perangkat dan kesiapan lapangan | M | 6/6 | lengkap | — | 21 |
 
 ## M4 — Kas & Setoran
 
-2/36 KP (5.6%) · story: 0 lengkap, 2 sebagian, 4 belum
+36/36 KP (100.0%) · story: 6 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M4-01 | Melihat posisi kas harian per sumber | M | 1/5 | sebagian | 1, 2, 4, 5 | 2 |
-| US-M4-02 | Menerima setoran dan menghitung selisih | M | 0/10 | belum | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 | 0 |
-| US-M4-03 | Menindaklanjuti selisih dan mencatat ganti rugi | M | 0/6 | belum | 1, 2, 3, 4, 5, 6 | 0 |
-| US-M4-04 | Mencatat dan mencocokkan transfer masuk | M | 1/5 | sebagian | 2, 3, 4, 5 | 1 |
-| US-M4-05 | Kas kantor, setor ke bank, dan kas kecil | M | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M4-06 | Menutup kas harian dan menerbitkan ringkasan H+0 | M | 0/7 | belum | 1, 2, 3, 4, 5, 6, 7 | 0 |
+| US-M4-01 | Melihat posisi kas harian per sumber | M | 5/5 | lengkap | — | 10 |
+| US-M4-02 | Menerima setoran dan menghitung selisih | M | 10/10 | lengkap | — | 19 |
+| US-M4-03 | Menindaklanjuti selisih dan mencatat ganti rugi | M | 6/6 | lengkap | — | 13 |
+| US-M4-04 | Mencatat dan mencocokkan transfer masuk | M | 5/5 | lengkap | — | 13 |
+| US-M4-05 | Kas kantor, setor ke bank, dan kas kecil | M | 3/3 | lengkap | — | 7 |
+| US-M4-06 | Menutup kas harian dan menerbitkan ringkasan H+0 | M | 7/7 | lengkap | — | 12 |
 
 ## M5 — Piutang & Penagihan
 
-4/32 KP (12.5%) · story: 0 lengkap, 3 sebagian, 4 belum
+32/32 KP (100.0%) · story: 7 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M5-01 | Piutang terbentuk otomatis dari pengiriman dan penjualan tempo | M | 1/6 | sebagian | 1, 2, 3, 4, 5 | 2 |
-| US-M5-02 | Mencatat pelunasan dan alokasinya | M | 2/5 | sebagian | 1, 3, 5 | 2 |
-| US-M5-03 | Kontrol jatuh tempo dan status Ditahan | M | 1/6 | sebagian | 1, 2, 4, 5, 6 | 1 |
-| US-M5-04 | Laporan umur piutang dan kartu piutang | M | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M5-05 | Pengingat jatuh tempo lewat WA | S | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M5-06 | Faktur bulanan untuk pelanggan tagihan bulanan | M | 0/5 | belum | 1, 2, 3, 4, 5 | 0 |
-| US-M5-07 | Saldo awal piutang saat cut-over | M | 0/3 | belum | 1, 2, 3 | 0 |
+| US-M5-01 | Piutang terbentuk otomatis dari pengiriman dan penjualan tempo | M | 6/6 | lengkap | — | 21 |
+| US-M5-02 | Mencatat pelunasan dan alokasinya | M | 5/5 | lengkap | — | 20 |
+| US-M5-03 | Kontrol jatuh tempo dan status Ditahan | M | 6/6 | lengkap | — | 16 |
+| US-M5-04 | Laporan umur piutang dan kartu piutang | M | 4/4 | lengkap | — | 11 |
+| US-M5-05 | Pengingat jatuh tempo lewat WA | S | 3/3 | lengkap | — | 8 |
+| US-M5-06 | Faktur bulanan untuk pelanggan tagihan bulanan | M | 5/5 | lengkap | — | 8 |
+| US-M5-07 | Saldo awal piutang saat cut-over | M | 3/3 | lengkap | — | 5 |
 
 ## M6 — Penjualan Depot (POS)
 
@@ -117,7 +117,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M6-04 | Stok bahan habis pakai dan opname mingguan | M | 6/6 | lengkap | — | 8 |
 | US-M6-05 | Menerima pasokan air dan neraca air outlet | M | 6/6 | lengkap | — | 8 |
 | US-M6-06 | Bekerja tanpa sinyal | M | 5/5 | lengkap | — | 12 |
-| US-M6-07 | Paket standar multi-tenant | M | 6/6 | lengkap | — | 13 |
+| US-M6-07 | Paket standar multi-tenant | M | 6/6 | lengkap | — | 14 |
 
 ## M7 — Penjualan Toko & Stok
 

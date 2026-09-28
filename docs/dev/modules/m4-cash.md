@@ -92,6 +92,13 @@ Semua `fn(ctx, input, opts?: { tx })`; baca memakai `opts.tx ?? getDb()`. Izin d
 `pos_sale.recorded` (QRIS terlambat) · `deposit.submitted` (slip) · `digital_payment.succeeded` (Tahap 2) →
 transfer masuk. `trip_payment.reversed` / `payment.reversed` → transfer belum cocok Dibatalkan.
 `supplier_payment.recorded` (tunai, M7) → mutasi kas kantor keluar/pembalik masuk + `supplier_payments.office_cash_movement_id` (B-21).
+Ditambahkan saat integrasi M4 + M5 (PRD US-M5-02 KP-1 "tunai kantor → kas kantor M4"): `collection.recorded` kanal
+`office` tunai → kas kantor masuk kind `customer_payment` (`m4-cash:office_cash_collection`); `payment.reversed` atas
+pelunasan tunai kantor → keluar merujuk mutasi asal (`m4-cash:office_cash_collection_reversal`);
+`customer_advance.refunded` tunai → keluar kind `advance_refund`, sumber = permintaan persetujuan `customer_refund`
+(`m4-cash:office_cash_advance_refund`). Semua memakai `openCashDate` (hari kas tertutup → hari terbuka berikutnya);
+`internal` (reklasifikasi 7.5.6) dan pelunasan lewat sopir/kasir (masuk lewat setoran) tidak menggerakkan kas kantor.
+Uji: `tests/integration/m4-m5.test.ts`.
 
 ## 4. Lapangan & pull
 
@@ -167,7 +174,7 @@ pada payload §3.1), `notifications/catalog.ts` (`deposit.result`, `discrepancy.
   `discrepancy.formed`), **B-20** (`storeShiftsBlockingCashClose` di penghalang), **B-21** (`supplier_payment.recorded`).
 - **M3/M6/M7**: pasang `<MyCashCard>` di aplikasi sopir & POS (US-M4-03 KP-3 "saldo terlihat karyawan"; data pull sudah ada).
 - **M9**: bangun ringkasan H+0 dari `cash_day.closed`; tombol satu ketuk memanggil `decideDiscrepancy`.
-- **M5**: `transfer.not_found` → piutang sementara; `transfer.matched` → selesaikan.
+- **M5**: `transfer.not_found` → piutang sementara; `transfer.matched` → selesaikan — SELESAI (M5; diverifikasi integrasi M4+M5).
 - **M11**: pemetaan `office_cash.moved` (`adjustment`, `opening_balance`, `supplier_payment`), `bank_deposit.reversed`,
   `restitution.settlement_reversed`; aturan akun debit `deposit.received` method `bank_slip` → bank (`bankAccountId`);
   lewati jurnal `transfer.matched` untuk `bank_deposit_slip`/`bank_deposit` (hindari posting ganda).

@@ -6,7 +6,7 @@ import "server-only";
 
 import { and, eq, gt, inArray, isNull, lte } from "drizzle-orm";
 
-import { customerPayments, deposits, notifications, suppliers, supplierPayments, tenants, tripPayments, trips } from "@/db/schema";
+import { customerPayments, customers, deposits, notifications, suppliers, supplierPayments, tenants, tripPayments, trips } from "@/db/schema";
 import { formatRupiah } from "@/lib/money";
 import { formatTanggal, toBusinessDate } from "@/lib/time";
 
@@ -16,7 +16,7 @@ import type { DomainEvent } from "@/server/core/events";
 import { notify, type NotifyInput } from "@/server/core/notifications";
 
 import { cashRules, userNames } from "./common";
-import { applySupplierPaymentToOfficeCash } from "./office-cash";
+import { applyAdvanceRefundToOfficeCash, applyCustomerCashToOfficeCash, applySupplierPaymentToOfficeCash } from "./office-cash";
 import { cancelTransferForSource, recordIncomingTransfer, recordSlipDepositTransfer } from "./transfers";
 
 /** Kas & setoran mitra (tenant partner) dikelola mitra sendiri — tidak masuk M4 EQUA (US-M6-07 KP-3). */
@@ -160,6 +160,64 @@ export async function onTripPaymentReversed(event: DomainEvent<"trip_payment.rev
 export async function onPaymentReversed(event: DomainEvent<"payment.reversed">, tx: Tx): Promise<void> {
   if (!event.tenantId) return;
   await cancelTransferForSource(tx, systemContext({ tenantId: event.tenantId, now: event.occurredAt }), "customer_payment", event.payload.customerPaymentId, event.payload.reason);
+}
+
+// --- Integrasi M5 → kas kantor (pelunasan & pengembalian uang muka TUNAI di kantor) ------------------------------------
+
+async function customerName(tx: Tx, id: string | null | undefined): Promise<string | null> {
+  if (!id) return null;
+  return (await tx.select({ name: customers.name }).from(customers).where(eq(customers.id, id)).limit(1))[0]?.name ?? null;
+}
+
+/**
+ * `collection.recorded` kanal `office` cara `cash` (M5 pelunasan kantor, US-M5-02 KP-1) → kas kantor masuk
+ * "Pelunasan tunai kantor". Transfer → transfer masuk (`onCollectionRecorded`); `internal` (reklasifikasi 7.5.6) dan
+ * pelunasan lewat sopir/kasir (masuk lewat setoran) TIDAK menggerakkan kas kantor di sini.
+ */
+export async function onOfficeCashCollection(event: DomainEvent<"collection.recorded">, tx: Tx): Promise<void> {
+  const p = event.payload;
+  if (p.channel !== "office" || p.method !== "cash" || !(p.amount > 0) || !(await isOwnerTenant(tx, event.tenantId))) return;
+  await applyCustomerCashToOfficeCash(tx, systemContext({ tenantId: event.tenantId!, now: event.occurredAt }), {
+    customerPaymentId: p.customerPaymentId,
+    amount: p.amount,
+    businessDate: eventDate(event, p.businessDate),
+    customerName: await customerName(tx, p.customerId),
+  });
+}
+
+/** `payment.reversed` atas pelunasan tunai kantor → kas kantor keluar merujuk mutasi asal (BR-38). */
+export async function onOfficeCashPaymentReversed(event: DomainEvent<"payment.reversed">, tx: Tx): Promise<void> {
+  const p = event.payload;
+  if (!(p.amount > 0) || !(await isOwnerTenant(tx, event.tenantId))) return;
+  let channel = p.channel;
+  let method = p.method;
+  if (!channel || !method) {
+    const row = (await tx.select({ channel: customerPayments.channel, method: customerPayments.method }).from(customerPayments).where(eq(customerPayments.id, p.customerPaymentId)).limit(1))[0];
+    channel ??= row?.channel;
+    method ??= row?.method;
+  }
+  if (channel !== "office" || method !== "cash") return;
+  await applyCustomerCashToOfficeCash(tx, systemContext({ tenantId: event.tenantId!, now: event.occurredAt }), {
+    customerPaymentId: p.customerPaymentId,
+    reversalId: p.reversalId,
+    amount: p.amount,
+    businessDate: eventDate(event, p.businessDate),
+    reason: p.reason,
+    customerName: await customerName(tx, p.customerId),
+  });
+}
+
+/** `customer_advance.refunded` tunai (persetujuan `customer_refund`) → kas kantor keluar "Pengembalian uang muka". */
+export async function onCustomerAdvanceRefunded(event: DomainEvent<"customer_advance.refunded">, tx: Tx): Promise<void> {
+  const p = event.payload;
+  if (p.method !== "cash" || !(p.amount > 0) || !(await isOwnerTenant(tx, event.tenantId))) return;
+  await applyAdvanceRefundToOfficeCash(tx, systemContext({ tenantId: event.tenantId!, now: event.occurredAt }), {
+    sourceObjectType: p.approvalId ? "approval_request" : "domain_event",
+    sourceObjectId: p.approvalId ?? event.id,
+    amount: p.amount,
+    businessDate: eventDate(event),
+    customerName: await customerName(tx, p.customerId),
+  });
 }
 
 /** `supplier_payment.recorded` tunai → kas kantor keluar (B-21). */

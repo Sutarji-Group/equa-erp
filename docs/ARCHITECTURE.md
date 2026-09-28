@@ -264,6 +264,20 @@ setelah shift ditutup; payload `{ storeReturnId, posSaleId, method, amount, cogs
 `supplier_payment.recorded`, `purchase_receipt.recorded` (rincian di `docs/dev/modules/m3-driver.md` §2 dan
 `docs/dev/modules/m7-store.md`).
 
+Tambahan modul (integrasi M4 + M5): TIDAK ada tipe event baru. M4 menambah field OPSIONAL pada `deposit.received`,
+`deposit.closed`, `discrepancy.formed` (termasuk `locksTrips` PAR-83), `discrepancy.decided`, `transfer.not_found`
+(`sourceObjectType/Id`, `transferDate`, `tripId`, `outletId`), `office_cash.moved`, `petty_cash.recorded`,
+`cash_day.closed` (masukan ringkasan H+0 M9: KPI-02, kas sistem/fisik, jumlah selisih & transfer belum cocok),
+`restitution.recorded`, `restitution.settled`; M5 menambah field opsional pada `collection.recorded`
+(`reclassifiedFromTripPaymentId` — `method: "internal"` tanpa gerak kas), `invoice.issued` (`isOpeningBalance`,
+`pendingTransferId`, `periodMonth`, `reclassifiedFromTripPaymentId`), `invoice.paid`, `credit_note.issued` (`purpose`),
+`payment.reversed` (`channel`, `method`, `incomingTransferId`, …), `invoice.written_off` (`journalId`). Sambungan lintas
+modul: M4 membukukan kas kantor dari `collection.recorded` kanal `office` tunai, `payment.reversed` (pelunasan tunai
+kantor) dan `customer_advance.refunded` tunai (`office_cash.moved` kind `customer_payment`/`advance_refund`); M5
+membentuk/menutup piutang sementara "transfer belum diterima" dari `transfer.not_found`/`transfer.matched` M4 dan
+mengevaluasi status Ditahan setelah `cash_day.closed` (rincian di `docs/dev/modules/m4-cash.md` §3 dan
+`docs/dev/modules/m5-receivables.md` §3; uji `tests/integration/m4-m5.test.ts`).
+
 Payload tiap event diketik di `src/server/core/events.types.ts`. Modul menambah event baru hanya dengan menambah entri
 di berkas itu (tambahan, tidak mengubah yang ada). M11 berlangganan event keuangan untuk jurnal otomatis (PRD 7.11.4);
 M9 membaca data, tidak berlangganan.
@@ -276,8 +290,8 @@ M9 membaca data, tidak berlangganan.
 | M1 | `/master/pelanggan`, `/master/produk`, `/master/zona`, `/master/armada`, `/master/depot`, `/master/sumber-air`, `/master/pool`, `/master/karyawan`, `/master/impor` |
 | M2 | `/pesanan`, `/pesanan/baru`, `/pesanan/[id]`, `/jadwal` (papan), `/jadwal/kru`, `/langganan` |
 | M3 (kantor) | `/sopir-kantor/dicatat-kantor` (pencatatan darurat "dicatat kantor") |
-| M4 | `/kas` (kas hari ini), `/kas/setoran`, `/kas/selisih`, `/kas/transfer`, `/kas/kantor`, `/kas/kas-kecil`, `/kas/tutup`, `/kas/ganti-rugi` |
-| M5 | `/piutang`, `/piutang/faktur`, `/piutang/pelunasan`, `/piutang/umur`, `/piutang/pengingat`, `/piutang/faktur-bulanan`, `/piutang/saldo-awal` |
+| M4 | `/kas` (kas hari ini), `/kas/setoran` (+ rincian `/kas/setoran/[id]`), `/kas/selisih`, `/kas/transfer`, `/kas/kantor`, `/kas/kas-kecil`, `/kas/tutup`, `/kas/ganti-rugi` |
+| M5 | `/piutang`, `/piutang/faktur`, `/piutang/pelunasan`, `/piutang/umur`, `/piutang/pengingat`, `/piutang/faktur-bulanan`, `/piutang/saldo-awal`, `/piutang/status-kredit` (+ rincian `/piutang/faktur/[id]`, `/piutang/pelunasan/[id]`, kartu piutang `/piutang/pelanggan/[id]`) |
 | M6/M7 (kantor) | `/outlet`, `/toko/barang`, `/toko/pemasok`, `/toko/pembelian`, `/toko/opname`, `/toko/pesan-ulang`, `/toko/utang` |
 | M8 (kantor) | `/produksi/neraca-air`, `/produksi/utilisasi`, `/produksi/mutu` |
 | M9 | `/laporan/hari-ini` (H+0), `/laporan/bulanan`, `/laporan/katalog`, `/laporan/kinerja`, `/laporan/tren`, `/laporan/kpi`, `/kotak-masuk` |

@@ -163,7 +163,7 @@ Ikon tombol klien dikirim sebagai ELEMEN (`icon={<MessageCircle aria-hidden />}`
   `trip.corrected` / `trip_payment.reversed` belum dipancarkan M3 → koreksi rit setelah faktur terbit belum diteruskan.
 - **M4**: berlangganan `collection.recorded` kanal `office` (tunai → kas kantor; transfer → pencocokan; `internal` =
   tanpa kas), `payment.reversed`, `customer_advance.refunded`; pancarkan `transfer.not_found` / `transfer.matched`
-  dengan `customerId` & `sourceKind`.
+  dengan `customerId` & `sourceKind` — SELESAI (integrasi M4+M5, `tests/integration/m4-m5.test.ts`).
 - **M11**: jurnal dari event di §3 (pengecualian saldo awal/reklasifikasi), panggil `writeOffInvoice` di jurnal
   penghapusan (PTB-28).
 - **M2/M7**: eksposur toko memakai `storeCreditExposure` (tempo toko belum difakturkan) di atas `computeExposure`.
