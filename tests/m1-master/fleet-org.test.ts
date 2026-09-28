@@ -1,8 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   attachments,
+  auditLogs,
   customers,
   devices,
   domainEvents,
@@ -133,19 +134,18 @@ describe("M1 Master Data", () => {
           ),
         );
       expect(n.length).toBeGreaterThan(0);
-      const ev = await t.db
+      const trail = await t.db
         .select()
-        .from(domainEvents)
+        .from(auditLogs)
         .where(
           and(
-            eq(domainEvents.type, "truck.status_changed"),
-            eq(domainEvents.objectId, truck.id),
+            eq(auditLogs.objectType, "truck"),
+            eq(auditLogs.objectId, truck.id),
+            eq(auditLogs.rule, "US-M1-03 KP-2"),
           ),
         );
-      expect(ev[0]!.payload).toMatchObject({
-        from: "active",
-        to: "maintenance",
-      });
+      expect(trail[0]!.before).toMatchObject({ status: "active" });
+      expect(trail[0]!.after).toMatchObject({ status: "maintenance" });
       await m1.setTruckStatus(dispatcher(), truck.id, {
         status: "active",
         reason: "Selesai servis",
@@ -394,13 +394,12 @@ describe("M1 Master Data", () => {
         employeeId: emp.id,
         exitDate: exit,
         tenantId: EQUA_TENANT_ID,
-        phase: "scheduled",
       });
       // Belum tercapai → job tidak memproses.
       expect(
         (await withTx((tx) => m1.processEmployeeExits(tx, T0))).processed,
       ).toBe(0);
-      // Tercapai → nonaktif + event reached, sekali saja (idempoten).
+      // Tercapai → nonaktif + event dipancarkan lagi (M10 mencabut akses), sekali saja (idempoten).
       const r1 = await withTx((tx) => m1.processEmployeeExits(tx, days(3)));
       const r2 = await withTx((tx) => m1.processEmployeeExits(tx, days(4)));
       expect(r1.processed).toBe(1);
@@ -410,17 +409,17 @@ describe("M1 Master Data", () => {
         .from(employees)
         .where(eq(employees.id, emp.id));
       expect(row!.isActive).toBe(false);
-      const reached = await t.db
+      const all = await t.db
         .select()
         .from(domainEvents)
         .where(
           and(
             eq(domainEvents.type, "employee.exited"),
             eq(domainEvents.objectId, emp.id),
-            sql`${domainEvents.payload}->>'phase' = 'reached'`,
           ),
         );
-      expect(reached).toHaveLength(1);
+      // Satu saat tanggal keluar diisi + satu saat tercapai.
+      expect(all).toHaveLength(2);
       // Keluar hari ini → langsung nonaktif & dilepas dari kru default.
       const drv = await createTestUser(t.db, { role: "driver" });
       const truck = await m1.createTruck(dispatcher(), {

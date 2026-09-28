@@ -5,7 +5,8 @@
  *   GPS terpasang & ponsel lapangan (perangkat terdaftar oleh admin sistem di M10; M1 hanya memilih), kapasitas rit
  *   harian (override PAR-33), pool.
  * - Perbaikan/Nonaktif tidak dapat menerima rit; rit Ditugaskan yang belum Berangkat ditandai "perlu dipindahkan"
- *   (`trips.needs_reassignment`) + notifikasi Dispatcher + event `truck.status_changed` (KP-2).
+ *   (`trips.needs_reassignment`) + notifikasi Dispatcher + jejak audit (KP-2). Tidak ada event domain khusus (katalog
+ *   ARCHITECTURE §8); M2 membaca penanda `needs_reassignment`.
  * - Satu karyawan hanya satu truk default (sopir ATAU kernet) — KP-3.
  */
 import "server-only";
@@ -21,7 +22,6 @@ import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
 import { getDb } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput, ValidationError } from "@/server/core/errors";
-import { emit } from "@/server/core/events";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { assertTenantScope, authorize, authorizeAny, runService } from "@/server/core/rbac";
@@ -212,7 +212,7 @@ const statusSchema = z.object({
 
 /**
  * Ubah status truk (US-M1-03 KP-2): Perbaikan/Nonaktif → rit Ditugaskan (belum Berangkat, hari ini & sesudahnya) pada
- * truk itu ditandai perlu dipindahkan, Dispatcher diberi tahu, event `truck.status_changed`.
+ * truk itu ditandai perlu dipindahkan, Dispatcher diberi tahu.
  */
 export async function setTruckStatus(ctx: ActorContext, truckId: string, input: z.input<typeof statusSchema>, opts: { tx?: Tx } = {}) {
   const data = parseInput(statusSchema, input, { reason: "Alasan" });
@@ -272,12 +272,6 @@ export async function setTruckStatus(ctx: ActorContext, truckId: string, input: 
       reason: data.reason,
       rule: "US-M1-03 KP-2",
     });
-    await emit(
-      tx,
-      "truck.status_changed",
-      { truckId, from: before.status, to: data.status, reason: data.reason, flaggedTripIds: flagged.map((f) => f.id) },
-      { ctx, tenantId: before.tenantId, objectType: "truck", objectId: truckId },
-    );
     return { truck: after!, flaggedTrips: flagged };
   });
 }

@@ -2,19 +2,18 @@
  * M1 — depot & toko (outlet), sumber air + meter, pool/garasi, karyawan (US-M1-04; FR-M1-03, FR-M1-04, PTB-34, BR-37).
  *
  * Semua entitas dinonaktifkan, bukan dihapus; semua perubahan berjejak. Tanggal keluar karyawan memancarkan
- * `employee.exited` (saat diisi → `phase: "scheduled"`, saat tercapai → `phase: "reached"` oleh job harian) — M10
- * menonaktifkan akun & mencabut sesi hari itu (BR-37).
+ * `employee.exited` saat diisi/diubah dan sekali lagi saat tercapai (job harian menonaktifkan karyawan) — M10
+ * menonaktifkan akun & mencabut sesi bila tanggal keluar ≤ hari ini (BR-37); job harian M10 menangani sisanya.
  */
 import "server-only";
 
-import { and, asc, count, eq, isNotNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNotNull, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import {
   attachments,
   customerAddresses,
   customers,
-  domainEvents,
   employees,
   outlets,
   poolLocations,
@@ -516,8 +515,8 @@ function normalizePhone(phone: string | null | undefined): string | null {
   return n;
 }
 
-async function emitEmployeeExited(tx: Tx, ctx: ActorContext, emp: EmployeeRow, exitDate: string, phase: "scheduled" | "reached"): Promise<void> {
-  await emit(tx, "employee.exited", { employeeId: emp.id, exitDate, tenantId: emp.tenantId, phase }, { ctx, tenantId: emp.tenantId, objectType: "employee", objectId: emp.id });
+async function emitEmployeeExited(tx: Tx, ctx: ActorContext, emp: EmployeeRow, exitDate: string): Promise<void> {
+  await emit(tx, "employee.exited", { employeeId: emp.id, exitDate, tenantId: emp.tenantId }, { ctx, tenantId: emp.tenantId, objectType: "employee", objectId: emp.id });
 }
 
 /** Lepas karyawan dari kru default truk (keluar/nonaktif) — berjejak (BR-37). */
@@ -567,7 +566,7 @@ async function handleExitDateSet(tx: Tx, ctx: ActorContext, emp: EmployeeRow, ex
   if (exitDate <= today) {
     await deactivateOnExit(tx, ctx, emp, exitDate);
   } else {
-    await emitEmployeeExited(tx, ctx, emp, exitDate, "scheduled");
+    await emitEmployeeExited(tx, ctx, emp, exitDate);
   }
 }
 
@@ -580,7 +579,7 @@ async function deactivateOnExit(tx: Tx, ctx: ActorContext, emp: EmployeeRow, exi
     await auditRecord(tx, { ctx, objectType: "employee", objectId: emp.id, action: "deactivate", before: { isActive: true }, after: { isActive: false, exitDate }, reason: "Tanggal keluar tercapai.", rule: "BR-37" });
   }
   await releaseDefaultCrew(tx, ctx, emp.id, `Karyawan keluar ${exitDate}.`);
-  await emitEmployeeExited(tx, ctx, emp, exitDate, "reached");
+  await emitEmployeeExited(tx, ctx, emp, exitDate);
 }
 
 /** Ubah karyawan termasuk tanggal masuk/keluar (tanggal keluar mencabut akses hari itu, BR-37). */
@@ -677,36 +676,20 @@ export async function listEmployees(ctx: ActorContext, opts: { tx?: Tx } = {}) {
 }
 
 /**
- * Job harian: karyawan yang tanggal keluarnya tercapai → nonaktif, dilepas dari kru default, dan `employee.exited`
- * `phase: "reached"` dipancarkan SEKALI per (karyawan, tanggal keluar) — M10 mencabut akses (BR-37).
+ * Job harian: karyawan AKTIF yang tanggal keluarnya tercapai → nonaktif, dilepas dari kru default, dan
+ * `employee.exited` dipancarkan (M10 mencabut akses, BR-37). Idempoten: karyawan yang sudah nonaktif dilewati
+ * (pengaktifan ulang setelah tanggal keluar ditolak `EXIT_REACHED`).
  */
 export async function processEmployeeExits(tx: Tx, now: Date, date: BusinessDate = toBusinessDate(now)): Promise<{ processed: number }> {
-  const due = await tx.select().from(employees).where(and(isNotNull(employees.exitDate), lte(employees.exitDate, date)));
-  let processed = 0;
+  const due = await tx
+    .select()
+    .from(employees)
+    .where(and(isNotNull(employees.exitDate), lte(employees.exitDate, date), eq(employees.isActive, true)));
   for (const emp of due) {
-    const emitted = await tx
-      .select({ id: domainEvents.id })
-      .from(domainEvents)
-      .where(
-        and(
-          eq(domainEvents.type, "employee.exited"),
-          eq(domainEvents.objectId, emp.id),
-          sql`${domainEvents.payload}->>'phase' = 'reached'`,
-          sql`${domainEvents.payload}->>'exitDate' = ${emp.exitDate}`,
-        ),
-      )
-      .limit(1);
-    if (emitted[0] && !emp.isActive) continue;
     const ctx = systemContext({ tenantId: emp.tenantId, now });
-    if (emitted[0]) {
-      // Event sudah pernah dipancarkan tetapi karyawan diaktifkan lagi secara tidak sah — nonaktifkan tanpa event baru.
-      await tx.update(employees).set({ isActive: false, deactivatedAt: now }).where(eq(employees.id, emp.id));
-      continue;
-    }
     await deactivateOnExit(tx, ctx, emp, emp.exitDate!);
-    processed++;
   }
-  return { processed };
+  return { processed: due.length };
 }
 
 /** Pilihan outlet & peran untuk formulir karyawan. */

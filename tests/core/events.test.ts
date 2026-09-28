@@ -25,6 +25,8 @@ const ARCHITECTURE_EVENTS = [
   "trip.corrected", "trip_payment.reversed", "trip_expense.reversed", "bank_deposit.reversed",
   "restitution.settlement_reversed", "consumable.receipt_reversed", "purchase_receipt.corrected", "invoice.written_off",
   "customer_advance.refunded", "discrepancy.reopened",
+  // Tambahan modul: karyawan keluar (M1 → M10, BR-37).
+  "employee.exited",
 ];
 
 const payload = {

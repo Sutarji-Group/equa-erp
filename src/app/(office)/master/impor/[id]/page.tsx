@@ -26,7 +26,7 @@ type Candidate = { source?: string; customerId?: string; code?: string; name?: s
 type Proposal = { action?: string; decision?: string; targetCustomerId?: string; targetCode?: string; targetName?: string; note?: string; reason?: string };
 
 const FILTERS = [
-  { value: "masalah", label: "Perlu tindakan" },
+  { value: "masalah", label: "Perlu tindakan / diputuskan" },
   { value: "semua", label: "Semua baris" },
 ] as const;
 
@@ -49,7 +49,8 @@ export default async function ImportBatchPage({ params, searchParams }: PageProp
   const canEdit = open && can(ctx, "m1.import.create");
   const canCommit = open && (def.pricing ? can(ctx, "m1.import.commit_pricing") : can(ctx, "m1.import.commit") || can(ctx, "m1.import.commit_pricing"));
   const blocking = batch.errorCount + batch.duplicateCount;
-  const visible = filter === "semua" ? rows : rows.filter((r) => r.status === "error" || r.status === "duplicate" || r.status === "excluded");
+  // "Perlu tindakan" = Salah, duplikat belum diputuskan, dikecualikan, dan duplikat yang sudah diputuskan (untuk ditinjau).
+  const visible = filter === "semua" ? rows : rows.filter((r) => r.status === "error" || r.status === "duplicate" || r.status === "excluded" || Boolean((r.mergeProposal as Proposal | null)?.decision));
   const keyColumns = def.columns.slice(0, 3);
 
   return (

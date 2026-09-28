@@ -23,7 +23,7 @@ import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
 import { getDb } from "@/server/core/db";
-import { DomainError, parseInput } from "@/server/core/errors";
+import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { emit } from "@/server/core/events";
 import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
@@ -221,9 +221,20 @@ export async function requestCreditTermsChange(ctx: ActorContext, customerId: st
   });
 }
 
+/** Pelanggan objek persetujuan (terkunci); `null` bila objek tidak ada (persetujuan generik tanpa objek M1). */
+async function loadCustomerForDecision(tx: Tx, customerId: string) {
+  try {
+    return await loadCustomer(tx, null, customerId, { forUpdate: true });
+  } catch (error) {
+    if (error instanceof NotFoundError) return null;
+    throw error;
+  }
+}
+
 /** Penerapan `credit_grant` disetujui (ctx = pemilik; tulis langsung + audit, 6.2a). */
 export async function applyCreditGrant(tx: Tx, ctx: ActorContext, request: approvals.ApprovalRow): Promise<Record<string, unknown>> {
-  const customer = await loadCustomer(tx, null, request.objectId, { forUpdate: true });
+  const customer = await loadCustomerForDecision(tx, request.objectId);
+  if (!customer) return { applied: false, note: "Pelanggan tidak ditemukan; tidak ada yang diterapkan." };
   const date = ctxBusinessDate(ctx);
   const terms = await defaultCreditTerms(tx, customer.segment, date);
   if (terms.cashOnly) throw new DomainError("HOUSEHOLD_CASH_ONLY", "Rumah tangga tidak dapat Tempo (BR-04).");
@@ -237,7 +248,8 @@ export async function applyCreditGrant(tx: Tx, ctx: ActorContext, request: appro
 
 /** Penerapan `credit_terms_change` disetujui. */
 export async function applyCreditTermsChange(tx: Tx, ctx: ActorContext, request: approvals.ApprovalRow): Promise<Record<string, unknown>> {
-  const customer = await loadCustomer(tx, null, request.objectId, { forUpdate: true });
+  const customer = await loadCustomerForDecision(tx, request.objectId);
+  if (!customer) return { applied: false, note: "Pelanggan tidak ditemukan; tidak ada yang diterapkan." };
   const payload = (request.payload ?? {}) as { creditLimit?: number; paymentTermDays?: number };
   if (typeof payload.creditLimit !== "number" || typeof payload.paymentTermDays !== "number") return { applied: false };
   const [after] = await tx

@@ -576,28 +576,13 @@ export interface DiscrepancyReopenedPayload {
   reason: string;
 }
 
-// --- M1 master data (tambahan agen M1) --------------------------------------------------------------------------------
-/**
- * Tanggal keluar karyawan diisi (`phase: "scheduled"`) dan saat tanggal itu tercapai (`phase: "reached"`, job harian M1)
- * — BR-37: akses dicabut hari itu (ditangani M10: nonaktifkan akun, cabut sesi, perangkat).
- */
+// --- Tambahan modul (M1 → M10): karyawan keluar (BR-37, US-M10-01 KP-5) ------------------------------------------------
+/** Tanggal keluar ditetapkan di master karyawan M1; M10 menonaktifkan akun pada hari itu. */
 export interface EmployeeExitedPayload {
   employeeId: string;
-  /** Tanggal keluar 'YYYY-MM-DD' (WIB). */
+  /** Tanggal keluar (tanggal bisnis WIB 'YYYY-MM-DD'). */
   exitDate: string;
   tenantId: string;
-  phase?: "scheduled" | "reached";
-}
-/**
- * Status truk berubah (US-M1-03 KP-2): Perbaikan/Nonaktif tidak menerima rit; rit Ditugaskan yang belum Berangkat
- * ditandai `trips.needs_reassignment` oleh M1 (daftar `flaggedTripIds`).
- */
-export interface TruckStatusChangedPayload {
-  truckId: string;
-  from: "active" | "maintenance" | "inactive";
-  to: "active" | "maintenance" | "inactive";
-  reason: string;
-  flaggedTripIds: string[];
 }
 
 /** Peta tipe event → payload. */
@@ -662,7 +647,6 @@ export interface DomainEventMap {
   "customer_advance.refunded": CustomerAdvanceRefundedPayload;
   "discrepancy.reopened": DiscrepancyReopenedPayload;
   "employee.exited": EmployeeExitedPayload;
-  "truck.status_changed": TruckStatusChangedPayload;
 }
 
 export type DomainEventType = keyof DomainEventMap;
@@ -729,7 +713,6 @@ export const DOMAIN_EVENT_LABELS: Record<DomainEventType, string> = {
   "customer_advance.refunded": "Uang muka dikembalikan",
   "discrepancy.reopened": "Selisih dibuka kembali",
   "employee.exited": "Karyawan keluar",
-  "truck.status_changed": "Status truk berubah",
 };
 
 export const DOMAIN_EVENT_TYPES = Object.keys(DOMAIN_EVENT_LABELS) as DomainEventType[];
