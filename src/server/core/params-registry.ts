@@ -348,6 +348,28 @@ export const PARAM_REGISTRY = {
       description: "Daftar alamat e-mail pemilik yang menerima ringkasan harian setelah tutup kas.",
     },
   }),
+  /** Aturan data master M1 yang ditandai [USULAN] di PRD tetapi bukan PAR Lampiran B (tambahan agen M1). */
+  "m1.master_rules": defineParam({
+    schema: z
+      .object({
+        /** US-M1-01 KP-6 [USULAN]: depot pihak ketiga "aktif" = ≥ 1 pesanan Selesai dalam N hari terakhir. */
+        store_partner_active_days: int(1),
+        /** US-M1-06 KP-5 (BRD 10.3): koordinat kosong dilengkapi dari GPS sopir dalam N hari pertama. */
+        coordinate_completion_days: int(1),
+        /** US-M1-01 KP-7: kemiripan nama minimal (0–100%) untuk kandidat duplikat nama + alamat. */
+        duplicate_name_min_similarity_pct: pct,
+      })
+      .strict(),
+    affectedRoles: ["dispatcher"],
+    fallback: { store_partner_active_days: 90, coordinate_completion_days: 30, duplicate_name_min_similarity_pct: 60 },
+    meta: {
+      name: "Aturan data master (mitra toko, kelengkapan koordinat, duplikat)",
+      unit: null,
+      reference: "US-M1-01 KP-6/KP-7, US-M1-06 KP-5",
+      description:
+        "Jendela aktif penanda mitra toko otomatis (hari), jendela pelengkapan koordinat data awal (hari), dan ambang kemiripan nama untuk peringatan duplikat pelanggan.",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

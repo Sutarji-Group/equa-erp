@@ -576,6 +576,15 @@ export interface DiscrepancyReopenedPayload {
   reason: string;
 }
 
+// --- Tambahan modul (M1 → M10): karyawan keluar (BR-37, US-M10-01 KP-5) ------------------------------------------------
+/** Tanggal keluar ditetapkan di master karyawan M1; M10 menonaktifkan akun pada hari itu. */
+export interface EmployeeExitedPayload {
+  employeeId: string;
+  /** Tanggal keluar (tanggal bisnis WIB 'YYYY-MM-DD'). */
+  exitDate: string;
+  tenantId: string;
+}
+
 /** Peta tipe event → payload. */
 export interface DomainEventMap {
   "trip.published": TripPublishedPayload;
@@ -637,6 +646,7 @@ export interface DomainEventMap {
   "invoice.written_off": InvoiceWrittenOffPayload;
   "customer_advance.refunded": CustomerAdvanceRefundedPayload;
   "discrepancy.reopened": DiscrepancyReopenedPayload;
+  "employee.exited": EmployeeExitedPayload;
 }
 
 export type DomainEventType = keyof DomainEventMap;
@@ -702,6 +712,7 @@ export const DOMAIN_EVENT_LABELS: Record<DomainEventType, string> = {
   "invoice.written_off": "Faktur dihapusbukukan",
   "customer_advance.refunded": "Uang muka dikembalikan",
   "discrepancy.reopened": "Selisih dibuka kembali",
+  "employee.exited": "Karyawan keluar",
 };
 
 export const DOMAIN_EVENT_TYPES = Object.keys(DOMAIN_EVENT_LABELS) as DomainEventType[];

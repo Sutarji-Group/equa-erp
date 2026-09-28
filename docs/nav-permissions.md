@@ -42,6 +42,7 @@ Usulan FUI untuk memudahkan penyusunan matriks; keputusan akhir di matriks RBAC 
 
 ```text
 m1.customer.read
+m1.data_signoff.read
 m1.employee.read
 m1.import.create
 m1.outlet.read
@@ -185,6 +186,7 @@ p3.support_request.read
 | Data master | `/master/pool` | Pool/garasi | `m1.pool_location.read` |  |
 | Data master | `/master/karyawan` | Karyawan | `m1.employee.read` |  |
 | Data master | `/master/impor` | Impor data awal | `m1.import.create` |  |
+| Data master | `/master/tanda-tangan` | Tanda tangan data awal | `m1.data_signoff.read` |  |
 | Kemitraan | `/kemitraan` | Mitra depot | `p3.partner.read` |  |
 | Kemitraan | `/kemitraan/pasokan` | Pasokan & neraca mitra | `p3.partner_supply.read` |  |
 | Kemitraan | `/kemitraan/langganan` | Tagihan langganan | `p3.subscription.read` |  |
