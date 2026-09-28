@@ -116,6 +116,8 @@ export const LABELS = {
     unmatched: "Belum dicocokkan",
     matched: "Cocok",
     not_found: "Tidak ditemukan",
+    // Tambahan M4: transaksi sumber dibalik (pembayaran rit/setor bank dikoreksi) sebelum dicocokkan.
+    cancelled: "Dibatalkan",
   },
   /** Status notifikasi. */
   notification_status: {
@@ -1247,6 +1249,38 @@ export const LABELS = {
     driver: "Sopir",
     substitute: "Kernet pengganti",
     readonly: "Baca saja",
+  },
+
+  // --- Tambahan modul M4 (Kas & Setoran) — hanya tambah ---
+  /** Keputusan pemilik atas selisih (US-M4-03 KP-2; pgEnum `discrepancy_decision`). */
+  discrepancy_decision: {
+    approved: "Disetujui",
+    rejected: "Ditolak",
+  },
+  /** Kategori pengeluaran kas kecil (US-M4-05 KP-2; teks bebas terstandar, bukan pgEnum). */
+  petty_cash_category: {
+    office_supplies: "Alat tulis & perlengkapan kantor",
+    consumption: "Konsumsi",
+    cleaning: "Kebersihan",
+    transport: "Transportasi & kurir",
+    minor_repair: "Perbaikan kecil",
+    utilities: "Listrik/air/pulsa",
+    other: "Lainnya",
+  },
+  /** Penghalang tutup kas (US-M4-06 KP-1). */
+  cash_close_blocker: {
+    driver_deposit: "Setoran sopir belum diterima",
+    shift_open: "Shift belum ditutup",
+    shift_deposit: "Setoran shift belum diterima",
+    trip_active: "Rit masih Berangkat/Tiba",
+    previous_day: "Hari sebelumnya belum ditutup",
+    exception_pending: "Pengecualian menunggu keputusan pemilik",
+  },
+  /** Status hitung kas kantor/kas kecil (tampilan). */
+  cash_count_result: {
+    match: "Cocok",
+    short: "Kurang",
+    over: "Lebih",
   },
 } as const satisfies Record<string, Record<string, string>>;
 
