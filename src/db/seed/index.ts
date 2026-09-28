@@ -25,6 +25,7 @@ import { seedDemoM5Receivables } from "./demo-m5-receivables";
 import { seedDemoM6Pos } from "./demo-m6-pos";
 import { seedDemoM7Store } from "./demo-m7-store";
 import { seedDemoM8Production } from "./demo-m8-production";
+import { seedDemoM9Reports } from "./demo-m9-reports";
 import { seedId } from "./ids";
 import { seedOrganization } from "./org";
 import { DEFAULT_FEATURE_FLAGS, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS, PARAMETER_EFFECTIVE_FROM } from "./parameters";
@@ -116,6 +117,8 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoM8Production(tx);
     // M12 (Armada/GPS) menyelaraskan jejak dengan rit demo M2/M3 di atas.
     await seedDemoM12Fleet(tx);
+    // M9 (Laporan & Dashboard): input KPI-10 & periode paralel; angka laporan dihitung dari demo modul di atas.
+    await seedDemoM9Reports(tx);
 
     const counts = await countRows(tx);
     return { parameters: paramRows.length, users: org.usersInserted, customers: cust.customers, counts };
