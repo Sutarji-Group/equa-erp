@@ -137,6 +137,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("store.substitute_note_pending", "Nota pengganti toko menunggu diterima", "normal", ["finance_admin"], "Periksa foto barang & keterangan; terima sebagai nota atau balik beralasan", "7.7.6, BR-28"),
   e("store.credit_offline_review", "Penjualan tempo toko dicatat saat offline", "high", ["finance_admin"], "Tinjau eksposur & batas kredit pelanggan; tagih bila melampaui", "US-M7-04 KP-4, PTB-42"),
   e("store.transfer_difference", "Selisih transfer internal toko → depot", "normal", ["finance_admin"], "Periksa selisih kirim–terima & alasannya", "US-M7-06 KP-1"),
+  // --- Tambahan modul M5 (Piutang & Penagihan) — hanya tambah ---
+  e("receivable.dispute_opened", "Faktur disengketakan pelanggan", "normal", ["owner"], "Putuskan: nota kredit atau sengketa ditolak (≤ PAR-45 hari)", "7.5.6, PAR-45"),
+  e("receivable.dispute_decided", "Sengketa faktur diputuskan pemilik", "info", ["finance_admin"], "Tindak lanjuti ke pelanggan", "7.5.6"),
+  e("credit.hold_released", "Status Ditahan dibuka", "normal", ["dispatcher", "finance_admin"], "Pesanan tempo dapat dibuat lagi", "BR-03, US-M5-03 KP-3"),
+  e("receivable.monthly_ready", "Faktur bulanan siap kirim", "normal", ["finance_admin"], "Kirim PDF faktur bulanan lewat WA/e-mail hari ini", "US-M5-06 KP-4, PAR-12"),
+  e("receivable.advance_review", "Kelebihan bayar menjadi uang muka pelanggan", "info", ["finance_admin"], "Tinjau: dialokasikan ke faktur berikutnya atau ajukan pengembalian", "US-M5-02 KP-3"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

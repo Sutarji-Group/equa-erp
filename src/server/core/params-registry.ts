@@ -524,6 +524,34 @@ export const PARAM_REGISTRY = {
         "Tanggal batas opname toko bulan lalu, jarak hari pengingat utang pemasok sebelum jatuh tempo, ambang menit tempo dianggap dicatat offline (PTB-42), persentase barang laris, dan jangka rata-rata penjualan untuk daftar pesan ulang.",
     },
   }),
+
+  // --- Tambahan modul M5 (Piutang & Penagihan) — hanya tambah ---
+  /** Angka aturan piutang yang disebut PRD 7.5 / PTB-18 / FR-M5-04 tanpa nomor PAR. */
+  "m5.receivable_rules": defineParam({
+    schema: z
+      .object({
+        /** PTB-18: faktur kurang bayar lapangan jatuh tempo H+N (bawaan H+0). */
+        underpayment_due_days: int(0),
+        /** FR-M5-04: batas atas kelompok umur lewat tempo pertama (1–N hari). */
+        aging_first_bucket_days: int(1),
+        /** FR-M5-04: batas atas kelompok umur lewat tempo kedua (… – N hari); di atasnya = kelompok terakhir. */
+        aging_second_bucket_days: int(1),
+        /** US-M5-04 KP-3: "akan Ditahan" = faktur yang akan melewati PAR-09 dalam N hari. */
+        hold_warning_days: int(0),
+        /** US-M5-04 KP-2: rentang bawaan kartu piutang (hari ke belakang). */
+        statement_default_days: int(1),
+      })
+      .strict(),
+    affectedRoles: ["finance_admin", "dispatcher"],
+    fallback: { underpayment_due_days: 0, aging_first_bucket_days: 7, aging_second_bucket_days: 30, hold_warning_days: 3, statement_default_days: 90 },
+    meta: {
+      name: "Aturan piutang (jatuh tempo kurang bayar, kelompok umur, peringatan Ditahan, kartu piutang)",
+      unit: null,
+      reference: "PTB-18, FR-M5-04, US-M5-04 KP-2/KP-3",
+      description:
+        "Jatuh tempo faktur kurang bayar lapangan (H+N), batas kelompok umur piutang (1–7 / 8–30 / > 30 hari), jendela hari \"akan Ditahan\" pada daftar tindakan harian, dan rentang bawaan kartu piutang.",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

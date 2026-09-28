@@ -222,6 +222,13 @@ export interface CollectionRecordedPayload {
   businessDate?: string;
   recordedByOffice?: boolean;
   lateSync?: boolean;
+  // --- Tambahan M5 (opsional, hanya tambah) ---
+  /**
+   * 7.5.6: pelunasan hasil reklasifikasi tunai rit (sopir mencatat tunai rit, padahal pelunasan) — `method: "internal"`,
+   * TANPA gerak kas (M4 tidak mencatat kas, M11 tidak menjurnal kas; piutang hanya pindah faktur).
+   */
+  reclassifiedFromTripPaymentId?: string | null;
+  notes?: string | null;
 }
 export interface TripExpenseRecordedPayload {
   tripExpenseId: string;
@@ -383,11 +390,26 @@ export interface InvoiceIssuedPayload {
   /** Lini pendapatan/piutang. */
   profitCenter?: ProfitCenter | null;
   outletId?: string | null;
+  // --- Tambahan M5 (opsional, hanya tambah) ---
+  number?: string;
+  issueDate?: string;
+  /** US-M5-07: saldo awal cut-over — TIDAK menghasilkan jurnal penjualan (neraca awal M11). */
+  isOpeningBalance?: boolean;
+  /** Piutang sementara "transfer belum diterima" (US-M4-04 KP-4): reklasifikasi, bukan pendapatan baru. */
+  pendingTransferId?: string | null;
+  /** Faktur bulanan: bulan layanan (YYYY-MM-01). */
+  periodMonth?: string | null;
+  /** Reklasifikasi tunai rit menjadi pelunasan (7.5.6): piutang pindah faktur, bukan pendapatan baru. */
+  reclassifiedFromTripPaymentId?: string | null;
 }
 export interface InvoicePaidPayload {
   invoiceId: string;
   customerId: string;
   amount: number;
+  // --- Tambahan M5 (opsional, hanya tambah) ---
+  number?: string;
+  kind?: InvoiceKind;
+  paidAt?: string;
 }
 export interface CreditNoteIssuedPayload {
   creditNoteId: string;
@@ -397,6 +419,19 @@ export interface CreditNoteIssuedPayload {
   reason: string;
   /** Lini asal (untuk jurnal pembalik pendapatan). */
   profitCenter?: ProfitCenter | null;
+  // --- Tambahan M5 (opsional, hanya tambah) ---
+  number?: string;
+  /**
+   * Tujuan nota kredit: `correction` / `dispute` / `store_return` / `pos_void` membalik pendapatan;
+   * `underpayment_conversion` (kurang bayar → tempo) dan `pending_transfer_resolved` (transfer ternyata diterima)
+   * hanya reklasifikasi piutang — TIDAK membalik pendapatan.
+   */
+  purpose?: "correction" | "dispute" | "store_return" | "pos_void" | "underpayment_conversion" | "pending_transfer_resolved" | "opening_adjustment";
+  posSaleId?: string | null;
+  storeReturnId?: string | null;
+  /** Bagian nota kredit yang melampaui sisa faktur → uang muka pelanggan. */
+  advanceAmount?: number;
+  approvalId?: string | null;
 }
 export interface PaymentReversedPayload {
   customerPaymentId: string;
@@ -404,6 +439,15 @@ export interface PaymentReversedPayload {
   customerId: string;
   amount: number;
   reason: string;
+  // --- Tambahan M5 (opsional, hanya tambah; payload mandiri PTB-47) ---
+  channel?: "driver" | "office" | "store" | "digital";
+  method?: PaymentMethod;
+  bankAccountId?: string | null;
+  depositId?: string | null;
+  incomingTransferId?: string | null;
+  profitCenter?: ProfitCenter | null;
+  approvalId?: string | null;
+  businessDate?: string;
 }
 export interface CreditStatusChangedPayload {
   customerId: string;
@@ -764,6 +808,10 @@ export interface InvoiceWrittenOffPayload {
   profitCenter?: ProfitCenter | null;
   approvalId?: string | null;
   reason: string;
+  // --- Tambahan M5 (opsional, hanya tambah) ---
+  /** Jurnal manual M11 yang menghapusbukukan (PTB-28) — M11 tidak menjurnal ulang event ini. */
+  journalId?: string | null;
+  number?: string;
 }
 export interface CustomerAdvanceRefundedPayload {
   customerAdvanceId: string;

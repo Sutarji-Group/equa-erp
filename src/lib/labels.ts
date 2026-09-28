@@ -345,6 +345,8 @@ export const LABELS = {
     otp: "Kode OTP",
     order_status: "Status pesanan",
     partner_report: "Laporan bulanan mitra",
+    // Tambahan M5 (hanya tambah): kirim faktur per rit/toko (US-M5-01 KP-5).
+    invoice: "Faktur",
   },
   /** Status pesan WhatsApp — tautan hanya mencatat "dibuka" (K21). */
   wa_message_status: {
@@ -1247,6 +1249,37 @@ export const LABELS = {
     driver: "Sopir",
     substitute: "Kernet pengganti",
     readonly: "Baca saja",
+  },
+
+  // --- Tambahan modul M5 (Piutang & Penagihan) — hanya tambah; daftar tampilan (bukan pgEnum) ---
+  /** Kelompok umur piutang (FR-M5-04). */
+  aging_bucket: {
+    not_due: "Belum jatuh tempo",
+    d1_7: "1–7 hari",
+    d8_30: "8–30 hari",
+    over_30: "> 30 hari",
+  },
+  /** Lini piutang (US-M5-04 KP-1; satu batas lintas lini PTB-25). */
+  receivable_line: {
+    truck: "Air truk",
+    store: "Toko",
+    partner: "Kemitraan",
+  },
+  /** Baris kartu piutang (US-M5-04 KP-2). */
+  statement_entry: {
+    opening: "Saldo sebelumnya",
+    invoice: "Faktur",
+    payment: "Pelunasan",
+    payment_reversal: "Pembalik pelunasan",
+    credit_note: "Nota kredit",
+    write_off: "Penghapusan piutang",
+    advance: "Uang muka",
+    advance_refund: "Pengembalian uang muka",
+  },
+  /** Keputusan sengketa faktur oleh pemilik (7.5.6). */
+  dispute_decision: {
+    credit_note: "Koreksi lewat nota kredit",
+    reject: "Sengketa ditolak",
   },
 } as const satisfies Record<string, Record<string, string>>;
 
