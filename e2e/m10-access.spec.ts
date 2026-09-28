@@ -77,7 +77,7 @@ test.describe("M10 — Pengguna, hak akses & jejak audit", () => {
     const card = page.locator("li", { hasText: "Satu orang lebih dari satu peran" }).filter({ hasText: "Membantu rekap tutup buku" }).first();
     await expect(card).toBeVisible();
     await card.getByRole("button", { name: "Setujui" }).click();
-    await expect(page.getByText(/disetujui/).first()).toBeVisible();
+    await expect(page.getByText(/Permintaan A-\d{2}-\d+ disetujui/)).toBeVisible();
 
     await page.goto("/akses/pengguna?q=dispatcher2");
     await expect(page.getByRole("cell", { name: /Akuntan/ })).toBeVisible();
@@ -108,7 +108,7 @@ test.describe("M10 — Pengguna, hak akses & jejak audit", () => {
     await page.goto("/akses/peran");
     await expect(page.getByRole("heading", { level: 1, name: "Peran & matriks" })).toBeVisible();
     await expect(page.getByTestId("matriks-peran")).toContainText("Menerima setoran & menghitung selisih");
-    await expect(page.getByRole("link", { name: /Excel/ })).toHaveAttribute("href", /core\.rbac_matrix\?format=xlsx/);
+    await expect(page.getByRole("link", { name: /Excel/ }).first()).toHaveAttribute("href", /core\.rbac_matrix\?format=xlsx/);
     const res = await page.request.get("/api/export/core.rbac_matrix?format=xlsx");
     expect(res.status()).toBe(200);
 
@@ -121,5 +121,35 @@ test.describe("M10 — Pengguna, hak akses & jejak audit", () => {
 
     await page.goto("/audit?tab=akses");
     await expect(page.getByTestId("tabel-log-akses")).toContainText("Login berhasil");
+  });
+
+  test("US-M10-06 KP-4 US-M10-07 KP-3 seluruh menu Akses & pengaturan terbuka untuk admin sistem (data pribadi, cadangan, helpdesk, rincian perangkat)", async ({ page }) => {
+    await login(page, "admin1");
+    const pages: [string, string][] = [
+      ["/akses", "Akses & pengaturan"],
+      ["/akses/pengguna", "Pengguna"],
+      ["/akses/peran", "Peran & matriks"],
+      ["/akses/perangkat", "Perangkat"],
+      ["/akses/sinkron", "Perangkat & sinkron"],
+      ["/akses/tinjauan", "Tinjauan hak akses"],
+      ["/akses/data-pribadi", "Data pribadi"],
+      ["/audit", "Jejak audit"],
+      ["/persetujuan", "Persetujuan"],
+      ["/pengaturan/parameter", "Parameter"],
+      ["/bantuan", "Bantuan"],
+    ];
+    for (const [href, heading] of pages) {
+      await page.goto(href);
+      await expect(page.getByRole("heading", { level: 1, name: heading, exact: true }), href).toBeVisible();
+    }
+    await page.goto("/akses/data-pribadi");
+    await expect(page.getByText("Uji pemulihan 12 bulan")).toBeVisible();
+    await expect(page.getByTestId("form-cadangan")).toBeVisible();
+    await page.goto("/bantuan");
+    await expect(page.getByText("Foto bukti kirim lama terkirim")).toBeVisible();
+    await page.goto("/akses/perangkat?q=HP-T4");
+    await page.getByRole("link", { name: "HP-T4" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: /HP-T4/ })).toBeVisible();
+    await expect(page.getByText("Riwayat pemakaian")).toBeVisible();
   });
 });

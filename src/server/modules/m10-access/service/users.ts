@@ -566,7 +566,7 @@ export async function deactivateInTx(
     .where(and(eq(devices.tenantId, ctx.tenantId), eq(devices.holderEmployeeId, employee.id), inArray(devices.status, ["registered", "active"])));
   const devicesBlocked: string[] = [];
   for (const d of held) {
-    await blockDevice(ctx, d.id, `Pemegang perangkat (${employee.fullName}) dinonaktifkan: ${reason}`, { tx });
+    await blockDevice(ctx, d.id, `Pemegang perangkat (${employee.fullName}) dinonaktifkan: ${reason}`.slice(0, 500), { tx });
     devicesBlocked.push(d.id);
   }
 
