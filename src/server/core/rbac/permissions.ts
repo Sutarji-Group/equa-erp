@@ -227,6 +227,14 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   p("m4.restitution.read", "Melihat ganti rugi karyawan", [O, FA], { cash: true }),
   p("m4.restitution.settle", "Mencatat pelunasan ganti rugi", [FA], { daily: true, cash: true, finance: true, ref: "US-M4-03 KP-3" }),
   p("m4.restitution.export", "Mengekspor rekap ganti rugi", [O, FA], { cash: true }),
+  // --- Tambahan modul M4 (hanya tambah) ---
+  p("m4.bank_account.update", "Mengelola rekening bank PT (tambah/nonaktifkan)", [FA], { cash: true, finance: true, ref: "US-M4-05 KP-1" }),
+  p("m4.bank_deposit.reverse", "Membalik setor ke bank yang keliru (beralasan; > PAR-21 persetujuan pemilik)", [FA], {
+    daily: true,
+    cash: true,
+    finance: true,
+    ref: "BR-38, US-M4-05",
+  }),
 
   // ===================================================================================================================
   // M5 — Piutang & penagihan

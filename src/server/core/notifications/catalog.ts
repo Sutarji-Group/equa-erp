@@ -137,6 +137,13 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("store.substitute_note_pending", "Nota pengganti toko menunggu diterima", "normal", ["finance_admin"], "Periksa foto barang & keterangan; terima sebagai nota atau balik beralasan", "7.7.6, BR-28"),
   e("store.credit_offline_review", "Penjualan tempo toko dicatat saat offline", "high", ["finance_admin"], "Tinjau eksposur & batas kredit pelanggan; tagih bila melampaui", "US-M7-04 KP-4, PTB-42"),
   e("store.transfer_difference", "Selisih transfer internal toko → depot", "normal", ["finance_admin"], "Periksa selisih kirim–terima & alasannya", "US-M7-06 KP-1"),
+  // --- Tambahan modul M4 (Kas & Setoran) — hanya tambah ---
+  e("deposit.result", "Hasil penerimaan setoran", "info", [], "Informasi; keterangan selisih dapat dikirim dari aplikasi", "US-M4-02 KP-8, US-M6-02 KP-5"),
+  e("discrepancy.returned", "Selisih ditolak pemilik — tindak lanjut Admin Keuangan", "high", ["finance_admin"], "Tindak lanjuti ke karyawan (ganti rugi bila aktif) lalu tandai Selesai", "US-M4-03 KP-2, US-M4-06 KP-6", 24),
+  e("restitution.recorded", "Ganti rugi karyawan tercatat", "normal", ["finance_admin"], "Masuk rekap bulanan penggajian; pelunasan dicatat Admin Keuangan", "BR-11, PTB-22, US-M4-03 KP-3"),
+  e("cash_close_exception.overdue", "Setoran tertunda lewat 24 jam menjadi selisih", "high", ["owner", "finance_admin"], "Terima setoran dan jelaskan selisihnya", "PTB-21, US-M4-06 KP-2", 24),
+  e("cash_day.closed", "Kas harian ditutup", "info", ["owner"], "Ringkasan H+0 terbit ≤ 30 menit (M9)", "US-M4-06 KP-4/KP-5, NFR-04"),
+  e("bank_statement.unmatched", "Mutasi bank tanpa pasangan", "normal", ["finance_admin"], "Tindak lanjuti mutasi yang tidak cocok dengan transfer tercatat", "US-M4-04 KP-3"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

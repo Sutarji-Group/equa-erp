@@ -524,6 +524,41 @@ export const PARAM_REGISTRY = {
         "Tanggal batas opname toko bulan lalu, jarak hari pengingat utang pemasok sebelum jatuh tempo, ambang menit tempo dianggap dicatat offline (PTB-42), persentase barang laris, dan jangka rata-rata penjualan untuk daftar pesan ulang.",
     },
   }),
+
+  // --- Tambahan modul M4 (Kas & Setoran) — hanya tambah ---
+  /** Angka aturan kas yang disebut PRD 7.4 tanpa nomor PAR. */
+  "m4.cash_rules": defineParam({
+    schema: z
+      .object({
+        /** KPI-03 / 6.2a: selisih belum Selesai lebih dari N jam ditonjolkan; setoran tertunda (PTB-21) wajib diterima ≤ N jam. */
+        discrepancy_follow_up_hours: int(1),
+        /** US-M4-03 KP-5: pemilik membuka kembali selisih di bawah ambang yang ditutup Admin Keuangan ≤ N hari. */
+        discrepancy_reopen_days: int(1),
+        /** US-M4-04 KP-3: usulan pasangan mutasi — tanggal ± N hari. */
+        statement_match_days: int(0),
+        /** US-M4-05 KP-2: rekonsiliasi fisik kas kecil setiap N hari (mingguan). */
+        petty_cash_count_days: int(1),
+        /** US-M4-03 KP-6 (BR-12): insentif nihil selisih — N bulan tanpa selisih. */
+        zero_discrepancy_months: int(1),
+      })
+      .strict(),
+    scopes: ["global", "tenant"],
+    affectedRoles: ["finance_admin"],
+    fallback: {
+      discrepancy_follow_up_hours: 24,
+      discrepancy_reopen_days: 7,
+      statement_match_days: 1,
+      petty_cash_count_days: 7,
+      zero_discrepancy_months: 3,
+    },
+    meta: {
+      name: "Aturan kas (tenggat tindak lanjut selisih, buka kembali, pencocokan mutasi, hitung kas kecil, nihil selisih)",
+      unit: null,
+      reference: "US-M4-03 KP-1/KP-5/KP-6, US-M4-04 KP-3, US-M4-05 KP-2, US-M4-06 KP-2, KPI-03",
+      description:
+        "Batas jam selisih dianggap lewat tindak lanjut (KPI-03) dan setoran tertunda harus diterima, batas hari pemilik membuka kembali selisih di bawah ambang, toleransi tanggal usulan pasangan mutasi bank, jarak hari rekonsiliasi fisik kas kecil, dan jumlah bulan nihil selisih untuk insentif.",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

@@ -69,6 +69,9 @@ export const restitutionSettlementMethodEnum = pgEnum(
   "restitution_settlement_method",
   enumValues("restitution_settlement_method"),
 );
+// --- Tambahan modul M4 (hanya tambah) ---
+/** Keputusan pemilik atas selisih (US-M4-03 KP-2). */
+export const discrepancyDecisionEnum = pgEnum("discrepancy_decision", enumValues("discrepancy_decision"));
 
 // =====================================================================================================================
 // Setoran & selisih
@@ -139,6 +142,14 @@ export const deposits = pgTable(
      * jumlahnya = tunai seharusnya − kas awal tetap − Σ setoran sebagian (`shifts.partial_deposit_total`).
      */
     isPartial: boolean("is_partial").notNull().default(false),
+    // --- Tambahan modul M4 (hanya tambah) ---
+    /**
+     * Tunai terlambat sinkron dari tanggal yang setorannya sudah Diajukan/Diterima (Bab 5.3): dibawa ke setoran ini
+     * (M3 `ensureRunningDeposit`) dan ditambahkan ke angka seharusnya saat diterima (US-M4-06 KP-7).
+     */
+    carryOverCash: money("carry_over_cash").notNull().default(0),
+    /** Rincian penerimaan M4: verifikasi pengeluaran, tunai terbawa, status sinkron, cara terima (US-M4-02). */
+    receiptSnapshot: jsonb("receipt_snapshot").$type<Record<string, unknown>>(),
   },
   (t) => [
     uniqueIndex("deposits_tenant_number_uq").on(t.tenantId, t.number),
@@ -198,6 +209,12 @@ export const discrepancies = pgTable(
     evidenceAttachmentId: attachmentRef("evidence_attachment_id"),
     ...timestamps(),
     createdBy: createdBy(),
+    // --- Tambahan modul M4 (hanya tambah) ---
+    /** Keputusan pemilik (Disetujui/Ditolak) — status bergerak ke Ditindaklanjuti/Selesai (US-M4-03 KP-2). */
+    decision: discrepancyDecisionEnum("decision"),
+    /** Catatan tindak lanjut Admin Keuangan saat selisih ditolak diselesaikan (US-M4-06 KP-6). */
+    followUpNote: text("follow_up_note"),
+    followedUpBy: userRef("followed_up_by"),
   },
   (t) => [
     index("discrepancies_status_idx").on(t.status, t.createdAt),
@@ -265,6 +282,13 @@ export const incomingTransfers = pgTable(
     notes: text("notes"),
     ...timestamps(),
     createdBy: createdBy(),
+    // --- Tambahan modul M4 (hanya tambah) ---
+    /** Pencatat di lapangan (sopir/operator/kasir) — kolom "transfer belum dicocokkan" per sumber (US-M4-01 KP-2). */
+    sourceUserId: userRef("source_user_id"),
+    truckId: uuid("truck_id").references((): AnyPgColumn => trucks.id),
+    /** Transaksi sumber dibalik sebelum dicocokkan (pembayaran rit dikoreksi, setor bank dibalik). */
+    cancelledAt: tstz("cancelled_at"),
+    cancelReason: text("cancel_reason"),
   },
   (t) => [
     foreignKey({

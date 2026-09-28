@@ -286,12 +286,36 @@ export interface DepositReceivedPayload {
   bankAccountId?: string | null;
   /** Diterima sebagian (setoran tertunda PTB-21). */
   isPartial?: boolean;
+  // --- Tambahan M4 (opsional, hanya tambah) ---
+  depositNumber?: string;
+  businessDate?: string;
+  shiftId?: string | null;
+  employeeId?: string | null;
+  /** Tunai seharusnya (tunai rit + pelunasan tunai / tunai shift − kas awal − setor sebagian). */
+  expectedCash?: number;
+  /** Pengeluaran rit dari kas di tangan yang diterima saat verifikasi (PTB-20). */
+  acceptedExpenses?: number;
+  /** Tunai terlambat sinkron dari hari sebelumnya yang dibawa ke setoran ini (Bab 5.3). */
+  carryOverCash?: number;
+  discrepancyId?: string | null;
+  discrepancyReason?: EnumValue<"discrepancy_reason"> | null;
 }
 export interface DepositClosedPayload {
   depositId: string;
   sourceType: DepositSourceType;
   sourceUserId?: string | null;
   closedBy: string;
+  // --- Tambahan M4 (opsional, hanya tambah) ---
+  depositNumber?: string;
+  businessDate?: string;
+  truckId?: string | null;
+  outletId?: string | null;
+  shiftId?: string | null;
+  employeeId?: string | null;
+  receivedAmount?: number | null;
+  discrepancyAmount?: number | null;
+  /** BR-10: setoran sopir Ditutup membuka kunci rit hari berikutnya. */
+  unlocksTrips?: boolean;
 }
 export interface DiscrepancyFormedPayload {
   discrepancyId: string;
@@ -302,6 +326,18 @@ export interface DiscrepancyFormedPayload {
   overThreshold: boolean;
   employeeId?: string | null;
   profitCenter?: ProfitCenter | null;
+  // --- Tambahan M4 (opsional, hanya tambah) ---
+  businessDate?: string;
+  userId?: string | null;
+  truckId?: string | null;
+  outletId?: string | null;
+  shiftId?: string | null;
+  reason?: EnumValue<"discrepancy_reason"> | null;
+  /** Sumber rinci (termasuk kas kecil & setoran tertunda). */
+  source?: EnumValue<"discrepancy_source">;
+  /** PAR-83 aktif & selisih kurang ≥ ambang → rit sopir terkunci sampai diputuskan (PTB-62). */
+  locksTrips?: boolean;
+  approvalId?: string | null;
 }
 export interface DiscrepancyDecidedPayload {
   discrepancyId: string;
@@ -311,6 +347,15 @@ export interface DiscrepancyDecidedPayload {
   /** Ganti rugi aktif (flag `cash.restitution_active`) saat keputusan. */
   restitutionActive: boolean;
   profitCenter?: ProfitCenter | null;
+  // --- Tambahan M4 (opsional, hanya tambah) ---
+  source?: EnumValue<"discrepancy_source">;
+  depositId?: string | null;
+  businessDate?: string;
+  outletId?: string | null;
+  truckId?: string | null;
+  restitutionId?: string | null;
+  decidedBy?: string | null;
+  reason?: string | null;
 }
 export interface TransferMatchedPayload {
   incomingTransferId: string;
@@ -328,6 +373,13 @@ export interface TransferNotFoundPayload {
   amount: number;
   sourceKind: TransferSourceKind;
   customerId?: string | null;
+  // --- Tambahan M4 (opsional, hanya tambah; M5 membentuk piutang sementara "transfer belum diterima") ---
+  sourceObjectType?: string | null;
+  sourceObjectId?: string | null;
+  transferDate?: string;
+  businessDate?: string;
+  tripId?: string | null;
+  outletId?: string | null;
 }
 export interface BankDepositRecordedPayload {
   bankDepositId: string;
@@ -342,6 +394,12 @@ export interface OfficeCashMovedPayload {
   direction: "in" | "out";
   kind: OfficeCashKind;
   amount: number;
+  // --- Tambahan M4 (opsional, hanya tambah) ---
+  businessDate?: string;
+  sourceObjectType?: string | null;
+  sourceObjectId?: string | null;
+  /** Mutasi pembalik (koreksi beralasan, BR-38). */
+  reversalOfId?: string | null;
 }
 export interface PettyCashRecordedPayload {
   pettyCashTransactionId: string;
@@ -351,24 +409,49 @@ export interface PettyCashRecordedPayload {
   profitCenter?: ProfitCenter | null;
   /** Akun beban khusus (bila berbeda dari pemetaan bawaan). */
   accountCode?: string | null;
+  // --- Tambahan M4 (opsional, hanya tambah) ---
+  businessDate?: string;
+  outletId?: string | null;
+  description?: string | null;
+  approvalId?: string | null;
 }
 export interface CashDayClosedPayload {
   cashDayId: string;
   closedBy: string;
   late: boolean;
   exceptionCount: number;
+  // --- Tambahan M4 (opsional, hanya tambah; M9 membangun ringkasan H+0 ≤ 30 menit, NFR-04) ---
+  businessDate?: string;
+  closedAt?: string;
+  closeStartedAt?: string | null;
+  lastDepositReceivedAt?: string | null;
+  /** KPI-02: menit dari setoran terakhir Diterima sampai kas ditutup. */
+  kpi02Minutes?: number | null;
+  officeCashSystem?: number;
+  officeCashPhysical?: number;
+  officeCashDifference?: number;
+  discrepancyCount?: number;
+  unmatchedTransferCount?: number;
+  lateSyncCount?: number;
 }
 export interface RestitutionRecordedPayload {
   restitutionId: string;
   employeeId: string;
   amount: number;
   discrepancyId: string;
+  // --- Tambahan M4 (opsional, hanya tambah) ---
+  businessDate?: string;
+  profitCenter?: ProfitCenter | null;
 }
 export interface RestitutionSettledPayload {
   restitutionId: string;
   employeeId: string;
   amount: number;
   method: "cash" | "payroll_deduction";
+  // --- Tambahan M4 (opsional, hanya tambah) ---
+  settlementId?: string;
+  settledOn?: string;
+  fullySettled?: boolean;
 }
 
 // --- M5 piutang ------------------------------------------------------------------------------------------------------
