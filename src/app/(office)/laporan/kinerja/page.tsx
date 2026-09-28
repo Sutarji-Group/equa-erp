@@ -104,6 +104,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                         <TableCell className="text-right">{d.partialVolume}</TableCell>
                         <TableCell className="text-right">
                           {d.deviationOver200m} / {d.deviationOver1km}
+                          {d.locationSourceInconsistent ? <span className="block text-xs text-muted-foreground">GPS tak konsisten {d.locationSourceInconsistent}×</span> : null}
                         </TableCell>
                         <TableCell className="max-w-48 text-xs whitespace-normal">
                           {d.br25Events} kejadian, {d.br25Explained} dijelaskan

@@ -44,6 +44,7 @@ describe("M9 — kinerja sopir/truk & depot/operator (US-M9-05)", () => {
       { truckId: truckA, businessDate: "2026-04-11", distanceM: 10_000 },
     ]);
     await t.db.insert(fleetEvents).values({ tenantId: EQUA_TENANT_ID, kind: "off_hours_trip", status: "explained", truckId: truckA, userId: A.user, businessDate: "2026-04-11", startedAt: at("2026-04-11", "21:00"), requiresExplanation: true, explanation: "Antar tandon darurat" });
+    await t.db.insert(fleetEvents).values({ tenantId: EQUA_TENANT_ID, kind: "location_source_inconsistent", status: "detected", truckId: truckA, userId: A.user, tripId: dev.id, businessDate: "2026-04-12", startedAt: at("2026-04-12", "11:00") });
     await makeTripExpense(t.db, { truckId: truckA, date: "2026-04-11", amount: 75_000 });
     // Setoran & selisih: A selisih pada 10 April, setor terlambat 11 April; B setoran bersih.
     for (const [who, date] of [[A, "2026-04-10"], [A, "2026-04-11"], [A, "2026-04-12"], [B, "2026-04-10"], [B, "2026-04-11"]] as const) {
@@ -75,6 +76,7 @@ describe("M9 — kinerja sopir/truk & depot/operator (US-M9-05)", () => {
       partialVolume: 1,
       deviationOver200m: 1,
       deviationOver1km: 1,
+      locationSourceInconsistent: 1,
       br25Events: 1,
       br25Explained: 1,
       br25Notes: ["Antar tandon darurat"],

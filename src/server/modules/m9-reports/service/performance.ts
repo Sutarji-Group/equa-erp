@@ -23,6 +23,7 @@ import * as params from "@/server/core/params";
 import { authorize } from "@/server/core/rbac";
 import * as m4 from "@/server/modules/m4-cash";
 import * as m6 from "@/server/modules/m6-pos";
+import * as m12 from "@/server/modules/m12-fleet";
 
 import { gallonsDaily, sumTrips, tripsDaily } from "../metrics";
 import { performanceSchema } from "../schemas";
@@ -43,6 +44,8 @@ export type DriverPerformance = {
   partialVolume: number;
   deviationOver200m: number;
   deviationOver1km: number;
+  /** Pola penyimpangan lokasi M12 (kejadian lokasi Selesai/GPS tak konsisten per sopir) — US-M12-04, B-44. */
+  locationSourceInconsistent: number;
   br25Events: number;
   br25Explained: number;
   br25Notes: string[];
@@ -174,6 +177,7 @@ export async function computePerformance(tx: Tx, ctx: ActorContext, month: strin
       partialVolume: 0,
       deviationOver200m: 0,
       deviationOver1km: 0,
+      locationSourceInconsistent: 0,
       br25Events: 0,
       br25Explained: 0,
       br25Notes: [],
@@ -262,6 +266,13 @@ export async function computePerformance(tx: Tx, ctx: ActorContext, month: strin
       .where(and(eq(tripExpenses.tenantId, tenantId), eq(tripExpenses.status, "accepted"), inArray(tripExpenses.driverUserId, userIds), gte(tripExpenses.businessDate, from), lte(tripExpenses.businessDate, to)))
       .groupBy(tripExpenses.driverUserId);
     for (const e of exp) for (const d of drivers.values()) if (d.userId === e.userId) d.tripExpenses = n(e.total);
+  }
+  // Pola penyimpangan lokasi (M12, B-44) — pelaku tanpa izin kejadian armada: kolom tetap 0.
+  try {
+    const patterns = await m12.locationDeviationPatterns(ctx, { from, to }, { tx });
+    for (const d of drivers.values()) d.locationSourceInconsistent = patterns.byDriver.find((p) => p.key === d.userId)?.inconsistent ?? 0;
+  } catch {
+    // tanpa izin m12.fleet_event.read
   }
   // Selisih setoran & setoran terlambat (M4).
   const discs = await tx
