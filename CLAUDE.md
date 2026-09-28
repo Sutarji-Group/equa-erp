@@ -52,3 +52,20 @@ Lihat `docs/DECISIONS.md` D-06. `pnpm typecheck && pnpm lint && pnpm test` harus
 - Uji DB: `useTestDb({ seed?: boolean })` atau `createTestDb()` dari `tests/helpers/db.ts` (PGlite dari snapshot cache,
   ±1 detik). Data seed: ID deterministik `seedId(kunci)` + pembantu `userIdByUsername`, `outletId`, `truckId`,
   `customerId`, `productId`, … dari `@/db/seed`.
+
+## Catatan teknis platform inti (F3a)
+- Semua di `src/server/core/` (`server-only`). Impor per berkas: `@/server/core/{db,context,errors,numbering,params,flags,audit,access-log,events,storage,jobs,wa,maps,ledger,actor}`,
+  `@/server/core/rbac` (authorize, lingkup, `sod`), `@/server/core/approvals`, `@/server/core/notifications`, `@/server/core/export`.
+- Pola layanan: `await authorize(ctx, "m2.order.create")` SEBELUM transaksi → `parseInput(schema, input, labels)` →
+  `runService(ctx, opts, async (tx) => { sod.assert…; tulis; await audit.record(tx, …); await emit(tx, …) })`.
+  Fungsi yang boleh dipanggil dari transaksi modul lain menerima `opts?: { tx?: Tx }` (PGlite = satu koneksi: di dalam
+  transaksi JANGAN memakai `getDb()`). Penolakan (`ForbiddenError`) dicatat ke `access_logs` otomatis.
+- Registrasi modul: isi `src/server/modules/<modul>/{events,approvals,sync,jobs,reports}.ts` — daftarkan HANYA di dalam
+  fungsi `register*()` (bukan top-level). `ensureBootstrapped()` menjalankannya sekali per proses (dipanggil `emit`,
+  approvals, jobs, export, `getActorContext`).
+- Katalog bersama (hanya tambah): izin `rbac/permissions.ts` (kolom `roles` = matriks), event `events.types.ts`,
+  persetujuan `approvals/registry.ts`, notifikasi `notifications/catalog.ts`, parameter `params-registry.ts`, flag
+  `flags.ts` (`FLAG_REGISTRY`), jenis nomor `numbering.ts` (`DOC_TYPES`).
+- Uji: `tests/helpers/context.ts` (`testContext`, `seededContext("pemilik")`), `tests/helpers/factories.ts`
+  (`createTestUser(db, { roles, scope })`). Aktor route handler: `getActorContext(request)` — resolver dipasang F3c lewat
+  `setActorResolver` (sampai itu `null` → 401).

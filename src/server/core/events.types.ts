@@ -1,0 +1,561 @@
+/**
+ * Katalog event domain (docs/ARCHITECTURE.md §8) dengan payload bertipe. Nama event WAJIB sama dengan katalog.
+ *
+ * BERKAS BERSAMA — modul MENAMBAH event baru dengan menambah entri di `DomainEventMap` + `DOMAIN_EVENT_LABELS`
+ * (jangan ubah/rename yang ada). Kolom payload tambahan yang opsional boleh ditambahkan (append) bila perlu.
+ *
+ * Konvensi payload: ID berupa UUID string; uang = integer rupiah; volume = integer liter; waktu = ISO string (UTC);
+ * tanggal bisnis = 'YYYY-MM-DD' (juga tersedia di envelope `DomainEvent.businessDate`). Pusat laba (`profitCenter`)
+ * diisi bila modul sumber mengetahuinya (dipakai M11 untuk aturan `from_source`).
+ */
+import type {
+  CreditStatus,
+  DepositSourceType,
+  FleetEventKind,
+  InvoiceKind,
+  OutletKind,
+  PaymentMethod,
+  ProfitCenter,
+  TripFailReason,
+} from "@/lib/labels";
+
+// --- M2/M3 rit -------------------------------------------------------------------------------------------------------
+export interface TripPublishedPayload {
+  scheduleId: string;
+  truckId: string;
+  tripIds: string[];
+  /** Nomor revisi jadwal (0 = terbit pertama). */
+  revision: number;
+}
+export interface TripDepartedPayload {
+  tripId: string;
+  orderId: string;
+  truckId: string;
+  driverUserId: string | null;
+  departedAt: string;
+  lat?: number | null;
+  lng?: number | null;
+}
+export interface TripArrivedPayload {
+  tripId: string;
+  orderId: string;
+  truckId: string;
+  arrivedAt: string;
+  distanceToAddressM?: number | null;
+}
+export interface TripCompletedPayload {
+  tripId: string;
+  orderId: string;
+  customerId: string;
+  truckId: string;
+  driverUserId: string | null;
+  /** Rit internal pasokan depot (PTB-01): tanpa pembayaran; `destinationOutletId` terisi. */
+  isInternal: boolean;
+  destinationOutletId?: string | null;
+  volumeL: number;
+  /** Harga rit dari pesanan (rupiah). */
+  price: number;
+  paymentMethod: PaymentMethod;
+  cashReceived: number;
+  transferAmount: number;
+  creditAmount: number;
+  /** Kurang bayar lapangan (PTB-18) → faktur jatuh tempo H+0. */
+  underpaymentAmount: number;
+  completedAt: string;
+  locationDeviationM?: number | null;
+  recordedByOffice: boolean;
+  lateSync: boolean;
+}
+export interface TripFailedPayload {
+  tripId: string;
+  orderId: string;
+  customerId: string;
+  truckId: string;
+  reason: TripFailReason;
+  /** Jumlah rit gagal berturut untuk pelanggan (BR-24). */
+  consecutiveFailures: number;
+}
+export interface TripPaymentRecordedPayload {
+  tripPaymentId: string;
+  tripId: string;
+  customerId: string;
+  method: PaymentMethod;
+  amount: number;
+  driverUserId: string | null;
+}
+export interface CollectionRecordedPayload {
+  customerPaymentId: string;
+  customerId: string;
+  amount: number;
+  /** Kanal pelunasan: sopir, kantor, kasir toko, transfer, pembayaran digital. */
+  channel: "driver" | "office" | "store" | "transfer" | "digital";
+  method: PaymentMethod;
+  allocations: { invoiceId: string; amount: number }[];
+  /** Kelebihan bayar menjadi uang muka. */
+  advanceAmount: number;
+  driverUserId?: string | null;
+  outletId?: string | null;
+}
+export interface TripExpenseRecordedPayload {
+  tripExpenseId: string;
+  tripId?: string | null;
+  truckId: string;
+  kind: string;
+  amount: number;
+  fundingSource: "cash_on_hand" | "personal";
+}
+export interface ExpenseVerifiedPayload {
+  tripExpenseId: string;
+  truckId: string;
+  kind: string;
+  amount: number;
+  fundingSource: "cash_on_hand" | "personal";
+  accepted: boolean;
+  depositId?: string | null;
+}
+
+// --- M4 kas ----------------------------------------------------------------------------------------------------------
+export interface DepositSubmittedPayload {
+  depositId: string;
+  sourceType: DepositSourceType;
+  sourceUserId?: string | null;
+  truckId?: string | null;
+  outletId?: string | null;
+  expectedAmount: number;
+}
+export interface DepositReceivedPayload {
+  depositId: string;
+  sourceType: DepositSourceType;
+  sourceUserId?: string | null;
+  truckId?: string | null;
+  outletId?: string | null;
+  expectedAmount: number;
+  receivedAmount: number;
+  /** Diterima − seharusnya (negatif = kurang). */
+  discrepancyAmount: number;
+  receivedBy: string;
+  profitCenter?: ProfitCenter | null;
+  late: boolean;
+}
+export interface DepositClosedPayload {
+  depositId: string;
+  sourceType: DepositSourceType;
+  sourceUserId?: string | null;
+  closedBy: string;
+}
+export interface DiscrepancyFormedPayload {
+  discrepancyId: string;
+  depositId?: string | null;
+  sourceType: DepositSourceType | "office_cash" | "stock";
+  /** Bertanda (negatif = kurang). */
+  amount: number;
+  overThreshold: boolean;
+  employeeId?: string | null;
+  profitCenter?: ProfitCenter | null;
+}
+export interface DiscrepancyDecidedPayload {
+  discrepancyId: string;
+  decision: "approved" | "rejected";
+  amount: number;
+  employeeId?: string | null;
+  /** Ganti rugi aktif (flag `cash.restitution_active`) saat keputusan. */
+  restitutionActive: boolean;
+  profitCenter?: ProfitCenter | null;
+}
+export interface TransferMatchedPayload {
+  incomingTransferId: string;
+  amount: number;
+  sourceKind: string;
+  bankAccountId?: string | null;
+  matchedAt: string;
+}
+export interface TransferNotFoundPayload {
+  incomingTransferId: string;
+  amount: number;
+  sourceKind: string;
+  customerId?: string | null;
+}
+export interface BankDepositRecordedPayload {
+  bankDepositId: string;
+  amount: number;
+  bankAccountId: string;
+  /** Asal uang: kas kantor, setoran outlet, setoran sopir (PTB-23). */
+  sourceType: "office" | "outlet" | "driver";
+  outletId?: string | null;
+}
+export interface OfficeCashMovedPayload {
+  movementId: string;
+  direction: "in" | "out";
+  kind: string;
+  amount: number;
+}
+export interface PettyCashRecordedPayload {
+  pettyCashTransactionId: string;
+  kind: "topup" | "expense" | "adjustment";
+  amount: number;
+  category?: string | null;
+  profitCenter?: ProfitCenter | null;
+  /** Akun beban khusus (bila berbeda dari pemetaan bawaan). */
+  accountCode?: string | null;
+}
+export interface CashDayClosedPayload {
+  cashDayId: string;
+  closedBy: string;
+  late: boolean;
+  exceptionCount: number;
+}
+export interface RestitutionRecordedPayload {
+  restitutionId: string;
+  employeeId: string;
+  amount: number;
+  discrepancyId: string;
+}
+export interface RestitutionSettledPayload {
+  restitutionId: string;
+  employeeId: string;
+  amount: number;
+  method: "cash" | "payroll_deduction";
+}
+
+// --- M5 piutang ------------------------------------------------------------------------------------------------------
+export interface InvoiceIssuedPayload {
+  invoiceId: string;
+  customerId: string;
+  kind: InvoiceKind;
+  amount: number;
+  dueDate: string;
+  tripId?: string | null;
+  posSaleId?: string | null;
+}
+export interface InvoicePaidPayload {
+  invoiceId: string;
+  customerId: string;
+  amount: number;
+}
+export interface CreditNoteIssuedPayload {
+  creditNoteId: string;
+  invoiceId?: string | null;
+  customerId: string;
+  amount: number;
+  reason: string;
+  /** Lini asal (untuk jurnal pembalik pendapatan). */
+  profitCenter?: ProfitCenter | null;
+}
+export interface PaymentReversedPayload {
+  customerPaymentId: string;
+  reversalId: string;
+  customerId: string;
+  amount: number;
+  reason: string;
+}
+export interface CreditStatusChangedPayload {
+  customerId: string;
+  from: CreditStatus;
+  to: CreditStatus;
+  reason: string;
+  automatic: boolean;
+  rule?: string | null;
+}
+
+// --- M6/M7 POS & stok ------------------------------------------------------------------------------------------------
+export interface ShiftOpenedPayload {
+  shiftId: string;
+  outletId: string;
+  operatorUserId: string | null;
+  openingCash: number;
+}
+export interface ShiftClosedPayload {
+  shiftId: string;
+  outletId: string;
+  operatorUserId: string | null;
+  salesTotal: number;
+  expectedCash: number;
+  countedCash: number;
+  cashDiscrepancy: number;
+  qrisAmount: number;
+}
+export interface PosSaleLinePayload {
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+export interface PosSaleRecordedPayload {
+  posSaleId: string;
+  outletId: string;
+  outletKind: OutletKind;
+  shiftId: string;
+  method: PaymentMethod;
+  total: number;
+  discount: number;
+  /** HPP rata-rata bergerak (toko). */
+  cogs?: number | null;
+  customerId?: string | null;
+  lines: PosSaleLinePayload[];
+}
+export interface PosSaleVoidedPayload {
+  posSaleId: string;
+  outletId: string;
+  outletKind: OutletKind;
+  shiftId: string;
+  method: PaymentMethod;
+  total: number;
+  cogs?: number | null;
+  reason: string;
+}
+export interface ConsumableUsagePostedPayload {
+  shiftId: string;
+  outletId: string;
+  totalValue: number;
+  lines: { productId: string; quantity: number; value: number }[];
+}
+export interface ConsumableReceivedPayload {
+  receiptId: string;
+  outletId: string;
+  source: string;
+  supplierId?: string | null;
+  totalValue: number;
+}
+export interface StockAdjustedPayload {
+  stockCountId: string;
+  outletId: string;
+  outletKind: OutletKind;
+  /** Nilai penyesuaian bertanda (negatif = berkurang). */
+  totalValue: number;
+  lines: { productId: string; quantityDelta: number; value: number }[];
+}
+export interface InternalTransferSentPayload {
+  internalTransferId: string;
+  fromOutletId: string;
+  toOutletId: string;
+  /** Nilai harga mitra (PTB-37). */
+  totalValue: number;
+  /** HPP toko. */
+  totalCost: number;
+}
+export interface InternalTransferReceivedPayload {
+  internalTransferId: string;
+  toOutletId: string;
+  totalValue: number;
+  hasDiscrepancy: boolean;
+}
+export interface PurchaseReceiptRecordedPayload {
+  purchaseReceiptId: string;
+  supplierId: string;
+  outletId: string;
+  total: number;
+  paymentMode: "credit" | "cash" | "transfer";
+  isOpeningPayable: boolean;
+}
+export interface SupplierPaymentRecordedPayload {
+  supplierPaymentId: string;
+  supplierId: string;
+  amount: number;
+  method: "cash" | "transfer";
+}
+
+// --- M8 produksi -----------------------------------------------------------------------------------------------------
+export interface WaterSupplyConfirmedPayload {
+  waterSupplyReceiptId: string;
+  tripId?: string | null;
+  outletId: string;
+  volumeSentL: number;
+  volumeReceivedL: number;
+  /** Nilai transfer internal = volume diterima × harga transfer (BR-33, K20). */
+  transferValue: number;
+  confirmedByOperator: boolean;
+}
+export interface MeterReadingRecordedPayload {
+  meterReadingId: string;
+  waterSourceId: string;
+  meterId: string;
+  phase: "morning" | "evening";
+  readingL: number;
+}
+export interface TruckFillRecordedPayload {
+  truckFillId: string;
+  waterSourceId: string;
+  truckId: string;
+  tripId?: string | null;
+  volumeL: number;
+  isSupply: boolean;
+}
+export interface WaterBalanceComputedPayload {
+  waterBalanceId: string;
+  waterSourceId: string;
+  productionL: number;
+  fillsL: number;
+  lossL: number;
+  lossPct: number;
+  overThreshold: boolean;
+}
+
+// --- M10/M11/M12/P2/P3 -----------------------------------------------------------------------------------------------
+export interface ApprovalDecidedPayload {
+  approvalId: string;
+  number: string;
+  type: string;
+  decision: "approved" | "rejected" | "expired";
+  objectType: string;
+  objectId: string;
+  amount?: number | null;
+  requesterUserId: string;
+  decidedBy?: string | null;
+  delegationId?: string | null;
+}
+export interface FleetEventDetectedPayload {
+  fleetEventId: string;
+  truckId: string;
+  kind: FleetEventKind;
+  startedAt: string;
+  tripId?: string | null;
+}
+export interface PeriodClosedPayload {
+  periodId: string;
+  period: string;
+  closedBy: string;
+  late: boolean;
+}
+export interface PeriodLockedPayload {
+  periodId: string;
+  period: string;
+  lockedBy: string;
+}
+export interface AssetDepreciatedPayload {
+  depreciationEntryId: string;
+  fixedAssetId: string;
+  category: string;
+  periodId: string;
+  amount: number;
+  profitCenter: ProfitCenter;
+  outletId?: string | null;
+}
+export interface PartnerSubscriptionInvoicedPayload {
+  invoiceId: string;
+  partnerContractId: string;
+  partnerTenantId: string;
+  amount: number;
+  outletCount: number;
+}
+export interface DigitalPaymentSucceededPayload {
+  paymentIntentId: string;
+  customerId: string;
+  amount: number;
+  gatewayFee: number;
+  method: string;
+  invoiceIds: string[];
+}
+
+/** Peta tipe event → payload. */
+export interface DomainEventMap {
+  "trip.published": TripPublishedPayload;
+  "trip.departed": TripDepartedPayload;
+  "trip.arrived": TripArrivedPayload;
+  "trip.completed": TripCompletedPayload;
+  "trip.failed": TripFailedPayload;
+  "trip.payment_recorded": TripPaymentRecordedPayload;
+  "collection.recorded": CollectionRecordedPayload;
+  "trip.expense_recorded": TripExpenseRecordedPayload;
+  "expense.verified": ExpenseVerifiedPayload;
+  "deposit.submitted": DepositSubmittedPayload;
+  "deposit.received": DepositReceivedPayload;
+  "deposit.closed": DepositClosedPayload;
+  "discrepancy.formed": DiscrepancyFormedPayload;
+  "discrepancy.decided": DiscrepancyDecidedPayload;
+  "transfer.matched": TransferMatchedPayload;
+  "transfer.not_found": TransferNotFoundPayload;
+  "bank_deposit.recorded": BankDepositRecordedPayload;
+  "office_cash.moved": OfficeCashMovedPayload;
+  "petty_cash.recorded": PettyCashRecordedPayload;
+  "cash_day.closed": CashDayClosedPayload;
+  "invoice.issued": InvoiceIssuedPayload;
+  "invoice.paid": InvoicePaidPayload;
+  "credit_note.issued": CreditNoteIssuedPayload;
+  "payment.reversed": PaymentReversedPayload;
+  "credit_status.changed": CreditStatusChangedPayload;
+  "shift.opened": ShiftOpenedPayload;
+  "shift.closed": ShiftClosedPayload;
+  "pos_sale.recorded": PosSaleRecordedPayload;
+  "pos_sale.voided": PosSaleVoidedPayload;
+  "consumable.usage_posted": ConsumableUsagePostedPayload;
+  "consumable.received": ConsumableReceivedPayload;
+  "stock.adjusted": StockAdjustedPayload;
+  "internal_transfer.sent": InternalTransferSentPayload;
+  "internal_transfer.received": InternalTransferReceivedPayload;
+  "purchase_receipt.recorded": PurchaseReceiptRecordedPayload;
+  "supplier_payment.recorded": SupplierPaymentRecordedPayload;
+  "water_supply.confirmed": WaterSupplyConfirmedPayload;
+  "meter.reading_recorded": MeterReadingRecordedPayload;
+  "truck_fill.recorded": TruckFillRecordedPayload;
+  "water_balance.computed": WaterBalanceComputedPayload;
+  "restitution.recorded": RestitutionRecordedPayload;
+  "restitution.settled": RestitutionSettledPayload;
+  "approval.decided": ApprovalDecidedPayload;
+  "fleet_event.detected": FleetEventDetectedPayload;
+  "period.closed": PeriodClosedPayload;
+  "period.locked": PeriodLockedPayload;
+  "asset.depreciated": AssetDepreciatedPayload;
+  "partner.subscription_invoiced": PartnerSubscriptionInvoicedPayload;
+  "digital_payment.succeeded": DigitalPaymentSucceededPayload;
+}
+
+export type DomainEventType = keyof DomainEventMap;
+
+/** Label Indonesia tiap event (juga daftar runtime tipe yang sah). */
+export const DOMAIN_EVENT_LABELS: Record<DomainEventType, string> = {
+  "trip.published": "Jadwal rit terbit",
+  "trip.departed": "Rit berangkat",
+  "trip.arrived": "Rit tiba",
+  "trip.completed": "Rit selesai",
+  "trip.failed": "Rit gagal",
+  "trip.payment_recorded": "Pembayaran rit tercatat",
+  "collection.recorded": "Pelunasan tercatat",
+  "trip.expense_recorded": "Pengeluaran rit tercatat",
+  "expense.verified": "Pengeluaran rit diverifikasi",
+  "deposit.submitted": "Setoran diajukan",
+  "deposit.received": "Setoran diterima",
+  "deposit.closed": "Setoran ditutup",
+  "discrepancy.formed": "Selisih terbentuk",
+  "discrepancy.decided": "Selisih diputuskan",
+  "transfer.matched": "Transfer dicocokkan",
+  "transfer.not_found": "Transfer tidak ditemukan",
+  "bank_deposit.recorded": "Setor ke bank tercatat",
+  "office_cash.moved": "Mutasi kas kantor",
+  "petty_cash.recorded": "Kas kecil tercatat",
+  "cash_day.closed": "Kas harian ditutup",
+  "invoice.issued": "Faktur terbit",
+  "invoice.paid": "Faktur lunas",
+  "credit_note.issued": "Nota kredit terbit",
+  "payment.reversed": "Pelunasan dibalik",
+  "credit_status.changed": "Status kredit berubah",
+  "shift.opened": "Shift dibuka",
+  "shift.closed": "Shift ditutup",
+  "pos_sale.recorded": "Transaksi POS tercatat",
+  "pos_sale.voided": "Transaksi POS di-void",
+  "consumable.usage_posted": "Pemakaian bahan diposting",
+  "consumable.received": "Bahan habis pakai diterima",
+  "stock.adjusted": "Stok disesuaikan",
+  "internal_transfer.sent": "Transfer internal dikirim",
+  "internal_transfer.received": "Transfer internal diterima",
+  "purchase_receipt.recorded": "Nota pembelian tercatat",
+  "supplier_payment.recorded": "Pembayaran pemasok tercatat",
+  "water_supply.confirmed": "Pasokan air dikonfirmasi",
+  "meter.reading_recorded": "Angka meter tercatat",
+  "truck_fill.recorded": "Pengisian truk tercatat",
+  "water_balance.computed": "Neraca air dihitung",
+  "restitution.recorded": "Ganti rugi tercatat",
+  "restitution.settled": "Ganti rugi dilunasi",
+  "approval.decided": "Persetujuan diputuskan",
+  "fleet_event.detected": "Kejadian armada terdeteksi",
+  "period.closed": "Periode ditutup",
+  "period.locked": "Periode dikunci",
+  "asset.depreciated": "Aset disusutkan",
+  "partner.subscription_invoiced": "Langganan mitra ditagih",
+  "digital_payment.succeeded": "Pembayaran digital berhasil",
+};
+
+export const DOMAIN_EVENT_TYPES = Object.keys(DOMAIN_EVENT_LABELS) as DomainEventType[];
+
+export function isDomainEventType(value: string): value is DomainEventType {
+  return Object.prototype.hasOwnProperty.call(DOMAIN_EVENT_LABELS, value);
+}
