@@ -468,6 +468,20 @@ export const APPROVAL_TYPES: readonly ApprovalTypeDef[] = [
     objectType: "partner_sanction",
     ref: "US-P3-07",
   }),
+  // --- Tambahan modul M7 (hanya tambah) ---
+  T({
+    type: "store_credit_sale",
+    label: "Penjualan tempo toko di luar kontrol kredit",
+    requesterRoles: ["store_cashier"],
+    approverRole: "owner",
+    thresholdNote: "Mitra toko berstatus Tunai/Ditahan atau eksposur lintas lini > batas kredit (BR-04, BR-06; US-M2-05 KP-3 berlaku sama)",
+    deadline: { kind: "explicit", description: "Saat transaksi (sampai akhir shift)" },
+    onExpire: "expire",
+    expireNote: "Dianggap ditolak di akhir shift; transaksi tidak berlaku",
+    severity: "high",
+    objectType: "pos_sale",
+    ref: "US-M7-04 KP-1",
+  }),
 ];
 
 const BY_TYPE = new Map<string, ApprovalTypeDef>(APPROVAL_TYPES.map((def) => [def.type, def]));

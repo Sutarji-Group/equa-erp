@@ -57,7 +57,8 @@ export function applyPosCommand(data: PosReference, type: string, payload: unkno
     }
     case M6_COMMANDS.saleCreate: {
       const p = payload as RecordSalePayload;
-      const total = p.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
+      // Tambahan M7: diskon per transaksi & status menunggu persetujuan pemilik.
+      const total = p.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) - (p.discountAmount ?? 0);
       const sale: PosSaleRef = {
         id: p.saleId,
         number: null,
@@ -68,7 +69,7 @@ export function applyPosCommand(data: PosReference, type: string, payload: unkno
         cashReceived: p.paymentMethod === "cash" ? (p.cashReceived ?? total) : null,
         changeAmount: p.paymentMethod === "cash" ? (p.cashReceived ?? total) - total : null,
         qrisReference: p.qrisReference ?? null,
-        status: "valid",
+        status: p.requestApproval ? "pending_approval" : "valid",
         voidReason: null,
         priceMismatch: false,
         isReversal: false,

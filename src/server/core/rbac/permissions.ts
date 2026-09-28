@@ -505,6 +505,15 @@ export const PERMISSIONS: readonly PermissionDef[] = [
     cash: true,
     ref: "US-M3-04, US-M3-05, US-M3-07, US-M3-08",
   }),
+
+  // ===================================================================================================================
+  // Tambahan modul M7 (Penjualan Toko & Stok) — hanya tambah
+  // ===================================================================================================================
+  p("m7.report.read", "Melihat laporan toko (diskon, transfer internal, pembelian mitra, riwayat opname)", [O, FA, AC], {
+    ref: "US-M7-01 KP-3, US-M7-05 KP-5, US-M7-06 KP-3, US-M7-07 KP-2",
+  }),
+  p("m7.supplier.deactivate", "Menonaktifkan/mengaktifkan kembali pemasok", [FA], { ref: "7.7.3" }),
+  p("m7.supplier_payment.reverse", "Membalik pembayaran pemasok yang keliru (beralasan)", [FA], { finance: true, cash: true, ref: "BR-38, US-M7-08 KP-2" }),
 ];
 
 const BY_KEY = new Map<string, PermissionDef>(PERMISSIONS.map((perm) => [perm.key, perm]));

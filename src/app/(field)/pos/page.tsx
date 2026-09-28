@@ -1,8 +1,12 @@
 "use client";
 
-import { PosApp } from "@/components/m6-pos/pos-app";
+import { PosEntry } from "@/components/m7-store/pos-entry";
 
-/** Beranda POS depot (M6; kerangka POS juga dipakai toko M7): shift, penjualan, void, pasokan air, stok, riwayat. */
+/**
+ * POS depot & toko (satu aplikasi, PRD 7.6/7.7): mode dipilih dari jenis outlet perangkat — depot memakai layar M6,
+ * toko memakai layar M7 (harga mitra/umum, tempo mitra, diskon, terima barang, opname, pesan ulang, transfer, usulan)
+ * di atas kerangka POS yang sama (shift, void, setoran, sinkron offline).
+ */
 export default function PosPage() {
-  return <PosApp />;
+  return <PosEntry />;
 }

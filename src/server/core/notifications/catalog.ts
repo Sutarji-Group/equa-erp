@@ -133,6 +133,10 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("deposit.depositor_note", "Keterangan sopir atas selisih setoran", "normal", ["finance_admin"], "Masukkan ke alur selisih (M4)", "US-M3-07 KP-4"),
   e("deposit.reopened", "Setoran sopir dibuka kembali", "info", [], "Lanjutkan rit lalu tekan \"Setor\" lagi", "US-M3-07 KP-2"),
   e("field_credit.decided", "Permintaan tempo di lapangan diputuskan", "info", ["finance_admin"], "Tempo disetujui setelah rit dicatat kurang bayar → konversi ke tempo setelah pemeriksaan batas", "PTB-19, US-M3-04 KP-4"),
+  // --- Tambahan modul M7 (Penjualan Toko & Stok) — hanya tambah ---
+  e("store.substitute_note_pending", "Nota pengganti toko menunggu diterima", "normal", ["finance_admin"], "Periksa foto barang & keterangan; terima sebagai nota atau balik beralasan", "7.7.6, BR-28"),
+  e("store.credit_offline_review", "Penjualan tempo toko dicatat saat offline", "high", ["finance_admin"], "Tinjau eksposur & batas kredit pelanggan; tagih bila melampaui", "US-M7-04 KP-4, PTB-42"),
+  e("store.transfer_difference", "Selisih transfer internal toko → depot", "normal", ["finance_admin"], "Periksa selisih kirim–terima & alasannya", "US-M7-06 KP-1"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

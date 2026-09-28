@@ -395,6 +395,8 @@ export const LABELS = {
     partner_prospect: "Persetujuan calon mitra",
     partner_contract: "Kontrak mitra",
     partner_sanction: "Sanksi mitra",
+    // --- Tambahan modul M7 (hanya tambah) ---
+    store_credit_sale: "Penjualan tempo toko di luar kontrol kredit",
   },
 
   // --- M1 Master data ---

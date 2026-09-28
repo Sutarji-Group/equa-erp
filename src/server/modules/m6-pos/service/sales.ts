@@ -67,7 +67,8 @@ export const recordSaleSchema = z
     localNumber: z.string().trim().min(5).max(60),
     deviceSeq: z.number().int().min(1),
     lines: z.array(saleLineSchema).min(1, { error: "Transaksi tanpa barang tidak dapat disimpan." }).max(50),
-    paymentMethod: z.enum(["cash", "qris"]),
+    /** Tunai & QRIS statis; `credit` (tempo mitra) hanya bila kebijakan outlet menerimanya (toko M7). */
+    paymentMethod: z.enum(["cash", "qris", "credit"]),
     /** Tunai: uang diterima (bawaan = pas). */
     cashReceived: zRupiahNonNegative.nullable().optional(),
     qrisReference: z.string().trim().max(64).nullable().optional(),
@@ -76,6 +77,14 @@ export const recordSaleSchema = z
     replacesSaleId: z.uuid().nullable().optional(),
     /** Disiapkan untuk Tahap 2 / toko (FR-M6-08 C): depot selalu kosong. */
     customerId: z.uuid().nullable().optional(),
+    // --- Tambahan M7 (toko): hanya bila kebijakan outlet mengizinkan (depot menolak) ---
+    /** Diskon per transaksi (rupiah bulat, BR-17). */
+    discountAmount: zRupiahNonNegative.optional(),
+    discountReason: z.string().trim().max(300).nullable().optional(),
+    /** Perangkat meminta persetujuan pemilik bila aturan menolak (diskon > PAR-14, tempo di luar kontrol kredit). */
+    requestApproval: z.boolean().optional(),
+    /** PTB-42: tempo dicatat saat perangkat offline (eksposur sinkron terakhir). */
+    creditOffline: z.boolean().optional(),
   })
   .strict();
 
@@ -114,13 +123,21 @@ export async function recordSale(ctx: ActorContext, input: RecordSaleInput, meta
   const conflicts: string[] = [];
   const shiftClosed = shift.status !== "open";
   if (shiftClosed) conflicts.push("Shift sudah ditutup saat transaksi ini tersinkron (perangkat lain); transaksi tetap dicatat dan ditinjau Admin Keuangan.");
+  const methods: readonly string[] = policy.paymentMethods ?? ["cash", "qris"];
+  if (!methods.includes(input.paymentMethod)) {
+    throw new DomainError("PAYMENT_METHOD_UNSUPPORTED", `Cara bayar ${label("payment_method", input.paymentMethod).toLowerCase()} tidak tersedia di POS ${policy.label.toLowerCase()}.`);
+  }
+  const discountAmount = input.discountAmount ?? 0;
+  if (discountAmount > 0 && !policy.allowsDiscount) throw new DomainError("DISCOUNT_NOT_ALLOWED", `Diskon tidak tersedia di POS ${policy.label.toLowerCase()}.`);
 
   // --- Barang & harga master (BR-15). Harga perangkat dipakai; beda → ditandai (US-M6-06 KP-4).
   const productIds = [...new Set(input.lines.map((l) => l.productId))];
   const prodRows = await tx.select().from(products).where(inArray(products.id, productIds));
   const byId = new Map(prodRows.map((p) => [p.id, p]));
   let priceMismatch = false;
-  const priceKind = policy.priceKind({ customerId: input.customerId ?? null });
+  const priceKind = policy.resolvePriceKind
+    ? await policy.resolvePriceKind({ tx, outlet, customerId: input.customerId ?? null })
+    : policy.priceKind({ customerId: input.customerId ?? null });
   const lineValues: { productId: string; quantity: number; unitPrice: number; lineTotal: number; productPriceId: string | null; gallonSizeL: number | null }[] = [];
   for (const l of input.lines) {
     const p = byId.get(l.productId);
@@ -137,18 +154,22 @@ export async function recordSale(ctx: ActorContext, input: RecordSaleInput, meta
     }
     lineValues.push({ productId: p.id, quantity: l.quantity, unitPrice: l.unitPrice, lineTotal: l.quantity * l.unitPrice, productPriceId, gallonSizeL: p.gallonSizeL });
   }
-  const total = lineValues.reduce((s, l) => s + l.lineTotal, 0);
+  const subtotal = lineValues.reduce((s, l) => s + l.lineTotal, 0);
+  if (discountAmount > subtotal) throw new DomainError("DISCOUNT_TOO_LARGE", `Diskon ${formatRupiah(discountAmount)} melebihi total belanja ${formatRupiah(subtotal)}.`);
+  const total = subtotal - discountAmount;
   const customerId = policy.acceptsCustomer ? (input.customerId ?? null) : null;
-  await policy.validateSale?.({ tx, ctx, outlet, shift, lines: lineValues, customerId });
+  const decision = (await policy.validateSale?.({ tx, ctx, outlet, shift, lines: lineValues, customerId, input, subtotal, discountAmount, total, meta })) ?? {};
+  const pending = decision.status === "pending_approval";
+  if (decision.conflict) conflicts.push(decision.conflict);
 
-  // --- Cara bayar (US-M6-01 KP-2): tunai (uang diterima → kembalian) atau QRIS statis (+ referensi).
+  // --- Cara bayar (US-M6-01 KP-2): tunai (uang diterima → kembalian), QRIS statis (+ referensi), tempo mitra (toko).
   let cashReceived: number | null = null;
   let changeAmount: number | null = null;
   if (input.paymentMethod === "cash") {
     cashReceived = input.cashReceived ?? total;
     if (cashReceived < total) throw new DomainError("CASH_INSUFFICIENT", `Uang diterima ${formatRupiah(cashReceived)} kurang dari total ${formatRupiah(total)}.`);
     changeAmount = cashReceived - total;
-  } else if (!outlet.qrisEnabled) {
+  } else if (input.paymentMethod === "qris" && !outlet.qrisEnabled) {
     conflicts.push("QRIS tidak aktif di outlet ini menurut pengaturan terbaru; transaksi tetap dicatat.");
   }
 
@@ -174,16 +195,19 @@ export async function recordSale(ctx: ActorContext, input: RecordSaleInput, meta
       priceKind,
       businessDate: meta.businessDate,
       soldAt: meta.deviceTime,
-      subtotal: total,
-      discountAmount: 0,
+      subtotal,
+      discountPercent: discountAmount > 0 ? Math.round((discountAmount / subtotal) * 10_000) / 100 : null,
+      discountAmount,
+      discountReason: discountAmount > 0 ? (input.discountReason ?? null) : null,
       total,
       paymentMethod: input.paymentMethod,
       cashReceived,
       changeAmount,
       qrisReference: input.paymentMethod === "qris" ? (input.qrisReference ?? null) : null,
-      status: "valid",
+      status: pending ? "pending_approval" : "valid",
       replacesSaleId,
       priceMismatch,
+      creditOffline: decision.creditOffline ?? false,
       receiptPrinted: input.receiptPrinted ?? false,
       createdBy: ctx.userId,
       ...meta.fieldValues,
@@ -208,13 +232,6 @@ export async function recordSale(ctx: ActorContext, input: RecordSaleInput, meta
     )
     .returning();
 
-  await policy.afterSaleRecorded?.({ tx, ctx, outlet, shift, sale: sale!, lines: lineValues, shiftClosed });
-
-  let cashAlert = false;
-  if (input.paymentMethod === "cash" && !shiftClosed) {
-    cashAlert = (await checkCashLimit(tx, ctx, outlet, shift.id, meta.businessDate)).alerted;
-  }
-
   await auditRecord(tx, {
     ctx,
     objectType: "pos_sale",
@@ -223,35 +240,130 @@ export async function recordSale(ctx: ActorContext, input: RecordSaleInput, meta
     after: {
       number,
       localNumber: input.localNumber,
+      subtotal,
+      discountAmount,
       total,
       paymentMethod: input.paymentMethod,
+      status: sale!.status,
       lines: lineValues.map((l) => ({ productId: l.productId, quantity: l.quantity, unitPrice: l.unitPrice })),
       priceMismatch,
     },
+    reason: discountAmount > 0 ? (input.discountReason ?? null) : null,
     businessDate: meta.businessDate,
   });
+  if (pending) {
+    // Menunggu persetujuan (M7): tidak dihitung, stok & kas tidak berubah, tanpa `pos_sale.recorded` sampai disetujui.
+    await policy.afterSalePending?.({ tx, ctx, outlet, shift, sale: sale!, lines: lineValues, decision });
+    return { sale: sale!, lines, conflict: conflicts.length ? conflicts.join(" ") : null, priceMismatch, cashAlert: false };
+  }
+  const cashAlert = await applySaleEffects(tx, ctx, { outlet, policy, shift, sale: sale!, lineValues, shiftClosed });
+  return { sale: sale!, lines, conflict: conflicts.length ? conflicts.join(" ") : null, priceMismatch, cashAlert };
+}
+
+/** Efek transaksi yang BERLAKU: kait kebijakan (stok toko, dll.), batas kas (BR-08), event `pos_sale.recorded`. */
+async function applySaleEffects(
+  tx: Tx,
+  ctx: ActorContext,
+  input: {
+    outlet: OutletRow;
+    policy: PosKindPolicy;
+    shift: ShiftRow;
+    sale: PosSaleRow;
+    lineValues: { productId: string; quantity: number; unitPrice: number; lineTotal: number; gallonSizeL: number | null }[];
+    shiftClosed: boolean;
+  },
+): Promise<boolean> {
+  const { outlet, policy, shift, sale, lineValues, shiftClosed } = input;
+  const extra = (await policy.afterSaleRecorded?.({ tx, ctx, outlet, shift, sale, lines: lineValues, shiftClosed })) ?? {};
+  let cashAlert = false;
+  if (sale.paymentMethod === "cash" && !shiftClosed) {
+    cashAlert = (await checkCashLimit(tx, ctx, outlet, shift.id, sale.businessDate)).alerted;
+  }
   await emit(
     tx,
     "pos_sale.recorded",
     {
-      posSaleId: sale!.id,
+      posSaleId: sale.id,
       outletId: outlet.id,
       outletKind: outlet.kind,
       shiftId: shift.id,
-      method: input.paymentMethod,
-      total,
-      discount: 0,
-      customerId,
+      method: sale.paymentMethod,
+      total: sale.total,
+      discount: sale.discountAmount,
+      customerId: sale.customerId,
       lines: lineValues.map((l) => ({ productId: l.productId, quantity: l.quantity, unitPrice: l.unitPrice, lineTotal: l.lineTotal })),
-      number,
-      businessDate: meta.businessDate,
-      priceMismatch,
+      number: sale.number,
+      businessDate: sale.businessDate,
+      priceMismatch: sale.priceMismatch,
       afterShiftClosed: shiftClosed,
-      qrisReference: sale!.qrisReference,
+      qrisReference: sale.qrisReference,
+      ...extra.payload,
     },
-    { ctx, objectType: "pos_sale", objectId: sale!.id, businessDate: meta.businessDate },
+    { ctx, objectType: "pos_sale", objectId: sale.id, businessDate: sale.businessDate },
   );
-  return { sale: sale!, lines, conflict: conflicts.length ? conflicts.join(" ") : null, priceMismatch, cashAlert };
+  return cashAlert;
+}
+
+// =====================================================================================================================
+// Transaksi menunggu persetujuan (tambahan M7: diskon > PAR-14, tempo di luar kontrol kredit)
+// =====================================================================================================================
+
+/**
+ * Persetujuan pemilik diterima → transaksi `pending_approval` menjadi Sah dan efeknya berlaku (kait kebijakan, kas,
+ * `pos_sale.recorded`). Dipanggil handler persetujuan modul pemilik kebijakan (ctx = penyetuju/sistem).
+ */
+export async function completePendingSale(
+  tx: Tx,
+  ctx: ActorContext,
+  saleId: string,
+  opts: { approvalId?: string | null; reason?: string | null } = {},
+): Promise<PosSaleRow | null> {
+  const sale = await loadSale(tx, saleId, { forUpdate: true });
+  if (!sale || sale.status !== "pending_approval") return null;
+  const outlet = await loadOutlet(tx, sale.outletId);
+  const shift = (await loadShift(tx, sale.shiftId))!;
+  const policy = posKindPolicy(outlet.kind);
+  const [updated] = await tx.update(posSales).set({ status: "valid", updatedAt: new Date() }).where(eq(posSales.id, sale.id)).returning();
+  const lines = await tx.select().from(posSaleLines).where(eq(posSaleLines.posSaleId, sale.id));
+  await auditRecord(tx, {
+    ctx,
+    objectType: "pos_sale",
+    objectId: sale.id,
+    action: "approve_pending",
+    before: { status: "pending_approval" },
+    after: { status: "valid", approvalId: opts.approvalId ?? null },
+    reason: opts.reason ?? null,
+    rule: "6.2a",
+  });
+  await applySaleEffects(tx, ctx, {
+    outlet,
+    policy,
+    shift,
+    sale: updated!,
+    lineValues: lines
+      .sort((a, b) => a.lineNo - b.lineNo)
+      .map((l) => ({ productId: l.productId, quantity: l.quantity, unitPrice: l.unitPrice, lineTotal: l.lineTotal, gallonSizeL: l.gallonSizeL })),
+    shiftClosed: shift.status !== "open",
+  });
+  return updated!;
+}
+
+/** Ditolak / lewat tenggat / shift ditutup → transaksi `pending_approval` menjadi Ditolak (tidak dihitung). */
+export async function rejectPendingSale(tx: Tx, ctx: ActorContext, saleId: string, opts: { reason: string; action?: string }): Promise<PosSaleRow | null> {
+  const sale = await loadSale(tx, saleId, { forUpdate: true });
+  if (!sale || sale.status !== "pending_approval") return null;
+  const [updated] = await tx.update(posSales).set({ status: "rejected", updatedAt: new Date() }).where(eq(posSales.id, sale.id)).returning();
+  await auditRecord(tx, {
+    ctx,
+    objectType: "pos_sale",
+    objectId: sale.id,
+    action: opts.action ?? "reject_pending",
+    before: { status: "pending_approval" },
+    after: { status: "rejected" },
+    reason: opts.reason,
+    rule: "6.2a",
+  });
+  return updated!;
 }
 
 // =====================================================================================================================

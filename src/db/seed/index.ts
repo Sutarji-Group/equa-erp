@@ -20,6 +20,7 @@ import { seedDemoM10Access } from "./demo-m10-access";
 import { seedDemoM2Orders } from "./demo-m2-orders";
 import { seedDemoM3Driver } from "./demo-m3-driver";
 import { seedDemoM6Pos } from "./demo-m6-pos";
+import { seedDemoM7Store } from "./demo-m7-store";
 import { seedId } from "./ids";
 import { seedOrganization } from "./org";
 import { DEFAULT_FEATURE_FLAGS, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS, PARAMETER_EFFECTIVE_FROM } from "./parameters";
@@ -103,6 +104,7 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoM2Orders(tx);
     await seedDemoM6Pos(tx);
     await seedDemoM3Driver(tx);
+    await seedDemoM7Store(tx);
 
     const counts = await countRows(tx);
     return { parameters: paramRows.length, users: org.usersInserted, customers: cust.customers, counts };
