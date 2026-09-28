@@ -52,6 +52,8 @@ export type ProdWorld = {
   customer: CustomerFixture;
   /** Rit TERBIT hari dunia untuk truk (urutan rencana `routeOrder`). */
   addTrip: (opts?: { truckId?: string; routeOrder?: number; isInternal?: boolean; destinationOutletId?: string; customer?: CustomerFixture; date?: string }) => Promise<{ id: string; number: string; orderId: string }>;
+  /** Unggah satu lampiran perangkat untuk perintah `commandId` dengan jam uji `now` (bukan jam dinding). */
+  upload: (kind: string, opts: { commandId: string; capturedAt: Date; now: Date; bytes?: Buffer; contentType?: string; actor?: FieldLoginResult }) => Promise<{ attachmentId: string; sha256: string }>;
   /** Kirim satu perintah m8.* (lampiran diunggah dulu untuk perintah itu). */
   send: (type: string, payload: unknown, opts?: SignedCommandOptions & { attach?: Attach[]; at?: Date; now?: Date; actor?: FieldLoginResult }) => Promise<PushResult>;
   /** Pembacaan meter + foto. */
@@ -115,6 +117,20 @@ export async function productionWorld(db: Db, opts: { date?: string; capacityL?:
     return { id: trip.id, number: trip.number, orderId: order.id };
   };
 
+  const upload: ProdWorld["upload"] = async (kind, u) => {
+    // Unggah dengan jam uji (bukan jam dinding) agar sesi PIN dunia uji tetap berlaku untuk tanggal lampau.
+    const bytes = u.bytes ?? JPEG;
+    const form = new FormData();
+    form.set("file", new Blob([new Uint8Array(bytes)], { type: u.contentType ?? "image/jpeg" }), "berkas");
+    form.set("attachmentId", newId());
+    form.set("userId", (u.actor ?? op).user.id);
+    form.set("kind", kind);
+    form.set("capturedAt", u.capturedAt.toISOString());
+    form.set("commandId", u.commandId);
+    const up = await processUpload(await hp.auth({ now: u.now }), form);
+    return { attachmentId: up.attachmentId, sha256: sha256Hex(bytes) };
+  };
+
   const send: ProdWorld["send"] = async (type, payload, o = {}) => {
     const actor = o.actor ?? op;
     const id = o.id ?? newId();
@@ -123,19 +139,9 @@ export async function productionWorld(db: Db, opts: { date?: string; capacityL?:
     const attachmentIds: string[] = [];
     const attachmentHashes: string[] = [];
     for (const a of o.attach ?? []) {
-      // Unggah dengan jam uji (bukan jam dinding) agar sesi PIN dunia uji tetap berlaku untuk tanggal lampau.
-      const attachmentId = newId();
-      const bytes = a.bytes ?? JPEG;
-      const form = new FormData();
-      form.set("file", new Blob([new Uint8Array(bytes)], { type: a.contentType ?? "image/jpeg" }), "berkas");
-      form.set("attachmentId", attachmentId);
-      form.set("userId", actor.user.id);
-      form.set("kind", a.kind);
-      form.set("capturedAt", deviceTime.toISOString());
-      form.set("commandId", id);
-      const up = await processUpload(await hp.auth({ now }), form);
+      const up = await upload(a.kind, { commandId: id, capturedAt: deviceTime, now, bytes: a.bytes, contentType: a.contentType, actor });
       attachmentIds.push(up.attachmentId);
-      attachmentHashes.push(sha256Hex(bytes));
+      attachmentHashes.push(up.sha256);
     }
     const res = await hp.push(
       [hp.command(actor, type, payload, { ...o, id, deviceTime, attachmentIds: o.attachmentIds ?? attachmentIds, attachmentHashes: o.attachmentHashes ?? attachmentHashes })],
@@ -193,6 +199,7 @@ export async function productionWorld(db: Db, opts: { date?: string; capacityL?:
     truck,
     customer,
     addTrip,
+    upload,
     send,
     reading,
     fill,

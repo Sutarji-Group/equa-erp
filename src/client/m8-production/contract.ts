@@ -108,6 +108,8 @@ export type M8MeterRef = {
   initialReadingL: number;
   /** Pembacaan terakhir yang berlaku — angka baru tidak boleh lebih kecil (kecuali putaran tercatat). */
   last: { businessDate: string; phase: MeterPhase; readingL: number; readAt: string } | null;
+  /** Angka berlaku terakhir SEBELUM hari ini (atau angka awal cut-over) — batas bawah pembacaan pagi. */
+  previousDayL: number;
   today: { morning: M8ReadingRef | null; evening: M8ReadingRef | null };
   /** Putaran meter yang dicatat admin & belum dipakai: angka lebih kecil dari sebelumnya diterima (KP-2). */
   rollover: { rolloverAtL: number; businessDate: string } | null;
@@ -287,6 +289,20 @@ export function meterReadingProblem(
     return `Angka pagi tidak boleh lebih besar dari angka malam yang sudah tercatat (${input.nextL.toLocaleString("id-ID")} L).`;
   }
   return null;
+}
+
+/**
+ * Batas angka meter per fase di perangkat (cermin server `previousReading`/`nextReading`): pagi ≥ angka terakhir
+ * sebelum hari ini dan ≤ angka malam hari ini (bila sudah ada); malam ≥ angka pagi hari ini (atau angka sebelum hari ini).
+ */
+export function readingLimits(meter: Pick<M8MeterRef, "previousDayL" | "today">, phase: MeterPhase): { previousL: number; nextL: number | null } {
+  if (phase === "morning") return { previousL: meter.previousDayL, nextL: meter.today.evening?.readingL ?? null };
+  return { previousL: meter.today.morning?.readingL ?? meter.previousDayL, nextL: null };
+}
+
+/** Status kirim per data di layar (NFR-08): masih di antrean ponsel atau sudah diterima server. */
+export function itemSyncText(local: boolean | undefined): string {
+  return local ? "Tersimpan di ponsel" : "Terkirim";
 }
 
 /** Truk yang tampil pertama di layar pengisian: dijadwalkan di sumber ini, lalu kode truk. */

@@ -38,7 +38,7 @@ import { inSourceScope } from "@/server/core/rbac";
 import { m8Rules } from "./common";
 import { dayKey, fillTotalsByDay } from "./fill-totals";
 import { truckPlansForDay } from "./fills";
-import { liveReadings, metersForDate } from "./production";
+import { liveReadings, metersForDate, previousReading } from "./production";
 import { actionOwnerCandidates, qualityForSource } from "./quality";
 
 async function lastChange(tx: Tx, sourceId: string, tenantId: string, date: BusinessDate): Promise<number> {
@@ -138,12 +138,14 @@ export async function buildProductionToday(tx: Tx, ctx: ActorContext, device: Pi
       return x ? { id: x.id, readingL: x.readingL, readAt: x.readAt.toISOString(), status: x.status, lateReason: x.lateReason } : null;
     };
     const ro = pendingRollovers.find((a) => a.waterMeterId === m.id && a.businessDate <= date);
+    const before = await previousReading(tx, m.id, date, "morning");
     meterRefs.push({
       id: m.id,
       code: m.code,
       name: m.name,
       initialReadingL: m.initialReadingL,
       last: last ? { businessDate: last.businessDate, phase: last.phase, readingL: last.readingL, readAt: last.readAt.toISOString() } : null,
+      previousDayL: before?.readingL ?? m.initialReadingL,
       today: { morning: today("morning"), evening: today("evening") },
       rollover: ro ? { rolloverAtL: ro.rolloverAtL ?? 0, businessDate: ro.businessDate } : null,
     });
