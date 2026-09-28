@@ -115,7 +115,8 @@ test.describe("M8 — Produksi & Stok Air (pemilik & Admin Keuangan)", () => {
 
     // US-M8-03: pasokan depot (tiga angka) & ringkasan; B-10 stok air awal depot saat cut-over.
     await page.getByRole("link", { name: "Pasokan depot" }).click();
-    await expect(page.getByRole("heading", { name: /Pasokan per rit/ })).toBeVisible();
+    await expect(page.getByText("Pasokan per rit (tiga angka)")).toBeVisible();
+    await expect(page.getByText(/Ringkasan pasokan per depot per hari/)).toBeVisible();
     await page.getByRole("link", { name: "Stok air awal depot" }).click();
     const opening = page.getByTestId("form-stok-awal");
     await expect(opening).toBeVisible();
