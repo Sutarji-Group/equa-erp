@@ -345,3 +345,25 @@ export async function searchSubjects(ctx: ActorContext, type: "customer" | "empl
     .where(and(eq(employees.tenantId, ctx.tenantId), sql`${employees.anonymizedAt} is null`, sql`lower(${employees.fullName}) like ${term}`))
     .limit(20);
 }
+
+/** Pilihan subjek formulir: pelanggan belum dianonimkan (nama saja) & karyawan yang sudah keluar/nonaktif. */
+export async function anonymizationCandidates(ctx: ActorContext, opts: { tx?: Tx } = {}) {
+  await authorize(ctx, "m10.personal_data.read", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const today = ctxBusinessDate(ctx);
+  const cust = await tx
+    .select({ id: customers.id, name: customers.name, code: customers.code })
+    .from(customers)
+    .where(and(eq(customers.tenantId, ctx.tenantId), sql`${customers.anonymizedAt} is null`, sql`${customers.internalOutletId} is null`))
+    .orderBy(customers.name)
+    .limit(300);
+  const emp = await tx
+    .select({ id: employees.id, name: employees.fullName, code: employees.employeeNo, isActive: employees.isActive, exitDate: employees.exitDate })
+    .from(employees)
+    .where(and(eq(employees.tenantId, ctx.tenantId), sql`${employees.anonymizedAt} is null`))
+    .orderBy(employees.fullName);
+  return {
+    customers: cust.map((c) => ({ value: `customer:${c.id}`, label: `${c.name}${c.code ? ` (${c.code})` : ""}` })),
+    employees: emp.filter((e) => !e.isActive || (e.exitDate && e.exitDate <= today)).map((e) => ({ value: `employee:${e.id}`, label: `${e.name} (${e.code})` })),
+  };
+}

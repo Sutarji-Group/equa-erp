@@ -61,12 +61,14 @@ describe("US-M10-07 Kesehatan perangkat, sinkron, dan pemantauan", () => {
       .update(devices)
       .set({ status: "active", reportedQueueCount: 3, lastSyncAt: stale })
       .where(inArray(devices.id, codes.map((c) => deviceId(c))));
+    const openMass = async () =>
+      t.db.select().from(incidents).where(and(eq(incidents.kind, "mass_sync_failure"), inArray(incidents.status, ["open", "acknowledged"])));
     await runMonitoring(OFF_HOURS);
-    expect(await t.db.select().from(incidents).where(eq(incidents.kind, "mass_sync_failure"))).toHaveLength(0);
+    expect(await openMass()).toHaveLength(0);
     const [res] = await runMonitoring(IN_HOURS);
     expect(res!.massSyncFailure.failing).toBeGreaterThanOrEqual(4);
     await runMonitoring(new Date(IN_HOURS.getTime() + 5 * 60_000));
-    const rows = await t.db.select().from(incidents).where(eq(incidents.kind, "mass_sync_failure"));
+    const rows = await openMass();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.severity).toBe("critical");
     expect((await notificationsOf(t.db, "admin1", "sync.mass_failure")).length).toBe(1);

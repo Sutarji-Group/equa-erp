@@ -11,11 +11,12 @@ import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge, ToneBadge } from "@/components/shared/status-badge";
 import { employees, users } from "@/db/schema";
 import { label } from "@/lib/labels";
-import { formatTanggalJam } from "@/lib/time";
+import { formatTanggalJam, toBusinessDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import * as approvals from "@/server/core/approvals";
 import { requirePermission } from "@/server/core/auth/office";
 import { getDb } from "@/server/core/db";
+import { describeApprovalRules } from "@/server/modules/m10-access";
 
 import { DecisionButtons } from "./decision-buttons";
 
@@ -45,7 +46,11 @@ export default async function PersetujuanPage({ searchParams }: PageProps<"/pers
   const { ctx } = await requirePermission("m10.approval.read");
   const sp = await searchParams;
   const focusId = typeof sp.id === "string" ? sp.id : null;
-  const inbox = await approvals.listInbox(ctx);
+  const listed = await approvals.listInbox(ctx);
+  // Tautan push (`/persetujuan?id=…`, US-M10-04 KP-3): permintaan yang dibuka dari ponsel tampil paling atas agar dapat
+  // diputuskan dengan satu ketuk.
+  const inbox = focusId ? [...listed.filter((i) => i.id === focusId), ...listed.filter((i) => i.id !== focusId)] : listed;
+  const rules = await describeApprovalRules(getDb(), toBusinessDate(ctx.now));
   const mine = await approvals.listMine(ctx, { limit: 20 });
   const names = await namesFor([...new Set([...inbox, ...mine].map((r) => r.requesterUserId))]);
   const overdue = inbox.filter((i) => i.isOverdue).length;
@@ -117,6 +122,41 @@ export default async function PersetujuanPage({ searchParams }: PageProps<"/pers
           })}
         </ul>
       )}
+
+      <SectionCard title="Aturan persetujuan (Bab 6.2a)" description="Pemohon, penyetuju, ambang dari parameter yang berlaku hari ini, tenggat, dan perlakuan bila lewat tenggat." className="mt-8">
+        <details>
+          <summary className="cursor-pointer text-sm font-medium">Tampilkan {rules.length} jenis persetujuan</summary>
+          <div className="mt-3 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+            <table className="w-full min-w-[720px] text-sm" data-testid="aturan-persetujuan">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="py-2 pr-3">Jenis</th>
+                  <th className="py-2 pr-3">Pemohon</th>
+                  <th className="py-2 pr-3">Penyetuju</th>
+                  <th className="py-2 pr-3">Ambang / syarat</th>
+                  <th className="py-2 pr-3">Tenggat</th>
+                  <th className="py-2">Bila lewat tenggat</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rules.map((r) => (
+                  <tr key={r.type} className="border-b align-top">
+                    <td className="py-2 pr-3 font-medium">{r.label}</td>
+                    <td className="py-2 pr-3">{r.requesters.join(", ")}</td>
+                    <td className="py-2 pr-3">{r.approver}</td>
+                    <td className="py-2 pr-3">
+                      {r.threshold}
+                      {r.thresholdParam ? <span className="block text-xs text-muted-foreground">{r.thresholdParam}: {JSON.stringify(r.thresholdValue)}</span> : null}
+                    </td>
+                    <td className="py-2 pr-3">{r.deadline}</td>
+                    <td className="py-2">{r.expireNote}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </SectionCard>
 
       <SectionCard title="Permintaan saya" description="Riwayat permintaan yang Anda ajukan." className="mt-8">
         {mine.length === 0 ? (

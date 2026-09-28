@@ -145,6 +145,7 @@ describe("US-M10-06 Data pribadi, retensi, dan pencadangan", () => {
 
   it("US-M10-06 KP-4 status cadangan terakhir tampil ke admin sistem & pemilik; uji pemulihan dicatat (RPO/RTO); gagal diberitahukan", async () => {
     const now = new Date();
+    const before = await backupOverview(seededContext("admin1"));
     await expect(recordBackupStatus(seededContext("pemilik"), { kind: "daily", status: "success", startedAt: now })).rejects.toBeInstanceOf(ForbiddenError);
     await recordBackupStatus(seededContext("admin1"), { kind: "daily", status: "success", startedAt: new Date(now.getTime() - 3_600_000), finishedAt: now, sizeBytes: 12_000_000, location: "Neon PITR" });
     await expect(recordBackupStatus(seededContext("admin1"), { kind: "restore_test", status: "success", startedAt: now })).rejects.toThrow(/RPO/);
@@ -153,8 +154,10 @@ describe("US-M10-06 Data pribadi, retensi, dan pencadangan", () => {
     const view = await backupOverview(seededContext("pemilik"));
     expect(view.lastDaily?.status).toBe("success");
     expect(view.lastRestoreTest).toMatchObject({ rpoMinutes: 45, rtoMinutes: 150 });
-    expect(view.flags).toMatchObject({ dailyStale: false, restoreTestsBelowTarget: true });
-    expect((await backupOverview(seededContext("admin1"))).restoreTestsLast12Months).toBe(1);
+    expect(view.flags.dailyStale).toBe(false);
+    expect(view.restoreTestsLast12Months).toBe(before.restoreTestsLast12Months + 1);
+    expect(view.flags.restoreTestsBelowTarget).toBe(view.restoreTestsLast12Months < view.policy.restore_tests_per_year);
+    expect(view.policy.restore_tests_per_year).toBe(2);
     expect((await notificationsOf(t.db, "pemilik", "backup.failed")).length).toBe(1);
   });
 

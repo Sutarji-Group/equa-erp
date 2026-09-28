@@ -20,7 +20,7 @@ import { randomInt } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { accessLogs, approvalRequests, dataSignoffs, devices, employees, sessions, userRoles, users, userScopes } from "@/db/schema";
+import { accessLogs, approvalRequests, dataSignoffs, devices, employees, outlets, sessions, trucks, userRoles, users, userScopes, waterSources } from "@/db/schema";
 import { enumValues, label, ROLE_CODES, type RoleCode, type ScopeType } from "@/lib/labels";
 import { isBusinessDate, toBusinessDate } from "@/lib/time";
 import * as approvals from "@/server/core/approvals";
@@ -32,7 +32,7 @@ import { getDb, onAfterCommit, type Tx } from "@/server/core/db";
 import { ConflictError, DomainError, parseInput, ValidationError } from "@/server/core/errors";
 import { notify, sendEmail } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
-import { authorize, rolesAllowInterface, runService, sod } from "@/server/core/rbac";
+import { authorize, authorizeAny, rolesAllowInterface, runService, sod } from "@/server/core/rbac";
 
 import {
   activeRolesOf,
@@ -850,4 +850,47 @@ export async function listEmployeesWithoutAccount(ctx: ActorContext, opts: { tx?
     .where(and(eq(employees.tenantId, ctx.tenantId), eq(employees.isActive, true), isNull(users.id)))
     .orderBy(asc(employees.fullName));
   return rows.filter((r) => !r.exitDate || r.exitDate > today);
+}
+
+export type ScopeOption = { value: string; label: string };
+export type ScopeOptions = {
+  trucks: ScopeOption[];
+  depots: ScopeOption[];
+  stores: ScopeOption[];
+  sources: ScopeOption[];
+  employees: { id: string; label: string }[];
+};
+
+/** Pilihan unit lingkup & karyawan aktif untuk formulir akun/perangkat (nilai `jenis:id`). */
+export async function listScopeOptions(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<ScopeOptions> {
+  await authorizeAny(ctx, ["m10.user.read", "m10.device.read"], { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const truckRows = await tx
+    .select({ id: trucks.id, code: trucks.code, plate: trucks.plateNumber })
+    .from(trucks)
+    .where(and(eq(trucks.tenantId, ctx.tenantId), eq(trucks.isActive, true)))
+    .orderBy(asc(trucks.code));
+  const outletRows = await tx
+    .select({ id: outlets.id, code: outlets.code, name: outlets.name, kind: outlets.kind })
+    .from(outlets)
+    .where(and(eq(outlets.tenantId, ctx.tenantId), eq(outlets.isActive, true)))
+    .orderBy(asc(outlets.code));
+  const sourceRows = await tx
+    .select({ id: waterSources.id, name: waterSources.name })
+    .from(waterSources)
+    .where(and(eq(waterSources.tenantId, ctx.tenantId), eq(waterSources.isActive, true)))
+    .orderBy(asc(waterSources.code));
+  const today = ctxBusinessDate(ctx);
+  const empRows = await tx
+    .select({ id: employees.id, name: employees.fullName, no: employees.employeeNo, exitDate: employees.exitDate })
+    .from(employees)
+    .where(and(eq(employees.tenantId, ctx.tenantId), eq(employees.isActive, true)))
+    .orderBy(asc(employees.fullName));
+  return {
+    trucks: truckRows.map((t) => ({ value: `truck:${t.id}`, label: `Truk ${t.code} · ${t.plate}` })),
+    depots: outletRows.filter((o) => o.kind === "depot").map((o) => ({ value: `outlet:${o.id}`, label: `${o.name} (${o.code})` })),
+    stores: outletRows.filter((o) => o.kind === "store").map((o) => ({ value: `outlet:${o.id}`, label: `${o.name} (${o.code})` })),
+    sources: sourceRows.map((s) => ({ value: `water_source:${s.id}`, label: s.name })),
+    employees: empRows.filter((e) => !e.exitDate || e.exitDate > today).map((e) => ({ id: e.id, label: `${e.name} (${e.no})` })),
+  };
 }

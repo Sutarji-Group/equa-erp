@@ -25,6 +25,7 @@ export {
   initialAccountsSigned,
   issueInitialPin,
   listEmployeesWithoutAccount,
+  listScopeOptions,
   listUsers,
   requestReactivation,
   requestRoleChange,
@@ -38,6 +39,8 @@ export {
   type CreateUserResult,
   type DeactivationResult,
   type RoleChangeInput,
+  type ScopeOption,
+  type ScopeOptions,
   type ScopeExtensionInput,
   type UserDetail,
   type UserListFilter,
@@ -127,6 +130,7 @@ export {
   type ViewPolicy,
 } from "./service/personal-data";
 export {
+  anonymizationCandidates,
   executeAnonymization,
   listAnonymizationRequests,
   openReceivableOf,
