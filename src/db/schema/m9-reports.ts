@@ -2,7 +2,7 @@
  * M9 — Laporan & Dashboard Pemilik (PRD 7.9). M9 tidak memiliki transaksi sendiri; tabel di sini menyimpan snapshot
  * yang WAJIB tidak berubah (H+0 terbit, laporan Final), input manual KPI, dan catatan periode paralel (NFR-35).
  */
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -88,6 +88,11 @@ export const reportSnapshots = pgTable(
     period: text("period").notNull(),
     revision: integer("revision").notNull().default(1),
     status: reportStatusEnum("status").notNull().default("provisional"),
+    /**
+     * Hash kanonik filter (outlet, lini, truk…) — '' = tanpa filter. Bagian dari kunci unik agar laporan Final dengan
+     * filter berbeda tidak bentrok/tertimpa (US-M9-03 KP-4, US-M11-04 KP-2, US-M11-10 KP-4).
+     */
+    scopeKey: text("scope_key").notNull().default(""),
     filters: jsonb("filters").$type<Record<string, unknown>>(),
     data: jsonb("data").$type<Record<string, unknown>>().notNull(),
     fileSha256: text("file_sha256"),
@@ -97,7 +102,13 @@ export const reportSnapshots = pgTable(
     supersededById: uuid("superseded_by_id").references((): AnyPgColumn => reportSnapshots.id),
     ...timestamps(),
   },
-  (t) => [uniqueIndex("report_snapshots_uq").on(t.tenantId, t.reportKey, t.period, t.revision)],
+  (t) => [
+    uniqueIndex("report_snapshots_uq").on(t.tenantId, t.reportKey, t.period, t.scopeKey, t.revision),
+    // Satu versi Final berlaku per (laporan, periode, varian filter).
+    uniqueIndex("report_snapshots_final_uq")
+      .on(t.tenantId, t.reportKey, t.period, t.scopeKey)
+      .where(sql`${t.status} = 'final' and ${t.supersededById} is null`),
+  ],
 );
 
 /** Input manual KPI (US-M9-07 KP-2): KPI-10 jam pemilik per minggu, dll. */

@@ -9,7 +9,7 @@ import type { CustomerSegment, EnumValue } from "@/lib/labels";
 import type { DbOrTx } from "../client";
 import { attachments, customerAddresses, customerCreditHistory, customers, specialPrices } from "../schema";
 import { SEED_EFFECTIVE_FROM } from "./constants";
-import { productId, tariffZoneId, zoneCodeForDistance } from "./catalog";
+import { productId, tariffZoneBoundaryId, tariffZoneId, zoneCodeForDistance } from "./catalog";
 import { seedId } from "./ids";
 import { EQUA_TENANT_ID, OUTLET_SEEDS, WATER_SOURCE_SEEDS, outletId, waterSourceId } from "./org";
 
@@ -149,6 +149,8 @@ function addressRow(a: AddressInput, lockedAt: Date) {
       coordinateLockedAt: lockedAt,
       tariffZoneId: tariffZoneId(zoneCodeForDistance(src.distanceM)),
       zoneAssignment: "auto" as const,
+      zoneBoundaryId: tariffZoneBoundaryId(zoneCodeForDistance(src.distanceM)),
+      zoneAssignedAt: lockedAt,
       referenceWaterSourceId: waterSourceId(src.code),
       distanceM: src.distanceM,
       distanceMethod: "straight_line_x1_3" as const,

@@ -4,7 +4,7 @@
  * resep bahan depot (US-M6-04 KP-2).
  */
 import type { DbOrTx } from "../client";
-import { depotRecipes, fuelComponents, productPrices, products, tariffZones, zoneTariffs } from "../schema";
+import { depotRecipes, fuelComponents, productPrices, products, tariffZoneBoundaries, tariffZones, zoneTariffs } from "../schema";
 import { SEED_EFFECTIVE_FROM } from "./constants";
 import { seedId } from "./ids";
 import { EQUA_TENANT_ID } from "./org";
@@ -20,6 +20,8 @@ export const TARIFF_ZONE_SEEDS = [
 export const FUEL_COMPONENT_PER_TRIP = 20_000;
 
 export const tariffZoneId = (code: string) => seedId(`tariff_zone:${code}`);
+/** Versi batas zona awal (berlaku sejak SEED_EFFECTIVE_FROM) — US-M1-05 KP-1/KP-4. */
+export const tariffZoneBoundaryId = (code: string) => seedId(`tariff_zone_boundary:${code}:${SEED_EFFECTIVE_FROM}`);
 export const productId = (code: string) => seedId(`product:${code}`);
 
 /** Zona untuk jarak (meter) tertentu: [min, max). */
@@ -138,6 +140,23 @@ export async function seedCatalog(tx: DbOrTx): Promise<void> {
     .onConflictDoNothing();
 
   await tx
+    .insert(tariffZoneBoundaries)
+    .values(
+      TARIFF_ZONE_SEEDS.map((z) => ({
+        id: tariffZoneBoundaryId(z.code),
+        tariffZoneId: tariffZoneId(z.code),
+        minDistanceM: z.minDistanceM,
+        maxDistanceM: z.maxDistanceM,
+        effectiveFrom: SEED_EFFECTIVE_FROM,
+        status: "active" as const,
+        isOwnerDirect: true,
+        reason: "Batas zona awal (data demo) — keputusan langsung pemilik (6.2b).",
+        approvedAt: new Date(`${SEED_EFFECTIVE_FROM}T00:00:00Z`),
+      })),
+    )
+    .onConflictDoNothing();
+
+  await tx
     .insert(zoneTariffs)
     .values(
       TARIFF_ZONE_SEEDS.map((z) => ({
@@ -204,6 +223,7 @@ export async function seedCatalog(tx: DbOrTx): Promise<void> {
       .filter((entry): entry is readonly ["standard" | "general" | "partner", number] => typeof entry[1] === "number")
       .map(([kind, price]) => ({
         id: seedId(`product_price:${p.code}:${kind}:${SEED_EFFECTIVE_FROM}`),
+        tenantId: EQUA_TENANT_ID,
         productId: productId(p.code),
         kind,
         price,

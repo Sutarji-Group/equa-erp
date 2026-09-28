@@ -9,6 +9,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -144,7 +145,11 @@ export const poolLocations = pgTable(
 // Zona tarif, komponen BBM
 // =====================================================================================================================
 
-/** Zona tarif — rentang jarak dari sumber air acuan (US-M1-05 KP-1): tidak tumpang tindih, tanpa celah. */
+/**
+ * Zona tarif — rentang jarak dari sumber air acuan (US-M1-05 KP-1): tidak tumpang tindih, tanpa celah.
+ * `min_distance_m`/`max_distance_m` = batas yang BERLAKU saat ini (salinan dari `tariff_zone_boundaries` aktif terbaru,
+ * diperbarui layanan M1 saat batas baru berlaku). Riwayat, persetujuan & tanggal berlaku ada di `tariff_zone_boundaries`.
+ */
 export const tariffZones = pgTable(
   "tariff_zones",
   {
@@ -161,6 +166,48 @@ export const tariffZones = pgTable(
     createdBy: createdBy(),
   },
   (t) => [uniqueIndex("tariff_zones_tenant_code_uq").on(t.tenantId, t.code)],
+);
+
+/**
+ * Batas jarak zona berversi per tanggal berlaku (US-M1-05 KP-1/KP-4, 6.2a "perubahan harga master, zona, komponen BBM",
+ * 6.2b, BR-19): jalur baku `pending` → persetujuan pemilik → `active`; input pemilik sendiri = keputusan langsung
+ * (`is_owner_direct`). Lewat tenggat → batas lama tetap berlaku. Dasar daftar "alamat yang berpindah zona".
+ */
+export const tariffZoneBoundaries = pgTable(
+  "tariff_zone_boundaries",
+  {
+    id: pk(),
+    tariffZoneId: uuid("tariff_zone_id")
+      .notNull()
+      .references((): AnyPgColumn => tariffZones.id),
+    /** [min, max) dalam meter; `max` kosong = tanpa batas atas. */
+    minDistanceM: meters("min_distance_m").notNull(),
+    maxDistanceM: meters("max_distance_m"),
+    effectiveFrom: dateStr("effective_from").notNull(),
+    status: priceStatusEnum("status").notNull().default("pending"),
+    approvalRequestId: uuid("approval_request_id"),
+    isOwnerDirect: boolean("is_owner_direct").notNull().default(false),
+    reason: text("reason"),
+    approvedBy: userRef("approved_by"),
+    approvedAt: tstz("approved_at"),
+    ...timestamps(),
+    createdBy: createdBy(),
+  },
+  (t) => [
+    foreignKey({
+      name: "tariff_zone_boundaries_approval_fk",
+      columns: [t.approvalRequestId],
+      foreignColumns: [approvalRequests.id],
+    }),
+    index("tariff_zone_boundaries_zone_from_idx").on(t.tariffZoneId, t.effectiveFrom),
+    uniqueIndex("tariff_zone_boundaries_active_uq")
+      .on(t.tariffZoneId, t.effectiveFrom)
+      .where(sql`${t.status} = 'active'`),
+    check(
+      "tariff_zone_boundaries_range_chk",
+      sql`${t.minDistanceM} >= 0 and (${t.maxDistanceM} is null or ${t.maxDistanceM} > ${t.minDistanceM})`,
+    ),
+  ],
 );
 
 /**
@@ -188,7 +235,16 @@ export const zoneTariffs = pgTable(
     ...timestamps(),
     createdBy: createdBy(),
   },
-  (t) => [index("zone_tariffs_zone_from_idx").on(t.tariffZoneId, t.effectiveFrom)],
+  (t) => [
+    index("zone_tariffs_zone_from_idx").on(t.tariffZoneId, t.effectiveFrom),
+    // BR-15/BR-19, US-M1-02 KP-4: satu tarif aktif per (zona, segmen, tanggal berlaku) — harga deterministik.
+    uniqueIndex("zone_tariffs_active_segment_uq")
+      .on(t.tariffZoneId, t.segment, t.effectiveFrom)
+      .where(sql`${t.status} = 'active' and ${t.segment} is not null`),
+    uniqueIndex("zone_tariffs_active_all_uq")
+      .on(t.tariffZoneId, t.effectiveFrom)
+      .where(sql`${t.status} = 'active' and ${t.segment} is null`),
+  ],
 );
 
 /** Komponen BBM — satu nilai rupiah per rit untuk seluruh zona, berlaku per tanggal (US-M1-02 KP-2, PTB-03). */
@@ -208,7 +264,12 @@ export const fuelComponents = pgTable(
     ...timestamps(),
     createdBy: createdBy(),
   },
-  (t) => [index("fuel_components_tenant_from_idx").on(t.tenantId, t.effectiveFrom)],
+  (t) => [
+    index("fuel_components_tenant_from_idx").on(t.tenantId, t.effectiveFrom),
+    uniqueIndex("fuel_components_active_uq")
+      .on(t.tenantId, t.effectiveFrom)
+      .where(sql`${t.status} = 'active'`),
+  ],
 );
 
 // =====================================================================================================================
@@ -255,6 +316,14 @@ export const customers = pgTable(
     holdDeferralUntil: dateStr("hold_deferral_until"),
     holdDeferralReason: text("hold_deferral_reason"),
     holdDeferralSetBy: userRef("hold_deferral_set_by"),
+    /**
+     * Pembukaan Ditahan sebelum lunas oleh pemilik (US-M5-03 KP-3, BR-03, 6.2a): berlaku sampai keterlambatan
+     * berikutnya — faktur dengan due_date ≤ `hold_release_covers_due_until` tidak memicu Ditahan ulang.
+     */
+    holdReleasedAt: tstz("hold_released_at"),
+    holdReleasedBy: userRef("hold_released_by"),
+    holdReleaseApprovalId: approvalRef("hold_release_approval_id"),
+    holdReleaseCoversDueUntil: dateStr("hold_release_covers_due_until"),
     /** US-M1-06 KP-3: data awal hasil impor produksi — tidak dapat diubah kecuali lewat koreksi berjejak. */
     isInitialData: boolean("is_initial_data").notNull().default(false),
     importBatchId: uuid("import_batch_id").references((): AnyPgColumn => importBatches.id),
@@ -280,6 +349,12 @@ export const customers = pgTable(
       columns: [t.monthlyBillingAgreementAttachmentId],
       foreignColumns: [attachments.id],
     }),
+    // BR-04 (ditegaskan CR-12), US-M1-01 KP-4: rumah tangga tunai saja, tanpa pengecualian.
+    check(
+      "customers_household_cash_chk",
+      sql`${t.segment} <> 'household' or (${t.creditStatus} = 'cash' and ${t.creditLimit} = 0 and ${t.monthlyBilling} = false)`,
+    ),
+    check("customers_credit_values_chk", sql`${t.creditLimit} >= 0 and ${t.paymentTermDays} > 0`),
   ],
 );
 
@@ -311,6 +386,9 @@ export const customerAddresses = pgTable(
     tariffZoneId: uuid("tariff_zone_id").references((): AnyPgColumn => tariffZones.id),
     zoneAssignment: zoneAssignmentEnum("zone_assignment").notNull().default("auto"),
     zoneManualReason: text("zone_manual_reason"),
+    /** Versi batas zona yang dipakai saat pemetaan (US-M1-05 KP-4: daftar tinjauan alamat yang berpindah zona). */
+    zoneBoundaryId: uuid("zone_boundary_id"),
+    zoneAssignedAt: tstz("zone_assigned_at"),
     /** Sumber air acuan (PTB-02): bawaan terdekat; ubah Dispatcher dengan alasan. */
     referenceWaterSourceId: uuid("reference_water_source_id"),
     referenceSourceManual: boolean("reference_source_manual").notNull().default(false),
@@ -330,6 +408,11 @@ export const customerAddresses = pgTable(
       name: "customer_addresses_ref_source_fk",
       columns: [t.referenceWaterSourceId],
       foreignColumns: [waterSources.id],
+    }),
+    foreignKey({
+      name: "customer_addresses_zone_boundary_fk",
+      columns: [t.zoneBoundaryId],
+      foreignColumns: [tariffZoneBoundaries.id],
     }),
   ],
 );
@@ -419,11 +502,20 @@ export const productPrices = pgTable(
   "product_prices",
   {
     id: pk(),
+    /** NFR-30: disalin dari `products.tenant_id`. */
+    tenantId: tenantRef(),
     productId: uuid("product_id")
       .notNull()
       .references((): AnyPgColumn => products.id),
     kind: priceKindEnum("kind").notNull(),
+    /**
+     * Harga khusus outlet (US-M6-07 KP-3, US-P3-02 KP-1: pengaturan harga per tenant/outlet tanpa kode). Kosong =
+     * berlaku untuk seluruh outlet tenant.
+     */
+    outletId: outletRef(),
     price: money("price").notNull(),
+    /** Harga anjuran EQUA yang ditampilkan ke mitra (PTB-56); harga jual mitra = `price`. */
+    recommendedPrice: money("recommended_price"),
     effectiveFrom: dateStr("effective_from").notNull(),
     status: priceStatusEnum("status").notNull().default("pending"),
     approvalRequestId: approvalRef(),
@@ -434,7 +526,17 @@ export const productPrices = pgTable(
     ...timestamps(),
     createdBy: createdBy(),
   },
-  (t) => [index("product_prices_product_idx").on(t.productId, t.kind, t.effectiveFrom)],
+  (t) => [
+    index("product_prices_product_idx").on(t.productId, t.kind, t.effectiveFrom),
+    index("product_prices_tenant_idx").on(t.tenantId, t.productId),
+    // BR-15, US-M1-02 KP-3/KP-4: satu harga aktif per (produk, jenis, [outlet], tanggal berlaku).
+    uniqueIndex("product_prices_active_uq")
+      .on(t.productId, t.kind, t.effectiveFrom)
+      .where(sql`${t.status} = 'active' and ${t.outletId} is null`),
+    uniqueIndex("product_prices_active_outlet_uq")
+      .on(t.productId, t.kind, t.outletId, t.effectiveFrom)
+      .where(sql`${t.status} = 'active' and ${t.outletId} is not null`),
+  ],
 );
 
 /**
@@ -465,7 +567,13 @@ export const specialPrices = pgTable(
     ...timestamps(),
     createdBy: createdBy(),
   },
-  (t) => [index("special_prices_customer_idx").on(t.customerId, t.productId, t.validFrom)],
+  (t) => [
+    index("special_prices_customer_idx").on(t.customerId, t.productId, t.validFrom),
+    // BR-16: satu harga khusus aktif per (pelanggan, produk, tanggal mulai).
+    uniqueIndex("special_prices_active_uq")
+      .on(t.customerId, t.productId, t.validFrom)
+      .where(sql`${t.status} = 'active'`),
+  ],
 );
 
 /** Resep bahan per produk depot per tenant (US-M6-04 KP-2): mis. 1 isi ulang = 1 tutup + 1 tisu. */
@@ -613,7 +721,12 @@ export const waterMetersRelations = relations(waterMeters, ({ one }) => ({
 
 export const tariffZonesRelations = relations(tariffZones, ({ many }) => ({
   tariffs: many(zoneTariffs),
+  boundaries: many(tariffZoneBoundaries),
   addresses: many(customerAddresses),
+}));
+
+export const tariffZoneBoundariesRelations = relations(tariffZoneBoundaries, ({ one }) => ({
+  zone: one(tariffZones, { fields: [tariffZoneBoundaries.tariffZoneId], references: [tariffZones.id] }),
 }));
 
 export const zoneTariffsRelations = relations(zoneTariffs, ({ one }) => ({
@@ -632,6 +745,10 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
 export const customerAddressesRelations = relations(customerAddresses, ({ one }) => ({
   customer: one(customers, { fields: [customerAddresses.customerId], references: [customers.id] }),
   tariffZone: one(tariffZones, { fields: [customerAddresses.tariffZoneId], references: [tariffZones.id] }),
+  zoneBoundary: one(tariffZoneBoundaries, {
+    fields: [customerAddresses.zoneBoundaryId],
+    references: [tariffZoneBoundaries.id],
+  }),
   referenceWaterSource: one(waterSources, {
     fields: [customerAddresses.referenceWaterSourceId],
     references: [waterSources.id],
@@ -649,6 +766,7 @@ export const productsRelations = relations(products, ({ many }) => ({
 
 export const productPricesRelations = relations(productPrices, ({ one }) => ({
   product: one(products, { fields: [productPrices.productId], references: [products.id] }),
+  outlet: one(outlets, { fields: [productPrices.outletId], references: [outlets.id] }),
 }));
 
 export const specialPricesRelations = relations(specialPrices, ({ one }) => ({

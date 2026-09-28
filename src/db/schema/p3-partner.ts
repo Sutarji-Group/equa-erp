@@ -246,13 +246,20 @@ export const qualityChecklists = pgTable(
     ...fieldMeta(),
     ...timestamps(),
   },
-  (t) => [uniqueIndex("quality_checklists_outlet_date_uq").on(t.outletId, t.businessDate)],
+  (t) => [
+    uniqueIndex("quality_checklists_outlet_date_uq").on(t.outletId, t.businessDate),
+    uniqueIndex("quality_checklists_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
+  ],
 );
 
 export const qualityChecklistItems = pgTable(
   "quality_checklist_items",
   {
     id: pk(),
+    /** NFR-30: disalin dari `quality_checklists.tenant_id`. */
+    tenantId: tenantRef(),
     checklistId: uuid("checklist_id")
       .notNull()
       .references((): AnyPgColumn => qualityChecklists.id),
@@ -264,7 +271,10 @@ export const qualityChecklistItems = pgTable(
     actionNote: text("action_note"),
     ...timestamps(),
   },
-  (t) => [uniqueIndex("quality_checklist_items_uq").on(t.checklistId, t.itemKey)],
+  (t) => [
+    uniqueIndex("quality_checklist_items_uq").on(t.checklistId, t.itemKey),
+    index("quality_checklist_items_tenant_idx").on(t.tenantId, t.checklistId),
+  ],
 );
 
 /** Audit pembina per outlet (US-P3-05 KP-2): skor per butir, foto, temuan, tenggat tindak lanjut. */

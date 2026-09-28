@@ -7,6 +7,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -24,6 +25,7 @@ import { enumValues } from "../../lib/labels";
 import { businessDate, liters, money, pk, refId, timestamps, tstz } from "./_columns";
 import {
   approvalRef,
+  approvalRequests,
   attachmentRef,
   createdBy,
   fieldMeta,
@@ -63,7 +65,8 @@ export const outletWaterKindEnum = pgEnum("outlet_water_kind", enumValues("outle
 
 /**
  * Shift depot/toko (Bab 5.2, US-M6-02, US-M7-09): Dibuka → Berjalan → Ditutup → setoran Belum disetor → Disetor →
- * Diterima. HANYA SATU shift terbuka per outlet (partial unique index).
+ * Diterima. HANYA SATU shift terbuka per outlet (partial unique index) — kecuali shift yang dibuka offline di perangkat
+ * cadangan saat shift lama masih terbuka: disimpan sebagai konflik sinkron (`sync_conflict`), bukan ditolak (7.6.6).
  */
 export const shifts = pgTable(
   "shifts",
@@ -103,11 +106,21 @@ export const shifts = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /** Σ setoran sebagian (`deposits.is_partial`) selama shift (BR-08, US-M6-02 KP-2/KP-5). */
+    partialDepositTotal: money("partial_deposit_total").notNull().default(0),
+    /**
+     * Konflik sinkron (7.6.6, US-M6-06 KP-1/KP-3, Bab 6.4 butir 3): shift dibuka offline saat shift lain di outlet masih
+     * terbuka. Disimpan (beserta penjualannya) dan ditampilkan ke Admin Keuangan, bukan ditolak.
+     */
+    syncConflict: boolean("sync_conflict").notNull().default(false),
+    syncConflictNote: text("sync_conflict_note"),
+    conflictResolvedAt: tstz("conflict_resolved_at"),
+    conflictResolvedBy: userRef("conflict_resolved_by"),
   },
   (t) => [
     uniqueIndex("shifts_one_open_per_outlet_uq")
       .on(t.outletId)
-      .where(sql`${t.status} = 'open'`),
+      .where(sql`${t.status} = 'open' and ${t.syncConflict} = false`),
     index("shifts_outlet_date_idx").on(t.outletId, t.businessDate),
     index("shifts_deposit_status_idx").on(t.depositStatus),
   ],
@@ -159,7 +172,17 @@ export const posSales = pgTable(
     shiftId: uuid("shift_id")
       .notNull()
       .references((): AnyPgColumn => shifts.id),
-    number: text("number").notNull(),
+    /**
+     * Nomor resmi `{kodeOutlet}-YYMMDD-NNNN` (D-04) — diisi SERVER saat sinkron (kosong selama di antrean perangkat),
+     * unik per outlet. Nomor yang tampil/tercetak di perangkat = `local_number`.
+     */
+    number: text("number"),
+    /**
+     * Nomor terbit di perangkat (7.6.6, US-M6-01 KP-4/KP-5, US-M6-06 KP-2): memuat kode perangkat, mis.
+     * `D01-270926-P2-0007`, unik per perangkat; `device_seq` = urutan per perangkat.
+     */
+    localNumber: text("local_number").notNull(),
+    deviceSeq: integer("device_seq").notNull(),
     operatorUserId: userRef("operator_user_id").notNull(),
     /** Opsional untuk tunai umum; wajib untuk harga mitra & tempo (US-M7-01 KP-1). Depot: disiapkan kosong (FR-M6-08). */
     customerId: uuid("customer_id").references((): AnyPgColumn => customers.id),
@@ -196,12 +219,36 @@ export const posSales = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /**
+     * Koreksi setelah shift ditutup (US-M6-02 KP-4, US-M6-03 KP-2/PTB-43, BR-38, 7.11.4): baris pembalik bernilai
+     * negatif (total & baris) pada tanggal bisnis & shift saat koreksi, merujuk transaksi asal.
+     */
+    reversalOfId: uuid("reversal_of_id"),
+    isReversal: boolean("is_reversal").notNull().default(false),
+    reversalReason: text("reversal_reason"),
+    correctionApprovalId: uuid("correction_approval_id"),
   },
   (t) => [
-    uniqueIndex("pos_sales_outlet_number_uq").on(t.outletId, t.number),
+    uniqueIndex("pos_sales_outlet_number_uq")
+      .on(t.outletId, t.number)
+      .where(sql`${t.number} is not null`),
+    uniqueIndex("pos_sales_device_local_number_uq").on(t.deviceId, t.localNumber),
     index("pos_sales_outlet_date_idx").on(t.outletId, t.businessDate),
     index("pos_sales_shift_idx").on(t.shiftId),
     index("pos_sales_customer_idx").on(t.customerId),
+    foreignKey({ name: "pos_sales_reversal_fk", columns: [t.reversalOfId], foreignColumns: [t.id] }),
+    foreignKey({
+      name: "pos_sales_correction_approval_fk",
+      columns: [t.correctionApprovalId],
+      foreignColumns: [approvalRequests.id],
+    }),
+    uniqueIndex("pos_sales_reversal_uq")
+      .on(t.reversalOfId)
+      .where(sql`${t.reversalOfId} is not null`),
+    check(
+      "pos_sales_reversal_chk",
+      sql`(${t.isReversal} = false and ${t.reversalOfId} is null and ${t.total} >= 0) or (${t.isReversal} = true and ${t.reversalOfId} is not null and ${t.total} <= 0)`,
+    ),
   ],
 );
 
@@ -276,6 +323,10 @@ export const stockLedger = pgTable(
   (t) => [
     index("stock_ledger_outlet_product_idx").on(t.outletId, t.productId, t.occurredAt),
     index("stock_ledger_source_idx").on(t.sourceObjectType, t.sourceObjectId),
+    // US-M6-04 KP-1 / US-M7-04 KP-3: satu mutasi per (sumber, barang, jenis) — handler terulang tidak menggandakan stok.
+    uniqueIndex("stock_ledger_source_uq")
+      .on(t.sourceObjectType, t.sourceObjectId, t.productId, t.kind)
+      .where(sql`${t.reversalOfId} is null`),
   ],
 );
 
@@ -334,7 +385,12 @@ export const stockCounts = pgTable(
     ...timestamps(),
     createdBy: createdBy(),
   },
-  (t) => [index("stock_counts_outlet_idx").on(t.outletId, t.periodLabel)],
+  (t) => [
+    index("stock_counts_outlet_idx").on(t.outletId, t.periodLabel),
+    uniqueIndex("stock_counts_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
+  ],
 );
 
 /** Baris opname: jumlah fisik vs saldo sistem pada waktu hitung per barang (US-M7-05 KP-3). */
@@ -342,6 +398,8 @@ export const stockCountLines = pgTable(
   "stock_count_lines",
   {
     id: pk(),
+    /** NFR-30: disalin dari `stock_counts.tenant_id`. */
+    tenantId: tenantRef(),
     stockCountId: uuid("stock_count_id")
       .notNull()
       .references((): AnyPgColumn => stockCounts.id),
@@ -358,7 +416,10 @@ export const stockCountLines = pgTable(
     reasonNote: text("reason_note"),
     ...timestamps(),
   },
-  (t) => [uniqueIndex("stock_count_lines_uq").on(t.stockCountId, t.productId)],
+  (t) => [
+    uniqueIndex("stock_count_lines_uq").on(t.stockCountId, t.productId),
+    index("stock_count_lines_tenant_idx").on(t.tenantId, t.productId),
+  ],
 );
 
 /**
@@ -386,6 +447,11 @@ export const consumableReceipts = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /** Koreksi = baris pembalik (BR-38, US-M6-05 KP-1); baris asal ditandai `reversed_at`. */
+    reversalOfId: uuid("reversal_of_id"),
+    reversalReason: text("reversal_reason"),
+    correctionApprovalId: uuid("correction_approval_id"),
+    reversedAt: tstz("reversed_at"),
   },
   (t) => [
     index("consumable_receipts_outlet_idx").on(t.outletId, t.businessDate),
@@ -394,6 +460,22 @@ export const consumableReceipts = pgTable(
       columns: [t.internalTransferId],
       foreignColumns: [internalTransfers.id],
     }),
+    foreignKey({ name: "consumable_receipts_reversal_fk", columns: [t.reversalOfId], foreignColumns: [t.id] }),
+    foreignKey({
+      name: "consumable_receipts_correction_approval_fk",
+      columns: [t.correctionApprovalId],
+      foreignColumns: [approvalRequests.id],
+    }),
+    // US-M7-06 KP-1: satu penerimaan hidup per transfer internal.
+    uniqueIndex("consumable_receipts_transfer_uq")
+      .on(t.internalTransferId)
+      .where(sql`${t.internalTransferId} is not null and ${t.reversalOfId} is null and ${t.reversedAt} is null`),
+    uniqueIndex("consumable_receipts_reversal_uq")
+      .on(t.reversalOfId)
+      .where(sql`${t.reversalOfId} is not null`),
+    uniqueIndex("consumable_receipts_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
   ],
 );
 
@@ -401,6 +483,8 @@ export const consumableReceiptLines = pgTable(
   "consumable_receipt_lines",
   {
     id: pk(),
+    /** NFR-30: disalin dari `consumable_receipts.tenant_id`. */
+    tenantId: tenantRef(),
     receiptId: uuid("receipt_id")
       .notNull()
       .references((): AnyPgColumn => consumableReceipts.id),
@@ -414,7 +498,10 @@ export const consumableReceiptLines = pgTable(
     differenceReason: text("difference_reason"),
     ...timestamps(),
   },
-  (t) => [index("consumable_receipt_lines_receipt_idx").on(t.receiptId)],
+  (t) => [
+    index("consumable_receipt_lines_receipt_idx").on(t.receiptId),
+    index("consumable_receipt_lines_tenant_idx").on(t.tenantId, t.productId),
+  ],
 );
 
 // =====================================================================================================================
@@ -451,11 +538,28 @@ export const waterSupplyReceipts = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /** Koreksi = baris pembalik (BR-38, US-M6-05 KP-1); baris asal ditandai `reversed_at`. */
+    reversalOfId: uuid("reversal_of_id"),
+    reversalReason: text("reversal_reason"),
+    correctionApprovalId: uuid("correction_approval_id"),
+    reversedAt: tstz("reversed_at"),
   },
   (t) => [
     uniqueIndex("water_supply_receipts_trip_uq")
       .on(t.tripId)
-      .where(sql`${t.tripId} is not null`),
+      .where(sql`${t.tripId} is not null and ${t.reversalOfId} is null and ${t.reversedAt} is null`),
+    foreignKey({ name: "water_supply_receipts_reversal_fk", columns: [t.reversalOfId], foreignColumns: [t.id] }),
+    foreignKey({
+      name: "water_supply_receipts_correction_approval_fk",
+      columns: [t.correctionApprovalId],
+      foreignColumns: [approvalRequests.id],
+    }),
+    uniqueIndex("water_supply_receipts_reversal_uq")
+      .on(t.reversalOfId)
+      .where(sql`${t.reversalOfId} is not null`),
+    uniqueIndex("water_supply_receipts_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
     index("water_supply_receipts_outlet_idx").on(t.outletId, t.businessDate),
     index("water_supply_receipts_status_idx").on(t.status),
   ],
@@ -482,10 +586,27 @@ export const outletWaterLedger = pgTable(
     sourceObjectId: refId("source_object_id"),
     occurredAt: tstz("occurred_at").notNull(),
     ...timestamps(),
+    /** Koreksi = baris pembalik bertanda berlawanan (BR-38); buku air append-only (hardening.sql). */
+    reversalOfId: uuid("reversal_of_id"),
+    reversalReason: text("reversal_reason"),
+    correctionApprovalId: uuid("correction_approval_id"),
   },
   (t) => [
     index("outlet_water_ledger_outlet_idx").on(t.outletId, t.businessDate),
     index("outlet_water_ledger_source_idx").on(t.sourceObjectType, t.sourceObjectId),
+    foreignKey({ name: "outlet_water_ledger_reversal_fk", columns: [t.reversalOfId], foreignColumns: [t.id] }),
+    foreignKey({
+      name: "outlet_water_ledger_correction_approval_fk",
+      columns: [t.correctionApprovalId],
+      foreignColumns: [approvalRequests.id],
+    }),
+    uniqueIndex("outlet_water_ledger_reversal_uq")
+      .on(t.reversalOfId)
+      .where(sql`${t.reversalOfId} is not null`),
+    // US-M6-05 KP-3: satu mutasi air per (sumber, jenis).
+    uniqueIndex("outlet_water_ledger_source_uq")
+      .on(t.sourceObjectType, t.sourceObjectId, t.kind)
+      .where(sql`${t.reversalOfId} is null and ${t.sourceObjectId} is not null`),
   ],
 );
 
