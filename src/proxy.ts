@@ -34,6 +34,8 @@ export const config = {
     "/produksi/neraca-air/:path*",
     "/produksi/utilisasi/:path*",
     "/produksi/mutu/:path*",
+    "/produksi/pengisian/:path*",
+    "/produksi/kelola-meter/:path*",
     "/armada/:path*",
     "/laporan/:path*",
     "/akuntansi/:path*",

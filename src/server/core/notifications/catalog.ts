@@ -150,6 +150,14 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("credit.hold_released", "Status Ditahan dibuka", "normal", ["dispatcher", "finance_admin"], "Pesanan tempo dapat dibuat lagi", "BR-03, US-M5-03 KP-3"),
   e("receivable.monthly_ready", "Faktur bulanan siap kirim", "normal", ["finance_admin"], "Kirim PDF faktur bulanan lewat WA/e-mail hari ini", "US-M5-06 KP-4, PAR-12"),
   e("receivable.advance_review", "Kelebihan bayar menjadi uang muka pelanggan", "info", ["finance_admin"], "Tinjau: dialokasikan ke faktur berikutnya atau ajukan pengembalian", "US-M5-02 KP-3"),
+  // --- Tambahan modul M8 (Produksi & Stok Air) — hanya tambah ---
+  e("production.reading_reminder", "Pengingat: angka meter belum dicatat", "normal", ["production_operator"], "Catat angka meter + foto; setelah jam batas wajib beralasan", "US-M8-01 KP-3"),
+  e("production.deviation", "Produksi harian menyimpang dari rata-rata 7 hari", "normal", ["finance_admin"], "Bandingkan foto meter lalu verifikasi atau koreksi pembacaan", "US-M8-01 KP-4, PAR-68"),
+  e("production.fill_without_trip", "Pengisian truk tanpa rit", "normal", ["dispatcher", "owner"], "Periksa: indikasi rit tanpa pesanan; tautkan ke rit bila ada", "US-M8-02 KP-2, P-01 langkah 8"),
+  e("production.fill_unplanned_truck", "Truk mengisi di sumber di luar rencana", "info", ["dispatcher"], "Informasi; rit tetap terkait", "7.8.6"),
+  e("production.supply_difference", "Selisih pasokan depot di luar toleransi (diisi vs diterima)", "normal", ["dispatcher", "owner"], "Periksa pengisian, catatan sopir & konfirmasi depot; masuk neraca air", "US-M8-03 KP-2, PAR-69"),
+  e("water.loss_explained", "Penjelasan susut air menunggu keputusan pemilik", "normal", ["owner"], "Terima penjelasan atau kembalikan ke operator", "US-M8-04 KP-2, BR-26"),
+  e("water.loss_explanation_returned", "Penjelasan susut dikembalikan pemilik", "normal", ["production_operator"], "Lengkapi penjelasan susut dari aplikasi produksi", "US-M8-04 KP-2"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

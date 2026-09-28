@@ -15,7 +15,14 @@
 export const FIELD_ROUTE_PREFIXES = ["sopir", "pos", "produksi", "aktivasi-perangkat", "~offline"] as const;
 
 /** Subrute KANTOR di bawah awalan lapangan (M8 kantor). Tambah di sini + matcher `src/proxy.ts`. */
-export const OFFICE_ROUTES_UNDER_FIELD_PREFIX = ["/produksi/neraca-air", "/produksi/utilisasi", "/produksi/mutu"] as const;
+export const OFFICE_ROUTES_UNDER_FIELD_PREFIX = [
+  "/produksi/neraca-air",
+  "/produksi/utilisasi",
+  "/produksi/mutu",
+  // Tambahan M8 (hanya tambah): pengisian vs jadwal & pasokan depot, kelola meter (putaran/penggantian).
+  "/produksi/pengisian",
+  "/produksi/kelola-meter",
+] as const;
 
 const FIELD_RE = new RegExp(`^/(${FIELD_ROUTE_PREFIXES.map((p) => p.replace(/[~-]/g, "\\$&")).join("|")})(/|$)`);
 

@@ -596,6 +596,44 @@ export const PARAM_REGISTRY = {
         "Jatuh tempo faktur kurang bayar lapangan (H+N), batas kelompok umur piutang (1–7 / 8–30 / > 30 hari), jendela hari \"akan Ditahan\" pada daftar tindakan harian, rentang bawaan kartu piutang, dan sasaran % piutang lewat tempo (KPI-04, bawaan < 5%).",
     },
   }),
+
+  // --- Tambahan modul M8 (Produksi & Stok Air) — hanya tambah ---
+  /** Angka aturan produksi yang disebut PRD 7.8 tanpa nomor PAR ([USULAN jam] US-M8-01 KP-3, H-7 US-M8-06 KP-1, dst.). */
+  "m8.production_rules": defineParam({
+    schema: z
+      .object({
+        /** US-M8-01 KP-3: pembacaan pagi belum ada pada jam ini → pengingat operator + notifikasi pemilik. */
+        morning_deadline: hhmm,
+        /** US-M8-01 KP-3: pembacaan malam belum ada pada jam ini → pengingat + neraca "belum lengkap". */
+        evening_deadline: hhmm,
+        /** US-M8-04 KP-3 (PTB-41): rata-rata susut N hari sebagai informasi. */
+        loss_average_days: int(1),
+        /** US-M8-05 KP-3: ekspor data harian utilisasi N bulan terakhir dalam satu berkas. */
+        utilization_export_months: int(1),
+        /** US-M8-06 KP-1: pengingat jadwal uji mutu H-N ke pemilik & operator. */
+        quality_reminder_days_before: int(0),
+        /** Riwayat pembacaan & pengisian yang tersedia offline di aplikasi operator (hari). */
+        operator_history_days: int(1),
+      })
+      .strict(),
+    scopes: ["global", "tenant"],
+    affectedRoles: ["production_operator", "owner", "finance_admin"],
+    fallback: {
+      morning_deadline: "08:00",
+      evening_deadline: "23:00",
+      loss_average_days: 7,
+      utilization_export_months: 6,
+      quality_reminder_days_before: 7,
+      operator_history_days: 7,
+    },
+    meta: {
+      name: "Aturan produksi air (jam batas pembacaan meter, rata-rata susut, ekspor utilisasi, pengingat uji mutu)",
+      unit: null,
+      reference: "US-M8-01 KP-3, US-M8-04 KP-3, US-M8-05 KP-3, US-M8-06 KP-1, US-M8-07 KP-1",
+      description:
+        "Jam batas pembacaan meter pagi (08.00) dan malam (23.00) sebelum pengingat & notifikasi \"produksi belum tercatat\", jangka rata-rata susut informasi (7 hari), lama data harian utilisasi yang diekspor (6 bulan), jarak hari pengingat uji mutu (H-7), dan lama riwayat di aplikasi operator.",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

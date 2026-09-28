@@ -736,6 +736,19 @@ export interface MeterReadingRecordedPayload {
   meterId: string;
   phase: "morning" | "evening";
   readingL: number;
+  // --- Tambahan M8 (opsional, hanya tambah; payload mandiri PTB-47) ---
+  businessDate?: string;
+  readAt?: string;
+  /** Koreksi Admin Keuangan (US-M8-01 KP-5): pembacaan lama yang digantikan baris ini. */
+  correctionOfId?: string | null;
+  correctionReason?: string | null;
+  /** Putaran meter yang dipakai pembacaan ini (US-M8-01 KP-2). */
+  adjustmentKind?: "rollover" | "replacement" | null;
+  /** US-M8-01 KP-3: dicatat setelah jam batas dengan alasan. */
+  lateReason?: string | null;
+  photoAttachmentId?: string | null;
+  deviceId?: string | null;
+  lateSync?: boolean;
 }
 export interface TruckFillRecordedPayload {
   truckFillId: string;
@@ -744,6 +757,25 @@ export interface TruckFillRecordedPayload {
   tripId?: string | null;
   volumeL: number;
   isSupply: boolean;
+  // --- Tambahan M8 (opsional, hanya tambah; payload mandiri PTB-47) ---
+  businessDate?: string;
+  filledAt?: string;
+  tripNumber?: string | null;
+  /** Pasokan depot: outlet tujuan rit internal (US-M8-03). */
+  destinationOutletId?: string | null;
+  /** US-M8-02 KP-2: pengisian tanpa rit terjadwal. */
+  withoutTrip?: boolean;
+  /** 7.8.6: truk di luar rencana sumber ini (dipilih dengan konfirmasi). */
+  unplannedTruck?: boolean;
+  volumeReason?: string | null;
+  /**
+   * Koreksi Admin Keuangan (BR-38, US-M8-02 KP-6): baris PEMBALIK — `volumeL` NEGATIF, `reversalOfId` = pengisian asal.
+   * Konsumen yang menjumlah volume (alokasi biaya PAR-65) cukup menjumlah; pencocokan geofence (M12) mengabaikannya.
+   */
+  reversalOfId?: string | null;
+  reason?: string | null;
+  deviceId?: string | null;
+  lateSync?: boolean;
 }
 export interface WaterBalanceComputedPayload {
   waterBalanceId: string;
@@ -753,6 +785,24 @@ export interface WaterBalanceComputedPayload {
   lossL: number;
   lossPct: number;
   overThreshold: boolean;
+  // --- Tambahan M8 (opsional, hanya tambah; masukan H+0 M9) ---
+  businessDate?: string;
+  status?: "formed" | "normal" | "over_threshold" | "investigating" | "done" | "negative_anomaly";
+  /** Produksi belum lengkap (pembacaan belum ada) — angka susut belum final. */
+  isIncomplete?: boolean;
+  productionStatus?: "incomplete" | "complete" | "combined" | "estimated" | null;
+  filledCustomerL?: number;
+  filledDepotL?: number;
+  /** Air rit gagal yang dikembalikan ke sumber (dikurangkan dari Σ pengisian). */
+  returnedL?: number;
+  /** US-M8-04 KP-5: susut negatif → anomali, wajib verifikasi Admin Keuangan. */
+  negative?: boolean;
+  /** US-M8-05: Σ pengisian ÷ kapasitas harian; > PAR-19 ditandai (dashboard & H+0). */
+  utilizationPct?: number | null;
+  utilizationHigh?: boolean;
+  avgLoss7dPct?: number | null;
+  /** Dihitung ulang (data terlambat sinkron / koreksi) — bukan perhitungan pertama. */
+  recomputed?: boolean;
 }
 
 // --- M10/M11/M12/P2/P3 -----------------------------------------------------------------------------------------------

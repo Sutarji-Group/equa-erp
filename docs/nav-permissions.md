@@ -50,6 +50,7 @@ m1.pool_location.read
 m1.product.read
 m1.tariff_zone.read
 m1.truck.read
+m1.water_meter.update
 m1.water_source.read
 m10.access_review.read
 m10.approval.read
@@ -109,7 +110,9 @@ m7.stock.read
 m7.stock_count.read
 m7.supplier.read
 m7.supplier_payable.read
+m8.production.read
 m8.quality_test.read
+m8.truck_fill.read
 m8.utilization.read
 m8.water_balance.read
 m9.daily_summary.read
@@ -179,6 +182,9 @@ p3.support_request.read
 | Produksi air | `/produksi/neraca-air` | Neraca air | `m8.water_balance.read` |  |
 | Produksi air | `/produksi/utilisasi` | Utilisasi kapasitas | `m8.utilization.read` |  |
 | Produksi air | `/produksi/mutu` | Mutu air | `m8.quality_test.read` |  |
+| Produksi air | `/produksi/pengisian` | Pengisian & pasokan | `m8.truck_fill.read` |  |
+| Produksi air | `/produksi/kelola-meter` | Meter sumber air | `m8.production.read` / `m1.water_meter.update` |  |
+| Produksi air | `/produksi/neraca-air/rincian` | Rincian neraca harian | `m8.water_balance.read` | tidak tampil di sidebar |
 | Armada | `/armada/peta` | Peta truk | `m12.position.read` |  |
 | Armada | `/armada/riwayat` | Riwayat perjalanan | `m12.trip_history.read` |  |
 | Armada | `/armada/kejadian` | Kejadian armada | `m12.fleet_event.read` |  |
