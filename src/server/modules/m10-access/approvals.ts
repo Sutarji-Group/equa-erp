@@ -1,22 +1,27 @@
 /**
  * M10 — handler jenis persetujuan milik modul ini (PRD 6.2a; registri `src/server/core/approvals/registry.ts`).
  *
- * ```ts
- * import { registerApprovalHandler } from "@/server/core/approvals";
- * export function registerApprovals(): void {
- *   registerApprovalHandler("<jenis>", {
- *     onApproved: async ({ tx, request, ctx }) => { … ubah objek sumber … },
- *     onRejected: async ({ tx, request, reason }) => { … },
- *     onExpired: async ({ tx, request }) => { … perilaku "bila lewat tenggat" … },
- *   });
- * }
- * ```
- * PERHATIAN: `ctx` handler = pelaku KEPUTUSAN (pemilik/penyetuju), bukan pemohon. Jangan memanggil layanan modul yang
- * `authorize` izin harian (pemilik ditolak SOD-08). Tulis langsung dengan `tx` + `audit.record(tx, { ctx, … })`, atau
- * panggil fungsi internal modul tanpa `authorize` (atau `systemContext({ tenantId: request.tenantId })` + `rule: "6.2a"`).
+ * | Jenis           | Disetujui                                | Ditolak/dibatalkan                   | Lewat tenggat (6.2a)                          |
+ * |-----------------|------------------------------------------|--------------------------------------|-----------------------------------------------|
+ * | account_create  | akun + peran + lingkup aktif             | pemberian ditolak; akun tidak aktif   | escalate (D-08): tetap terbuka, akun tidak aktif |
+ * | role_grant      | peran baru aktif, peran lama dicabut     | pemberian ditolak                    | escalate: peran tidak aktif                   |
+ * | scope_extension | lingkup baru aktif                       | pemberian ditolak                    | escalate: lingkup tidak aktif                 |
+ * | multi_role      | peran tambahan aktif (masa berlaku)      | pemberian ditolak                    | tanpa tenggat: tidak aktif                    |
+ * | anonymization   | anonimisasi dijalankan / ditunda (piutang) | ditolak                            | tanpa tenggat                                 |
+ *
+ * `ctx` handler = pemilik (penyetuju) — tulisan langsung dengan `tx` + `audit.record`, tanpa `authorize` izin admin.
  */
 import "server-only";
 
+import { registerApprovalHandler } from "@/server/core/approvals";
+
+import { accountCreateHandlers, multiRoleHandlers, roleGrantHandlers, scopeExtensionHandlers } from "./service/access-approvals";
+import { anonymizationHandlers } from "./service/anonymization";
+
 export function registerApprovals(): void {
-  // Belum ada handler — diisi agen modul M10.
+  registerApprovalHandler("account_create", accountCreateHandlers);
+  registerApprovalHandler("role_grant", roleGrantHandlers);
+  registerApprovalHandler("multi_role", multiRoleHandlers);
+  registerApprovalHandler("scope_extension", scopeExtensionHandlers);
+  registerApprovalHandler("anonymization", anonymizationHandlers);
 }
