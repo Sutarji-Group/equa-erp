@@ -1,0 +1,20 @@
+{
+  "id": "/aktivasi-perangkat",
+  "name": "EQUA Lapangan",
+  "short_name": "EQUA Lapangan",
+  "description": "Aplikasi lapangan EQUA: sopir & kernet, POS depot/toko, dan operator produksi. Tetap berjalan tanpa sinyal.",
+  "lang": "id",
+  "dir": "ltr",
+  "start_url": "/aktivasi-perangkat",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1e40af",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

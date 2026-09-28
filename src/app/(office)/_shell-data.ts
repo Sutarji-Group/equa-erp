@@ -1,34 +1,63 @@
 import "server-only";
 
+import type { NotificationPreview } from "@/components/shared/notification-bell";
 import type { OfficeShellCounts, OfficeShellUser } from "@/components/shared/office-shell";
+import { serverEnv } from "@/lib/env";
+import * as approvals from "@/server/core/approvals";
+import type { ActiveOfficeSession } from "@/server/core/auth/office";
+import { getDb } from "@/server/core/db";
+import { enabledFlags } from "@/server/core/flags";
+import * as notifications from "@/server/core/notifications";
+import { can } from "@/server/core/rbac";
 
 export type OfficeShellData = {
   user: OfficeShellUser;
-  /** String izin `<modul>.<sumberdaya>.<aksi>`; wildcard `*` = semua. */
+  /** String izin `<modul>.<sumberdaya>.<aksi>` dari matriks RBAC untuk peran aktif. */
   permissions: string[];
   counts: OfficeShellCounts;
-  /** Lencana lingkungan di samping logo (mis. "Demo"). */
+  enabledFlags: string[];
+  notifications: NotificationPreview[];
+  /** Lencana lingkungan di samping logo (bukan produksi → "Demo"). */
   environmentLabel?: string;
 };
 
-/** Pengguna demo khusus pengembangan (BUKAN untuk produksi). */
-const DEV_DEMO_SHELL: OfficeShellData = {
-  user: { name: "Pengguna Demo", roleLabels: ["Pemilik"] },
-  permissions: ["*"],
-  counts: { approvals: 3, approvalsOverdue: 1, notifications: 5, inbox: 2 },
-  environmentLabel: "Demo",
-};
-
 /**
- * Data kerangka web kantor (pengguna, izin, hitungan lencana).
- *
- * TODO(auth): agen auth (M10) mengganti isi fungsi ini dengan sesi nyata — baca cookie `equa_session`, muat pengguna,
- * peran aktif (`label("role", code)`), izin dari matriks RBAC, hitungan persetujuan/notifikasi/kotak masuk — dan
- * mengembalikan `null` bila belum masuk (layout lalu mengarahkan ke `/masuk`).
- *
- * Sementara itu: pengguna demo HANYA bila `NODE_ENV !== "production"`; di produksi selalu `null`.
+ * Data kerangka web kantor dari sesi nyata (F3c): pengguna & label peran, izin RBAC (menu disaring
+ * `filterNavByPermissions`), hitungan persetujuan menunggu (+ lewat tenggat) & notifikasi belum dibaca, pratinjau
+ * notifikasi, feature flag aktif. Sesi diperiksa oleh `requireOfficeSession()` di layout.
  */
-export async function getOfficeShellData(): Promise<OfficeShellData | null> {
-  if (process.env.NODE_ENV === "production") return null;
-  return DEV_DEMO_SHELL;
+export async function getOfficeShellData(session: ActiveOfficeSession): Promise<OfficeShellData> {
+  const { ctx, user, permissions } = session;
+  const db = getDb();
+
+  let approvalsCount = 0;
+  let approvalsOverdue = 0;
+  if (can(ctx, "m10.approval.read")) {
+    const inbox = await approvals.listInbox(ctx, { limit: 500 });
+    const decidable = inbox.filter((i) => i.canDecide);
+    approvalsCount = decidable.length;
+    approvalsOverdue = decidable.filter((i) => i.isOverdue).length;
+  }
+  const [unread, recent, flags] = await Promise.all([
+    notifications.unreadCount(ctx),
+    notifications.list(ctx, { limit: 5 }),
+    enabledFlags(db, { tenantId: ctx.tenantId }),
+  ]);
+  const env = serverEnv();
+  return {
+    user: { name: user.name, roleLabels: user.roleLabels },
+    permissions,
+    counts: { approvals: approvalsCount, approvalsOverdue, notifications: unread },
+    enabledFlags: flags,
+    notifications: recent.map((n) => ({
+      id: n.id,
+      title: n.title,
+      body: n.body ?? undefined,
+      at: n.createdAt,
+      href: n.link ?? "/notifikasi",
+      severity: n.severity === "critical" ? "critical" : n.severity === "high" ? "warning" : "info",
+      unread: n.status === "new",
+    })),
+    environmentLabel: env.VERCEL_ENV === "production" ? undefined : "Demo",
+  };
 }

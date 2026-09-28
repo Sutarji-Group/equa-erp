@@ -3,6 +3,7 @@ import { generate } from "otplib";
 import { describe, expect, it } from "vitest";
 
 import { accessLogs, employees, sessions, users } from "@/db/schema";
+import type { RoleCode } from "@/lib/labels";
 import { SEED_DEMO_PASSWORD, SEED_TOTP_SECRETS, userIdByUsername } from "@/db/seed";
 import { getActorContext } from "@/server/core/actor";
 import {
@@ -22,7 +23,7 @@ import * as params from "@/server/core/params";
 
 import { seededContext } from "../helpers/context";
 import { useTestDb as withTestDb } from "../helpers/db";
-import { createTestUser } from "../helpers/factories";
+import { createTestUser, type CreateTestUserOptions } from "../helpers/factories";
 
 const t = withTestDb({ seed: true });
 
@@ -36,7 +37,7 @@ async function expectAuthError(p: Promise<unknown>, code: string): Promise<AuthE
   return err as AuthError;
 }
 
-async function userWithPassword(role: Parameters<typeof createTestUser>[1]["role"], password = "kata-sandi-uji-123", extra: Parameters<typeof createTestUser>[1] = {}) {
+async function userWithPassword(role: RoleCode, password = "kata-sandi-uji-123", extra: CreateTestUserOptions = {}) {
   const u = await createTestUser(t.db, { role, ...extra });
   await t.db.update(users).set({ passwordHash: await hashPassword(password) }).where(eq(users.id, u.userId));
   return { ...u, password };

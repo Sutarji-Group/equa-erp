@@ -2,7 +2,8 @@
  * Handler & penyedia sinkron inti (contoh + diagnostik; dipanggil `registerCoreAuth` saat bootstrap):
  * - perintah `core.ping` — uji kirim data dari perangkat ("Kirim data uji"); efeknya satu baris riwayat perangkat;
  * - pull `core.me` — pengguna, peran, lingkup (truk hari itu), perangkat;
- * - pull `core.device_users` — daftar pengguna yang boleh memakai perangkat (layar pilih pengguna offline).
+ * - pull `core.device_users` — daftar pengguna yang boleh memakai perangkat (layar pilih pengguna offline);
+ * - perintah `core.support.report` — laporan kendala aplikasi dari perangkat (US-M10-07 KP-3), bekerja offline.
  */
 import "server-only";
 
@@ -11,6 +12,7 @@ import { z } from "zod";
 import { label } from "@/lib/labels";
 
 import { listDeviceUsers } from "../auth/field-login";
+import { createSupportTicket, supportTicketSchema } from "../support";
 import { logDeviceUsage, publicDevice } from "../auth/devices";
 import { registerPullProvider, registerSyncHandler } from "./registry";
 
@@ -38,6 +40,17 @@ export function registerCoreSync(): void {
         objectId: device.id,
         result: { pong: true, receivedAt: ctx.now.toISOString(), businessDate: command.businessDate },
       };
+    },
+  });
+
+  registerSyncHandler("core.support.report", {
+    permission: "m10.support_ticket.create",
+    description: "Laporan kendala aplikasi / masukan lapangan dari perangkat.",
+    schema: supportTicketSchema,
+    labels: { subject: "Judul", description: "Uraian" },
+    handle: async (ctx, payload, { tx }) => {
+      const ticket = await createSupportTicket(ctx, payload, { tx });
+      return { objectType: "support_ticket", objectId: ticket.id };
     },
   });
 

@@ -1,20 +1,27 @@
-import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { OfficeShell } from "@/components/shared/office-shell";
+import { requireOfficeSession } from "@/server/core/auth/office";
 
 import { getOfficeShellData } from "./_shell-data";
 
 /**
- * Layout web kantor: kerangka OfficeShell (sidebar dari registri nav, topbar, breadcrumb).
- * TODO(auth): `getOfficeShellData()` masih placeholder (pengguna demo hanya di luar produksi). Agen auth menghubungkan
- * sesi nyata + Server Action keluar (`signOutAction`).
+ * Layout web kantor: sesi nyata (`requireOfficeSession` → /masuk bila belum masuk / sesi habis, /masuk/2fa bila
+ * menunggu 2FA), menu disaring izin RBAC, lencana persetujuan & notifikasi, aksi keluar (`POST /keluar`).
  */
 export default async function OfficeLayout({ children }: { children: ReactNode }) {
-  const data = await getOfficeShellData();
-  if (!data) redirect("/masuk");
+  const session = await requireOfficeSession();
+  const data = await getOfficeShellData(session);
   return (
-    <OfficeShell user={data.user} permissions={data.permissions} counts={data.counts} environmentLabel={data.environmentLabel}>
+    <OfficeShell
+      user={data.user}
+      permissions={data.permissions}
+      counts={data.counts}
+      enabledFlags={data.enabledFlags}
+      notifications={data.notifications}
+      environmentLabel={data.environmentLabel}
+      signOutAction="/keluar"
+    >
       {children}
     </OfficeShell>
   );
