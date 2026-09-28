@@ -20,7 +20,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { enumValues } from "../../lib/labels";
-import { dateStr, money, pk, refId, timestamps, tstz } from "./_columns";
+import { dateStr, money, percent, pk, refId, timestamps, tstz } from "./_columns";
 import {
   approvalRef,
   attachmentRef,
@@ -36,6 +36,7 @@ import {
 } from "./core";
 import { trucks, waterSources } from "./m1-master";
 import { bankAccounts, discrepancies } from "./m4-cash";
+import { suppliers } from "./m7-store";
 
 export const periodStatusEnum = pgEnum("period_status", enumValues("period_status"));
 export const accountTypeEnum = pgEnum("account_type", enumValues("account_type"));
@@ -582,4 +583,221 @@ export const openingBalanceLinesRelations = relations(openingBalanceLines, ({ on
 export const costAllocationRunsRelations = relations(costAllocationRuns, ({ one }) => ({
   period: one(accountingPeriods, { fields: [costAllocationRuns.periodId], references: [accountingPeriods.id] }),
   journal: one(journals, { fields: [costAllocationRuns.journalId], references: [journals.id] }),
+}));
+
+// =====================================================================================================================
+// Tambahan agen M11 (hanya tambah) — jurnal berulang, rincian jurnal manual, utang dari jurnal manual, jurnal
+// retroaktif (PTB-47), catatan tinjauan akuntan per periode, pelengkap aset & pajak.
+// =====================================================================================================================
+
+export const recurringJournalTemplateEnum = pgEnum("recurring_journal_template", enumValues("recurring_journal_template"));
+export const journalPayableStatusEnum = pgEnum("journal_payable_status", enumValues("journal_payable_status"));
+export const periodReviewKindEnum = pgEnum("period_review_kind", enumValues("period_review_kind"));
+
+/** Baris template jurnal manual/berulang (akun + pusat laba + sisi + jumlah). */
+export type TemplateJournalLine = {
+  accountId: string;
+  profitCenter: string;
+  outletId?: string | null;
+  side: "debit" | "credit";
+  amount: number;
+  memo?: string | null;
+};
+
+/**
+ * Jurnal berulang terjadwal bulanan (US-M11-03 KP-4): sewa, listrik, gaji, dsb. Job M11 membuat DRAF tiap bulan
+ * (tetap memerlukan lampiran & persetujuan sesuai ambang PAR-20). Penyusutan BUKAN jurnal berulang (otomatis, US-M11-05).
+ */
+export const recurringJournals = pgTable(
+  "recurring_journals",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    name: text("name").notNull(),
+    template: recurringJournalTemplateEnum("template").notNull(),
+    description: text("description").notNull(),
+    lines: jsonb("lines").$type<TemplateJournalLine[]>().notNull(),
+    /** Tanggal jurnal draf di bulan berjalan (1–28). */
+    dayOfMonth: integer("day_of_month").notNull().default(1),
+    /** Draf bertanda akrual → dibalik otomatis tanggal 1 periode berikutnya (US-M11-03 KP-6). */
+    isAccrual: boolean("is_accrual").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    /** 'YYYY-MM' draf terakhir yang dibuat (idempotensi job bulanan). */
+    lastGeneratedPeriod: text("last_generated_period"),
+    ...timestamps(),
+    createdBy: createdBy(),
+  },
+  (t) => [
+    index("recurring_journals_tenant_idx").on(t.tenantId, t.isActive),
+    check("recurring_journals_day_chk", sql`${t.dayOfMonth} between 1 and 28`),
+  ],
+);
+
+/**
+ * Rincian jurnal manual (US-M11-03, US-M11-07, PTB-28): asal jurnal berulang, penanda utang, pelunasan utang, penghapusan
+ * piutang, catatan akuntan (penyesuaian saldo awal).
+ */
+export const manualJournalDetails = pgTable(
+  "manual_journal_details",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    journalId: uuid("journal_id")
+      .notNull()
+      .references((): AnyPgColumn => journals.id),
+    recurringJournalId: uuid("recurring_journal_id").references((): AnyPgColumn => recurringJournals.id),
+    /** 'YYYY-MM' untuk draf dari jurnal berulang. */
+    recurringPeriod: text("recurring_period"),
+    /** Jurnal bertanda utang (US-M11-07 KP-1). */
+    payable: jsonb("payable").$type<{ supplierId?: string | null; payeeName: string; dueDate: string; amount: number } | null>(),
+    /** Jurnal pembayaran utang manual (mengurangi utang). */
+    settlesPayableId: uuid("settles_payable_id"),
+    /** Jurnal penghapusan piutang (PTB-28) → `m5.writeOffInvoice` saat terposting. */
+    writeOff: jsonb("write_off").$type<{ invoiceId: string; amount: number } | null>(),
+    /** Catatan akuntan (wajib untuk penyesuaian saldo awal, US-M11-09 KP-3). */
+    accountantNote: text("accountant_note"),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("manual_journal_details_journal_uq").on(t.journalId),
+    uniqueIndex("manual_journal_details_recurring_uq")
+      .on(t.recurringJournalId, t.recurringPeriod)
+      .where(sql`${t.recurringJournalId} is not null`),
+  ],
+);
+
+/** Utang dari jurnal manual bertanda utang (US-M11-07 KP-1): umur, jadwal, pelunasan lewat jurnal pembayaran. */
+export const journalPayables = pgTable(
+  "journal_payables",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    journalId: uuid("journal_id")
+      .notNull()
+      .references((): AnyPgColumn => journals.id),
+    supplierId: uuid("supplier_id").references((): AnyPgColumn => suppliers.id),
+    payeeName: text("payee_name").notNull(),
+    description: text("description").notNull(),
+    amount: money("amount").notNull(),
+    dueDate: dateStr("due_date").notNull(),
+    settledAmount: money("settled_amount").notNull().default(0),
+    status: journalPayableStatusEnum("status").notNull().default("open"),
+    ...timestamps(),
+    createdBy: createdBy(),
+  },
+  (t) => [
+    uniqueIndex("journal_payables_journal_uq").on(t.journalId),
+    index("journal_payables_due_idx").on(t.tenantId, t.status, t.dueDate),
+    check("journal_payables_amount_chk", sql`${t.amount} > 0 and ${t.settledAmount} >= 0 and ${t.settledAmount} <= ${t.amount}`),
+  ],
+);
+
+/** Pelunasan utang jurnal manual (jurnal pembayaran → mengurangi utang). */
+export const journalPayableSettlements = pgTable(
+  "journal_payable_settlements",
+  {
+    id: pk(),
+    payableId: uuid("payable_id")
+      .notNull()
+      .references((): AnyPgColumn => journalPayables.id),
+    journalId: uuid("journal_id")
+      .notNull()
+      .references((): AnyPgColumn => journals.id),
+    amount: money("amount").notNull(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("journal_payable_settlements_uq").on(t.payableId, t.journalId)],
+);
+
+/**
+ * Pembangkitan jurnal retroaktif (PTB-47, US-M11-02 KP-4, US-M11-09 KP-4): M11 menyusul modul operasional → seluruh
+ * peristiwa sejak cut-over diputar ulang dari `domain_events` (idempoten per event) lalu diverifikasi akuntan.
+ */
+export const retroactiveRuns = pgTable(
+  "retroactive_runs",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    fromDate: dateStr("from_date").notNull(),
+    toDate: dateStr("to_date").notNull(),
+    status: text("status").notNull().default("running"),
+    eventsScanned: integer("events_scanned").notNull().default(0),
+    posted: integer("posted").notNull().default(0),
+    duplicates: integer("duplicates").notNull().default(0),
+    queued: integer("queued").notNull().default(0),
+    skipped: integer("skipped").notNull().default(0),
+    /** Periode yang jurnalnya dibangkitkan (label "dibangkitkan retroaktif"). */
+    periods: jsonb("periods").$type<string[]>().notNull().default([]),
+    startedBy: userRef("started_by"),
+    startedAt: tstz("started_at").notNull().defaultNow(),
+    finishedAt: tstz("finished_at"),
+    verifiedBy: userRef("verified_by"),
+    verifiedAt: tstz("verified_at"),
+    verificationNote: text("verification_note"),
+    ...timestamps(),
+  },
+  (t) => [index("retroactive_runs_tenant_idx").on(t.tenantId, t.startedAt)],
+);
+
+/** Catatan tinjauan akuntan per periode (US-M11-04 KP-5, US-M11-10 KP-5 bukti TG-8) — riwayat lengkap. */
+export const periodReviewNotes = pgTable(
+  "period_review_notes",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    periodId: uuid("period_id")
+      .notNull()
+      .references((): AnyPgColumn => accountingPeriods.id),
+    kind: periodReviewKindEnum("kind").notNull().default("review"),
+    note: text("note").notNull(),
+    ...timestamps(),
+    createdBy: createdBy(),
+  },
+  (t) => [index("period_review_notes_period_idx").on(t.periodId, t.createdAt)],
+);
+
+/** Pelengkap aset tetap (M11): akumulasi saat cut-over (aset impor) & jurnal perolehan (nota/jurnal manual). */
+export const fixedAssetExtras = pgTable(
+  "fixed_asset_extras",
+  {
+    id: pk(),
+    fixedAssetId: uuid("fixed_asset_id")
+      .notNull()
+      .references((): AnyPgColumn => fixedAssets.id),
+    /** Akumulasi penyusutan s.d. cut-over (aset dari impor saldo awal). */
+    openingAccumulated: money("opening_accumulated").notNull().default(0),
+    /** Jurnal perolehan (penambahan dari nota/jurnal manual, US-M11-05 KP-4). */
+    acquisitionJournalId: uuid("acquisition_journal_id").references((): AnyPgColumn => journals.id),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("fixed_asset_extras_asset_uq").on(t.fixedAssetId)],
+);
+
+/** Tarif skema pajak selain PPh final UMKM (US-M11-08 KP-2: "skema lain diinput sebagai parameter"). */
+export const taxSchemeRates = pgTable(
+  "tax_scheme_rates",
+  {
+    id: pk(),
+    taxSettingId: uuid("tax_setting_id")
+      .notNull()
+      .references((): AnyPgColumn => taxSettings.id),
+    ratePercent: percent("rate_percent").notNull(),
+    basis: text("basis").notNull().default("gross_revenue"),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("tax_scheme_rates_setting_uq").on(t.taxSettingId)],
+);
+
+export const manualJournalDetailsRelations = relations(manualJournalDetails, ({ one }) => ({
+  journal: one(journals, { fields: [manualJournalDetails.journalId], references: [journals.id] }),
+}));
+export const journalPayablesRelations = relations(journalPayables, ({ one, many }) => ({
+  journal: one(journals, { fields: [journalPayables.journalId], references: [journals.id] }),
+  settlements: many(journalPayableSettlements),
+}));
+export const journalPayableSettlementsRelations = relations(journalPayableSettlements, ({ one }) => ({
+  payable: one(journalPayables, { fields: [journalPayableSettlements.payableId], references: [journalPayables.id] }),
+}));
+export const periodReviewNotesRelations = relations(periodReviewNotes, ({ one }) => ({
+  period: one(accountingPeriods, { fields: [periodReviewNotes.periodId], references: [accountingPeriods.id] }),
 }));

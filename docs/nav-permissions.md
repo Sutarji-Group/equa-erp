@@ -70,6 +70,7 @@ m11.journal.read
 m11.journal_mapping.read
 m11.ledger.read
 m11.opening_balance.read
+m11.payable.read
 m11.period.read
 m11.reconciliation.read
 m11.tax.read
@@ -207,6 +208,7 @@ p3.support_request.read
 | Akuntansi | `/akuntansi/periode` | Periode | `m11.period.read` |  |
 | Akuntansi | `/akuntansi/pajak` | Pajak | `m11.tax.read` |  |
 | Akuntansi | `/akuntansi/saldo-awal` | Saldo awal | `m11.opening_balance.read` |  |
+| Akuntansi | `/akuntansi/utang` | Utang usaha | `m11.payable.read` |  |
 | Data master | `/master/pelanggan` | Pelanggan | `m1.customer.read` |  |
 | Data master | `/master/produk` | Produk & harga | `m1.product.read` |  |
 | Data master | `/master/zona` | Zona tarif | `m1.tariff_zone.read` |  |

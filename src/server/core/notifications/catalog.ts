@@ -165,6 +165,11 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("fleet.geofence_mismatch", "Pengisian/pasokan tidak cocok dengan geofence", "normal", ["owner"], "Tinjau di Kejadian armada; pertimbangkan pada neraca air (M8)", "US-M12-06 KP-2/KP-4"),
   e("fleet.zone_mismatch", "Jarak GPS alamat masuk zona tarif lain", "normal", ["owner"], "Tinjau selisih tarif; ubah zona hanya lewat Data master > Zona (persetujuan pemilik)", "US-M12-07 KP-2, US-M1-05 KP-6"),
   e("fleet.explanation_requested", "Keterangan perjalanan diminta", "normal", [], "Isi keterangan di aplikasi sopir hari ini (BR-25)", "US-M12-04 KP-3, BR-25"),
+  // --- Tambahan modul M11 (Akuntansi & Pajak) — hanya tambah ---
+  e("journal.owner_review", "Jurnal manual masuk daftar tinjauan pemilik", "normal", ["owner"], "Tandai daftar tinjauan sebelum periode ditutup (PTB-12)", "US-M11-03 KP-2, PTB-12"),
+  e("journal.recurring_ready", "Draf jurnal berulang bulan ini siap", "normal", ["finance_admin"], "Lengkapi lampiran lalu ajukan/posting", "US-M11-03 KP-4"),
+  e("journal.retroactive_done", "Jurnal retroaktif selesai dibangkitkan", "normal", ["finance_admin", "accountant"], "Akuntan memverifikasi sebelum periode pertama ditutup", "US-M11-02 KP-4, PTB-47"),
+  e("asset.signoff_pending", "Daftar aset menunggu tanda tangan pemilik", "normal", ["owner"], "Tinjau & tanda tangani daftar aset impor", "US-M11-05 KP-1, NFR-34"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

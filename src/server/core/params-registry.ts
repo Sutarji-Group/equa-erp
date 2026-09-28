@@ -710,6 +710,50 @@ export const PARAM_REGISTRY = {
         "Batas akurasi posisi yang dipakai deteksi, kecepatan & radius diam, jarak gerak minimal, penyaring lompatan posisi, celah jejak, ambang sumber lokasi tidak konsisten (± menit), jendela geofence pengisian & lama di sumber tanpa pengisian, histeresis geofence, perangkat mati yang tampil di H+0, pola perangkat mati berulang, gangguan vendor sistemik, kecepatan rata-rata perkiraan tiba, jangka putar ulang, jumlah rit pemeriksaan zona, dan jendela penilaian job deteksi.",
     },
   }),
+  // --- Tambahan modul M11 (Akuntansi & Pajak) — hanya tambah ---
+  /** Kunci alokasi biaya bersama ditetapkan pemilik (US-M11-01 KP-5 [USULAN]): dibiarkan / omzet / persentase tetap. */
+  "m11.shared_cost_allocation": defineParam({
+    schema: z
+      .object({
+        basis: z.enum(["none", "revenue", "fixed"]),
+        /** Persentase tetap per lini (jumlah 100) — hanya untuk `fixed`. */
+        fixed_percents: z.record(z.enum(["L2", "L3", "L4", "L5"]), pct).nullable(),
+      })
+      .strict()
+      .refine((v) => v.basis !== "fixed" || (v.fixed_percents !== null && Math.abs(Object.values(v.fixed_percents).reduce((s, n) => s + (n ?? 0), 0) - 100) < 0.01), {
+        error: "Persentase tetap per lini harus berjumlah 100%.",
+      }),
+    scopes: ["global", "tenant"],
+    affectedRoles: ["finance_admin", "accountant"],
+    fallback: { basis: "none", fixed_percents: null },
+    meta: {
+      name: "Kunci alokasi biaya bersama",
+      unit: null,
+      reference: "US-M11-01 KP-5",
+      description: "Biaya pusat biaya bersama (kantor, Admin Keuangan, IT) dialokasikan ke lini menurut omzet, persentase tetap, atau dibiarkan.",
+    },
+  }),
+  /** Aturan akuntansi M11 yang bukan PAR Lampiran B (penyusutan, pengingat utang jurnal manual). */
+  "m11.accounting_rules": defineParam({
+    schema: z
+      .object({
+        /** Penyusutan dimulai bulan perolehan bila diperoleh ≤ tanggal ini; setelahnya mulai bulan berikutnya. */
+        depreciation_same_month_until_day: int(1).max(31),
+        /** Pengingat utang jurnal manual N hari sebelum jatuh tempo (Bab 6.3). */
+        payable_reminder_days_before: int(0),
+        /** Penutupan periode pertama setelah cut-over wajib catatan tinjauan akuntan (TG-8). */
+        first_close_requires_accountant_note: z.boolean(),
+      })
+      .strict(),
+    affectedRoles: ["finance_admin", "accountant"],
+    fallback: { depreciation_same_month_until_day: 15, payable_reminder_days_before: 3, first_close_requires_accountant_note: true },
+    meta: {
+      name: "Aturan akuntansi (penyusutan, pengingat utang, tutup buku pertama)",
+      unit: null,
+      reference: "US-M11-05 KP-2, US-M11-07 KP-3, US-M11-10 KP-5",
+      description: "Awal penyusutan menurut tanggal perolehan, pengingat utang jurnal manual, dan syarat catatan akuntan pada tutup buku pertama (TG-8).",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;
