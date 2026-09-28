@@ -81,6 +81,9 @@ m2.order.read
 m2.recurring_order.read
 m2.schedule.read
 m3.office_entry.create
+m3.office_entry.read
+m3.payment_report.read
+m3.trip_incident.read
 m4.cash_day.read
 m4.cash_position.read
 m4.deposit.read
@@ -134,6 +137,8 @@ p3.support_request.read
 | Pesanan & jadwal | `/jadwal/kru` | Jadwal kru | `m2.crew_assignment.read` |  |
 | Pesanan & jadwal | `/langganan` | Pesanan berulang | `m2.recurring_order.read` |  |
 | Pesanan & jadwal | `/sopir-kantor/dicatat-kantor` | Dicatat kantor | `m3.office_entry.create` |  |
+| Pesanan & jadwal | `/sopir-kantor/kendala` | Kendala sopir | `m3.trip_incident.read` |  |
+| Pesanan & jadwal | `/sopir-kantor/laporan` | Laporan sopir | `m3.office_entry.read` / `m3.payment_report.read` |  |
 | Kas & setoran | `/kas` | Kas hari ini | `m4.cash_position.read` |  |
 | Kas & setoran | `/kas/setoran` | Setoran | `m4.deposit.read` |  |
 | Kas & setoran | `/kas/selisih` | Selisih | `m4.discrepancy.read` |  |

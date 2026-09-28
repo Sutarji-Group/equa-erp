@@ -18,6 +18,7 @@ import { seedCustomers } from "./customers";
 import { seedDemoM1Master } from "./demo-m1-master";
 import { seedDemoM10Access } from "./demo-m10-access";
 import { seedDemoM2Orders } from "./demo-m2-orders";
+import { seedDemoM3Driver } from "./demo-m3-driver";
 import { seedDemoM6Pos } from "./demo-m6-pos";
 import { seedId } from "./ids";
 import { seedOrganization } from "./org";
@@ -101,6 +102,7 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoM10Access(tx);
     await seedDemoM2Orders(tx);
     await seedDemoM6Pos(tx);
+    await seedDemoM3Driver(tx);
 
     const counts = await countRows(tx);
     return { parameters: paramRows.length, users: org.usersInserted, customers: cust.customers, counts };

@@ -126,6 +126,13 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("water_supply.discrepancy", "Selisih pasokan air depot (kirim vs terima)", "normal", ["dispatcher"], "Periksa catatan sopir & operator; masukan neraca air M8", "US-M6-05 KP-1, P-04 langkah 3"),
   e("pos.shift_conflict", "Konflik shift POS (dua shift terbuka)", "high", ["finance_admin"], "Tinjau shift dari perangkat cadangan; tandai selesai setelah dicocokkan", "7.6.6, Bab 6.4 butir 3"),
   e("tenant.created", "Tenant mitra baru dibuat", "info", ["owner"], "Informasi; lengkapi pengaturan outlet mitra", "US-M6-07 KP-1"),
+  // --- Tambahan modul M3 (Aplikasi Sopir) — hanya tambah ---
+  e("trip.partial_volume", "Volume parsial di lapangan", "normal", ["dispatcher", "finance_admin"], "Tinjau alasan; penyesuaian harga hanya lewat koreksi Admin Keuangan (BR-38)", "BR-22, US-M3-03 KP-2"),
+  e("trip_incident.reported", "Kendala perjalanan dilaporkan sopir", "normal", ["dispatcher"], "Tindak lanjuti; konfirmasi truk rusak agar status truk menjadi Perbaikan", "US-M3-06 KP-3"),
+  e("deposit.driver_reminder", "Pengingat: setoran hari ini belum diajukan", "normal", [], "Tekan \"Setor\" di aplikasi sopir", "US-M3-07 KP-5, PAR-06"),
+  e("deposit.depositor_note", "Keterangan sopir atas selisih setoran", "normal", ["finance_admin"], "Masukkan ke alur selisih (M4)", "US-M3-07 KP-4"),
+  e("deposit.reopened", "Setoran sopir dibuka kembali", "info", [], "Lanjutkan rit lalu tekan \"Setor\" lagi", "US-M3-07 KP-2"),
+  e("field_credit.decided", "Permintaan tempo di lapangan diputuskan", "info", ["finance_admin"], "Tempo disetujui setelah rit dicatat kurang bayar → konversi ke tempo setelah pemeriksaan batas", "PTB-19, US-M3-04 KP-4"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

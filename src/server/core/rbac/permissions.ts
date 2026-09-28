@@ -494,6 +494,17 @@ export const PERMISSIONS: readonly PermissionDef[] = [
     finance: true,
     ref: "7.6.6, Bab 6.4 butir 3",
   }),
+
+  // ===================================================================================================================
+  // Tambahan modul M3 (Aplikasi Sopir) — hanya tambah
+  // ===================================================================================================================
+  p("m3.trip_incident.read", "Melihat kendala perjalanan & rit gagal sopir", [O, D], { ref: "US-M3-06 KP-3" }),
+  p("m3.trip_incident.confirm", "Mengonfirmasi kendala sopir (truk rusak → Perbaikan)", [D], { ref: "US-M3-06 KP-3" }),
+  p("m3.office_entry.read", "Melihat laporan pencatatan \"dicatat kantor\" (KPI-01)", [O, FA], { ref: "US-M3-09 KP-5, Bab 6.1" }),
+  p("m3.payment_report.read", "Melihat & mengekspor pembayaran, pelunasan, pengeluaran & setoran sopir", [O, FA, AC], {
+    cash: true,
+    ref: "US-M3-04, US-M3-05, US-M3-07, US-M3-08",
+  }),
 ];
 
 const BY_KEY = new Map<string, PermissionDef>(PERMISSIONS.map((perm) => [perm.key, perm]));
