@@ -81,6 +81,8 @@ export {
   requestWipe,
   type RegisterDeviceInput,
 } from "@/server/core/auth";
+// B-07 (RL-7): admin sistem EQUA membuat akun (`createUser({ tenantId })`) & perangkat POS untuk tenant mitra.
+export { asTenantActor, issueInitialPinForTenant, registerDeviceForTenant, resolvePartnerTenantTarget } from "./service/partner-tenant";
 export {
   getAppVersionPolicy,
   listSyncConflicts,

@@ -869,6 +869,23 @@ export interface PartnerSubscriptionInvoicedPayload {
   partnerTenantId: string;
   amount: number;
   outletCount: number;
+  // --- Tambahan P3 (opsional, hanya tambah; payload mandiri PTB-47) ---
+  /**
+   * `amount` = pendapatan L5 saja (langganan + royalti + fee awal). Baris air/spare part tempo yang digabung ke faktur
+   * yang sama (BR-05) TIDAK termasuk — pendapatannya sudah diakui pada peristiwa sumbernya (D-10 butir 1).
+   */
+  subscriptionAmount?: number;
+  royaltyAmount?: number;
+  initialFeeAmount?: number;
+  /** Nilai rit air tempo belum ditagih yang digabung ke faktur (BR-05) — bukan pendapatan baru. */
+  mergedWaterAmount?: number;
+  /** Bulan layanan 'YYYY-MM-01'. */
+  periodMonth?: string;
+  customerId?: string;
+  number?: string;
+  issueDate?: string;
+  dueDate?: string;
+  option?: "option_b" | "option_a";
 }
 export interface DigitalPaymentSucceededPayload {
   paymentIntentId: string;

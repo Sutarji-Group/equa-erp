@@ -823,6 +823,80 @@ export const PARAM_REGISTRY = {
       description: "Awal penyusutan menurut tanggal perolehan, pengingat utang jurnal manual, dan syarat catatan akuntan pada tutup buku pertama (TG-8).",
     },
   }),
+  // --- Tambahan modul P3 (Kemitraan RL-7 & Tahap 3) — hanya tambah ---
+  "p3.partner_rules": defineParam({
+    schema: z
+      .object({
+        /** Ruang kapasitas air untuk mitra (K22), rit/bulan. */
+        capacity_room_trips_per_month: z.number().min(0),
+        /** Komitmen air per mitra aktif (±11,4 rit/bulan, US-P3-01 KP-1). */
+        commitment_trips_per_partner: z.number().min(0),
+        /** Tunggakan langganan > N hari setelah teguran → mode baca-saja (US-P3-02 KP-4). */
+        read_only_overdue_days: int(1),
+        /** Batas pengajuan sengketa tagihan mitra sejak faktur terbit (US-P3-04 KP-2). */
+        dispute_window_days: int(1),
+        /** Pengingat sebelum kontrak berakhir (US-P3-01 KP-5). */
+        contract_expiry_reminder_days: int(1),
+        /** Ekspor data outlet untuk mitra yang berakhir (PTB-58). */
+        data_export_days: int(1),
+        /** Tanggal terbit laporan bulanan mitra (US-P3-10 KP-3). */
+        monthly_report_day: int(1).max(28),
+        /** Frekuensi audit pembina bawaan (bulan, BRD 9.5 "pembinaan bulanan"). */
+        audit_interval_months: int(1),
+        /** Tenggat tindak lanjut temuan audit (hari). */
+        audit_follow_up_days: int(1),
+        /** Uji air tidak lulus berturut → pemicu sanksi (US-P3-05 KP-3). */
+        consecutive_failed_tests: int(1),
+        /** Batas harga jual mitra terhadap harga anjuran EQUA (US-P3-02 KP-1, PTB-56). */
+        price_min_percent_of_recommended: pct,
+        price_max_percent_of_recommended: z.number().min(0).max(1000),
+        /** Kas awal tetap maksimal yang boleh diatur mitra (US-P3-02 KP-1). */
+        opening_cash_max: rupiah,
+        /** Ambang void minimal/maksimal yang boleh diatur mitra. */
+        void_threshold_min: rupiah,
+        void_threshold_max: rupiah,
+        /** POS tidak dipakai N hari → pemicu sanksi (US-P3-07 KP-1). */
+        pos_unused_days: int(1),
+      })
+      .strict(),
+    affectedRoles: ["regional_coach", "finance_admin"],
+    fallback: {
+      capacity_room_trips_per_month: 57,
+      commitment_trips_per_partner: 11.4,
+      read_only_overdue_days: 30,
+      dispute_window_days: 7,
+      contract_expiry_reminder_days: 60,
+      data_export_days: 30,
+      monthly_report_day: 5,
+      audit_interval_months: 1,
+      audit_follow_up_days: 14,
+      consecutive_failed_tests: 2,
+      price_min_percent_of_recommended: 80,
+      price_max_percent_of_recommended: 150,
+      opening_cash_max: 500_000,
+      void_threshold_min: 20_000,
+      void_threshold_max: 200_000,
+      pos_unused_days: 3,
+    },
+    meta: {
+      name: "Aturan kemitraan (kapasitas, baca-saja, sengketa, kontrak, laporan bulanan, audit, batas pengaturan mitra)",
+      unit: null,
+      reference: "US-P3-01..11, BRD 9.5–9.9, K22, PTB-56, PTB-58",
+      description:
+        "Ruang kapasitas air mitra & komitmen per mitra (K22), mode baca-saja setelah teguran, jendela sengketa, pengingat kontrak berakhir, ekspor data saat berakhir, tanggal laporan bulanan, audit & uji air, serta batas harga/kas awal/ambang void yang boleh diatur mitra.",
+    },
+  }),
+  "p3.quality_weights": defineParam({
+    schema: z.object({ checklist: pct, audit: pct, test: pct }).strict(),
+    affectedRoles: ["regional_coach"],
+    fallback: { checklist: 30, audit: 40, test: 30 },
+    meta: {
+      name: "Bobot skor mutu mitra (daftar periksa / audit / uji air)",
+      unit: "%",
+      reference: "US-P3-05 KP-4",
+      description: "Skor mutu bulanan per outlet = gabungan berbobot; bobot ditetapkan pemilik (jumlah bobot dinormalisasi).",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

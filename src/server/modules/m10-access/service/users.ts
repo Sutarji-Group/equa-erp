@@ -34,6 +34,7 @@ import { notify, sendEmail } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, authorizeAny, rolesAllowInterface, runService, sod } from "@/server/core/rbac";
 
+import { asTenantActor, resolvePartnerTenantTarget } from "./partner-tenant";
 import {
   activeRolesOf,
   assertNotOwnAccount,
@@ -72,6 +73,11 @@ export const createUserSchema = z.object({
   reason: reasonSchema,
   /** Mode akun awal go-live (US-M10-01 KP-8): disetujui sekaligus lewat tanda tangan daftar akun awal. */
   initialLoad: z.boolean().optional().default(false),
+  /**
+   * B-07 (RL-7): tenant akun. Kosong = tenant pelaku. Admin sistem EQUA boleh membuat akun untuk TENANT MITRA
+   * (operator POS, pemilik mitra) — karyawan & lingkup harus milik tenant mitra itu; persetujuan tetap pemilik EQUA.
+   */
+  tenantId: z.uuid({ error: "Tenant tidak valid." }).nullable().optional(),
 });
 export type CreateUserInput = z.input<typeof createUserSchema>;
 
@@ -121,9 +127,16 @@ export async function createUser(ctx: ActorContext, input: CreateUserInput, opts
   const data = parseInput(createUserSchema, input, { employeeId: "Karyawan", username: "Nama pengguna", role: "Peran", reason: "Alasan" });
   return runService(ctx, opts, async (tx) => {
     const today = ctxBusinessDate(ctx);
+    // B-07: tenant akun (tenant pelaku, atau tenant mitra oleh admin sistem EQUA). `tctx` = pelaku yang sama dengan
+    // tenant aktif = tenant akun (validasi karyawan & lingkup); persetujuan tetap diajukan dengan `ctx` (tenant EQUA).
+    const accountTenantId = await resolvePartnerTenantTarget(tx, ctx, data.tenantId);
+    const tctx = asTenantActor(ctx, accountTenantId);
+    if (accountTenantId !== ctx.tenantId && data.initialLoad) {
+      throw ValidationError.field("initialLoad", "Akun tenant mitra tidak termasuk akun awal go-live; ajukan persetujuan pemilik.");
+    }
     const empRows = await tx.select().from(employees).where(eq(employees.id, data.employeeId)).limit(1);
     const employee = empRows[0];
-    if (!employee || employee.tenantId !== ctx.tenantId) {
+    if (!employee || employee.tenantId !== tctx.tenantId) {
       throw ValidationError.field("employeeId", "Karyawan tidak ditemukan di master karyawan (M1). Setiap akun wajib terikat satu karyawan (BR-36).");
     }
     if (!employee.isActive || (employee.exitDate && employee.exitDate <= today)) {
@@ -139,7 +152,7 @@ export async function createUser(ctx: ActorContext, input: CreateUserInput, opts
     const taken = await tx.select({ id: users.id }).from(users).where(sql`lower(${users.username}) = ${data.username}`).limit(1);
     if (taken[0]) throw ValidationError.field("username", "Nama pengguna sudah dipakai. Pilih nama lain (akun bersama tidak diizinkan, BR-36).");
 
-    const scopes = await normalizeScopes(tx, ctx, [data.role], data.scopes as ScopeInput[]);
+    const scopes = await normalizeScopes(tx, tctx, [data.role], data.scopes as ScopeInput[]);
     if (data.initialLoad && (await initialAccountsSigned(tx, ctx.tenantId))) {
       throw new DomainError(
         "INITIAL_LOAD_CLOSED",
@@ -149,7 +162,7 @@ export async function createUser(ctx: ActorContext, input: CreateUserInput, opts
 
     const [user] = await tx
       .insert(users)
-      .values({ tenantId: ctx.tenantId, employeeId: employee.id, username: data.username, status: "pending_approval", createdBy: ctx.userId })
+      .values({ tenantId: accountTenantId, employeeId: employee.id, username: data.username, status: "pending_approval", createdBy: ctx.userId })
       .returning();
     const [roleRow] = await tx
       .insert(userRoles)
@@ -180,7 +193,8 @@ export async function createUser(ctx: ActorContext, input: CreateUserInput, opts
             role: data.role,
             roleLabel: label("role", data.role),
             scopes: scopes.map((s) => ({ ...s, label: labels.get(`${s.type}:${s.refId}`) })),
-            link: `/akses/pengguna/${user!.id}`,
+            link: accountTenantId === ctx.tenantId ? `/akses/pengguna/${user!.id}` : `/kemitraan/mitra/${accountTenantId}`,
+            ...(accountTenantId === ctx.tenantId ? {} : { partnerTenantId: accountTenantId }),
           },
         },
         { tx },
@@ -201,6 +215,7 @@ export async function createUser(ctx: ActorContext, input: CreateUserInput, opts
         status: "pending_approval",
         initialLoad: data.initialLoad,
         approval: approval?.number ?? null,
+        ...(accountTenantId === ctx.tenantId ? {} : { tenantId: accountTenantId }),
       },
       reason: data.reason,
     });

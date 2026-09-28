@@ -1427,6 +1427,53 @@ export const LABELS = {
     revenue: "Proporsi omzet",
     fixed: "Persentase tetap",
   },
+
+  // --- Tambahan modul P3 (Kemitraan RL-7 & Tahap 3) — hanya tambah ---
+  /** Jenis pesanan dari portal mitra (US-P3-03, Tahap 3). */
+  portal_order_kind: {
+    water: "Pesanan air",
+    spare_part: "Pesanan spare part",
+  },
+  /** Status pesanan dari portal mitra (US-P3-03). */
+  portal_order_status: {
+    submitted: "Diajukan",
+    confirmed: "Dikonfirmasi",
+    rejected: "Ditolak",
+    cancelled: "Dibatalkan",
+  },
+  /** Cara ambil spare part mitra (US-P3-03 KP-3). */
+  spare_part_pickup: {
+    store_pickup: "Ambil di toko",
+    with_truck: "Ikut truk air",
+  },
+  /** Butir daftar periksa mutu harian outlet mitra (US-P3-05 KP-1; SOP). */
+  partner_quality_item: {
+    area_cleanliness: "Kebersihan area",
+    gallon_washing: "Pencucian galon",
+    sterilization: "Sterilisasi",
+    cash_handling: "Penanganan uang",
+    reservoir: "Tandon",
+  },
+  /** Hak baca EQUA atas data mitra yang diperjanjikan (US-P3-02 KP-2, NFR-30). */
+  partner_read_right: {
+    sales: "Penjualan agregat & per transaksi (dasar royalti)",
+    supply: "Pasokan air diterima",
+    water_balance: "Neraca air",
+    quality: "Mutu (daftar periksa, audit, uji air)",
+    invoices: "Tagihan & pembayaran ke EQUA",
+  },
+  /** Status kepatuhan SLA mitra (US-P3-08 KP-4, US-P3-11 KP-2). */
+  partner_sla_status: {
+    on_time: "Tepat waktu",
+    late: "Lewat SLA",
+    open: "Masih berjalan",
+  },
+  /** Peringkat risiko mitra di portofolio pembina (US-P3-06 KP-2). */
+  partner_risk_level: {
+    low: "Rendah",
+    medium: "Sedang",
+    high: "Tinggi",
+  },
 } as const satisfies Record<string, Record<string, string>>;
 
 export type EnumName = keyof typeof LABELS;

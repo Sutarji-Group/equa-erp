@@ -173,6 +173,21 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("journal.recurring_ready", "Draf jurnal berulang bulan ini siap", "normal", ["finance_admin"], "Lengkapi lampiran lalu ajukan/posting", "US-M11-03 KP-4"),
   e("journal.retroactive_done", "Jurnal retroaktif selesai dibangkitkan", "normal", ["finance_admin", "accountant"], "Akuntan memverifikasi sebelum periode pertama ditutup", "US-M11-02 KP-4, PTB-47"),
   e("asset.signoff_pending", "Daftar aset menunggu tanda tangan pemilik", "normal", ["owner"], "Tinjau & tanda tangani daftar aset impor", "US-M11-05 KP-1, NFR-34"),
+  // --- Tambahan modul P3 (Kemitraan RL-7 & Tahap 3) — hanya tambah ---
+  e("partner.water_balance_exceeded", "Neraca air mitra di luar toleransi", "high", ["owner"], "Periksa pasokan mitra (kemungkinan sumber lain); masuk pemicu sanksi Tahap 3", "US-P3-08 KP-3, PAR-79"),
+  e("partner.subscription_invoiced", "Tagihan langganan mitra terbit", "normal", ["finance_admin"], "Kirim faktur ke mitra; pantau pelunasan di Piutang", "US-P3-09 KP-1, PAR-12"),
+  e("partner.support_submitted", "Permintaan dukungan teknis mitra baru", "normal", ["regional_coach", "system_admin"], "Tanggapi ≤ 48 jam (PAR-76)", "US-P3-11 KP-1", 48),
+  e("partner.support_responded", "Permintaan dukungan Anda ditanggapi EQUA", "info", ["partner_owner"], "Baca tanggapan; tandai selesai bila sudah beres", "US-P3-11 KP-1"),
+  e("partner.monthly_report_published", "Laporan bulanan mitra terbit", "info", ["partner_owner"], "Baca & unduh PDF laporan bulan lalu", "US-P3-10 KP-3"),
+  e("partner.contract_expiring", "Kontrak mitra segera berakhir", "normal", ["owner", "regional_coach"], "Putuskan perpanjangan atau pengakhiran", "US-P3-01 KP-5, PAR-78"),
+  e("partner.evaluation_due", "Evaluasi berkala mitra jatuh tempo", "normal", ["regional_coach", "owner"], "Lakukan evaluasi 3 bulanan (PAR-77)", "US-P3-01 KP-5, PAR-77"),
+  e("partner.sanction_triggered", "Pemicu sanksi mitra tercatat", "high", ["owner", "regional_coach"], "Tinjau bukti; ajukan/putuskan sanksi bertingkat", "US-P3-07 KP-1, PTB-59"),
+  e("partner.onboarding_completed", "Onboarding outlet mitra lengkap — outlet Aktif", "info", ["owner", "finance_admin"], "Outlet mulai ditagih langganan", "US-P3-01 KP-4"),
+  e("partner.prospect_registered", "Calon mitra mendaftar", "normal", ["regional_coach"], "Jadwalkan survei lokasi", "US-P3-01 KP-1"),
+  e("partner.spare_part_order", "Pesanan spare part mitra menunggu konfirmasi kasir", "normal", ["store_cashier"], "Catat penjualan harga mitra untuk pelanggan mitra di POS toko", "US-P3-03 KP-3"),
+  e("partner.quality_failed", "Mutu outlet mitra tidak lulus", "high", ["regional_coach", "owner"], "Pastikan tindakan dilakukan; pertimbangkan sanksi", "US-P3-05 KP-1/KP-3/KP-4"),
+  e("partner.read_only", "Tenant mitra beralih ke mode baca-saja", "high", ["owner", "finance_admin"], "Tagih tunggakan; pulihkan setelah lunas", "US-P3-02 KP-4"),
+  e("partner.data_export_due", "Ekspor data outlet mitra yang berakhir jatuh tempo", "high", ["owner", "finance_admin"], "Serahkan ekspor data ke mitra ≤ 30 hari (PTB-58)", "US-P3-07 KP-2, PTB-58"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */
