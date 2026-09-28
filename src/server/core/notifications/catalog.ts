@@ -120,6 +120,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   // --- Tambahan modul M2 (hanya tambah) ---
   e("order.recurring_failed", "Pesanan langganan gagal dibuat", "normal", ["dispatcher"], "Tindak lanjuti: tagih/ajukan persetujuan atau buat pesanan manual", "US-M2-06 KP-4"),
   e("order.credit_hold_trips", "Rit tempo pelanggan Ditahan belum berangkat", "high", ["dispatcher"], "Ubah ke tunai atau tarik rit dari jadwal", "US-M5-03 KP-2, PTB-27"),
+  // --- Tambahan modul M6 (Penjualan Depot / kerangka POS) — hanya tambah ---
+  e("pos.qris_voided", "Transaksi QRIS di-void", "normal", ["finance_admin"], "Catat pengembalian dana di luar sistem sebagai pengeluaran dengan rujukan", "US-M6-03 KP-4"),
+  e("pos.void_reversal_needed", "Void disetujui setelah shift ditutup", "high", ["finance_admin"], "Buat transaksi pembalik di Pemantauan outlet", "US-M6-03 KP-2, PTB-43"),
+  e("water_supply.discrepancy", "Selisih pasokan air depot (kirim vs terima)", "normal", ["dispatcher"], "Periksa catatan sopir & operator; masukan neraca air M8", "US-M6-05 KP-1, P-04 langkah 3"),
+  e("pos.shift_conflict", "Konflik shift POS (dua shift terbuka)", "high", ["finance_admin"], "Tinjau shift dari perangkat cadangan; tandai selesai setelah dicocokkan", "7.6.6, Bab 6.4 butir 3"),
+  e("tenant.created", "Tenant mitra baru dibuat", "info", ["owner"], "Informasi; lengkapi pengaturan outlet mitra", "US-M6-07 KP-1"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

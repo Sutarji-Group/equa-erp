@@ -427,6 +427,40 @@ export const PARAM_REGISTRY = {
       description: "Cadangan harian terakhir lebih tua dari N jam ditandai; uji pemulihan minimal M kali per 12 bulan.",
     },
   }),
+
+  // --- Tambahan modul M6 (Penjualan Depot / kerangka POS) — hanya tambah ---
+  /** Aturan POS yang bukan PAR Lampiran B (angka yang disebut PRD M6 tanpa nomor PAR). */
+  "m6.pos_rules": defineParam({
+    schema: z
+      .object({
+        /** 6.2a void POS "sampai akhir shift": tenggat persetujuan = jam ini (WIB) pada tanggal bisnis shift. */
+        void_approval_deadline_time: hhmm,
+        /** US-M6-02 KP-6: riwayat shift milik operator (hari). */
+        operator_history_days: int(1),
+        /** US-M6-01 KP-1: tombol produk di kisi POS. */
+        grid_max_products: int(1),
+        /** Batas baris & jumlah per baris satu transaksi (penjaga salah ketik). */
+        max_sale_lines: int(1),
+        max_quantity_per_line: int(1),
+      })
+      .strict(),
+    scopes: ["global", "tenant", "outlet"],
+    affectedRoles: ["depot_operator", "store_cashier"],
+    fallback: {
+      void_approval_deadline_time: "23:59",
+      operator_history_days: 90,
+      grid_max_products: 12,
+      max_sale_lines: 20,
+      max_quantity_per_line: 999,
+    },
+    meta: {
+      name: "Aturan POS depot & toko (tenggat void, riwayat operator, kisi produk)",
+      unit: null,
+      reference: "US-M6-01 KP-1, US-M6-02 KP-6, US-M6-03 KP-2, 6.2a",
+      description:
+        "Jam tenggat persetujuan void pada tanggal bisnis shift (lewat → dianggap ditolak), lama riwayat shift yang dilihat operator, jumlah tombol produk di kisi POS, serta batas baris/jumlah per transaksi.",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

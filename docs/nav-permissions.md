@@ -60,6 +60,7 @@ m10.personal_data.read
 m10.role.read
 m10.support_ticket.create
 m10.sync_health.read
+m10.tenant.read
 m10.user.read
 m11.account.read
 m11.financial_report.read
@@ -149,6 +150,10 @@ p3.support_request.read
 | Piutang | `/piutang/faktur-bulanan` | Faktur bulanan | `m5.monthly_invoice.read` |  |
 | Piutang | `/piutang/saldo-awal` | Saldo awal piutang | `m5.opening_balance.read` |  |
 | Depot & toko | `/outlet` | Pemantauan outlet | `m6.outlet.read` |  |
+| Depot & toko | `/outlet/[id]` | Rincian outlet | `m6.outlet.read` | tidak tampil di sidebar |
+| Depot & toko | `/outlet/shift/[id]` | Rincian shift | `m6.outlet.read` | tidak tampil di sidebar |
+| Depot & toko | `/outlet/laporan` | Laporan outlet | `m6.outlet.read` |  |
+| Depot & toko | `/outlet/tenant` | Tenant & paket POS | `m10.tenant.read` |  |
 | Depot & toko | `/toko/barang` | Barang & stok toko | `m7.stock.read` |  |
 | Depot & toko | `/toko/pemasok` | Pemasok | `m7.supplier.read` |  |
 | Depot & toko | `/toko/pembelian` | Penerimaan barang | `m7.purchase_receipt.read` |  |

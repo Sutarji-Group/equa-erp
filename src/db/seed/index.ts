@@ -18,6 +18,7 @@ import { seedCustomers } from "./customers";
 import { seedDemoM1Master } from "./demo-m1-master";
 import { seedDemoM10Access } from "./demo-m10-access";
 import { seedDemoM2Orders } from "./demo-m2-orders";
+import { seedDemoM6Pos } from "./demo-m6-pos";
 import { seedId } from "./ids";
 import { seedOrganization } from "./org";
 import { DEFAULT_FEATURE_FLAGS, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS, PARAMETER_EFFECTIVE_FROM } from "./parameters";
@@ -99,6 +100,7 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoM1Master(tx);
     await seedDemoM10Access(tx);
     await seedDemoM2Orders(tx);
+    await seedDemoM6Pos(tx);
 
     const counts = await countRows(tx);
     return { parameters: paramRows.length, users: org.usersInserted, customers: cust.customers, counts };
