@@ -35,6 +35,7 @@ import {
   FileText,
   FileUp,
   FlaskConical,
+  Fuel,
   Gauge,
   HandCoins,
   Handshake,
@@ -56,6 +57,7 @@ import {
   Percent,
   Receipt,
   ReceiptText,
+  RadioTower,
   RefreshCw,
   Repeat,
   Route,
@@ -481,6 +483,15 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: TriangleAlert,
         permission: "m12.fleet_event.read",
       },
+      // --- Tambahan modul M12 (hanya tambah) ---
+      {
+        id: "m12.devices",
+        href: "/armada/perangkat",
+        label: "Perangkat GPS",
+        icon: RadioTower,
+        permission: "m12.fleet_event.read",
+      },
+      { id: "m12.fuel", href: "/armada/bbm", label: "BBM & zona", icon: Fuel, permission: "m12.fuel_estimate.read" },
     ],
   },
   {

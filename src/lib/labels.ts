@@ -1315,6 +1315,29 @@ export const LABELS = {
     credit_note: "Koreksi lewat nota kredit",
     reject: "Sengketa ditolak",
   },
+
+  // --- Tambahan modul M12 (Pelacakan Armada / GPS) — hanya tambah ---
+  /** Status truk di peta real-time (US-M12-02 KP-1). Bukan enum DB — diturunkan dari rit, posisi & geofence. */
+  fleet_live_status: {
+    active_trip: "Rit aktif",
+    arrived: "Tiba di pelanggan",
+    heading_to_source: "Menuju sumber",
+    at_source: "Di sumber",
+    at_depot: "Di depot",
+    at_pool: "Di pool",
+    returning_to_pool: "Kembali ke pool",
+    stopped: "Berhenti",
+    off_schedule: "Di luar jadwal",
+    maintenance: "Perbaikan",
+    no_data: "Tanpa posisi",
+  },
+  /** Kelompok daftar kejadian armada di layar kantor (US-M12-04 KP-3, US-M12-05, US-M12-06, US-M12-08). */
+  fleet_event_group: {
+    location: "Lokasi Selesai",
+    travel: "Perjalanan & berhenti",
+    geofence: "Geofence & pengisian",
+    device: "Perangkat GPS",
+  },
 } as const satisfies Record<string, Record<string, string>>;
 
 export type EnumName = keyof typeof LABELS;

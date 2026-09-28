@@ -150,6 +150,13 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("credit.hold_released", "Status Ditahan dibuka", "normal", ["dispatcher", "finance_admin"], "Pesanan tempo dapat dibuat lagi", "BR-03, US-M5-03 KP-3"),
   e("receivable.monthly_ready", "Faktur bulanan siap kirim", "normal", ["finance_admin"], "Kirim PDF faktur bulanan lewat WA/e-mail hari ini", "US-M5-06 KP-4, PAR-12"),
   e("receivable.advance_review", "Kelebihan bayar menjadi uang muka pelanggan", "info", ["finance_admin"], "Tinjau: dialokasikan ke faktur berikutnya atau ajukan pengembalian", "US-M5-02 KP-3"),
+  // --- Tambahan modul M12 (Pelacakan Armada / GPS) — hanya tambah ---
+  e("gps.device_restored", "Perangkat GPS aktif kembali", "info", ["system_admin", "dispatcher"], "Informasi; kejadian ditutup dengan lama mati", "US-M12-08 KP-3"),
+  e("gps.vendor_outage", "Gangguan layanan vendor GPS (semua truk basi)", "high", ["system_admin"], "Hubungi vendor GPS; peringatan per truk tidak dikirim selama gangguan", "7.12.6, NFR-28"),
+  e("fleet.device_outage_pattern", "Perangkat GPS truk berulang mati/dicabut", "normal", ["owner"], "Tinjau pola per truk (indikasi pencabutan disengaja)", "US-M12-08 KP-3"),
+  e("fleet.geofence_mismatch", "Pengisian/pasokan tidak cocok dengan geofence", "normal", ["owner"], "Tinjau di Kejadian armada; pertimbangkan pada neraca air (M8)", "US-M12-06 KP-2/KP-4"),
+  e("fleet.zone_mismatch", "Jarak GPS alamat masuk zona tarif lain", "normal", ["owner"], "Tinjau selisih tarif; ubah zona hanya lewat Data master > Zona (persetujuan pemilik)", "US-M12-07 KP-2, US-M1-05 KP-6"),
+  e("fleet.explanation_requested", "Keterangan perjalanan diminta", "normal", [], "Isi keterangan di aplikasi sopir hari ini (BR-25)", "US-M12-04 KP-3, BR-25"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */
