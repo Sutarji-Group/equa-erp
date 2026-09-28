@@ -40,6 +40,7 @@ export type { DailyProductionRow, MeterReadingRow, ProductionMeterDetail, WaterM
 
 // --- Pengisian truk & pasokan depot (US-M8-02, US-M8-03) ---------------------------------------------------------------
 export {
+  fillsInRange,
   fillsVsSchedule,
   handleFleetEventForFills,
   linkTruckFill,
@@ -72,6 +73,10 @@ export {
 export type { WaterBalanceRow } from "./service/balance";
 export { recordTankLevel, tankLevelSchema, tankLevelsInRange } from "./service/tank";
 
+// --- Stok air awal depot saat cut-over (backlog B-10; buku air M6) ----------------------------------------------------
+export { depotWaterOpenings, recordDepotOpeningWater } from "./service/depot-opening";
+export type { DepotOpeningInput, DepotOpeningRow } from "./service/depot-opening";
+
 // --- Utilisasi (US-M8-05) -----------------------------------------------------------------------------------------------
 export {
   checkUtilizationStreak,
@@ -90,6 +95,7 @@ export {
   actionOwnerCandidates,
   completeQualityAction,
   deactivateQualitySchedule,
+  qualityLocations,
   qualityOverview,
   qualityTestFieldSchema,
   recordQualityTest,
@@ -97,7 +103,7 @@ export {
   runQualityReminders,
   upsertQualitySchedule,
 } from "./service/quality";
-export type { QualityScheduleInput, QualityScheduleView, QualityTestInput, QualityTestView } from "./service/quality";
+export type { QualityLocation, QualityScheduleInput, QualityScheduleView, QualityTestInput, QualityTestView } from "./service/quality";
 
 // --- Kantor: rincian, daftar, bulanan ------------------------------------------------------------------------------------
 export {

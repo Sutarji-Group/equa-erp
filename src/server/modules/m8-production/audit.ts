@@ -38,6 +38,7 @@ export function registerAudit(): void {
   registerAuditObjectLabel("meter_adjustment", "Putaran/penggantian meter");
   registerAuditObjectLabel("quality_test_schedule", "Jadwal uji mutu air");
   registerAuditObjectLabel("quality_test", "Hasil uji mutu air");
+  registerAuditObjectLabel("depot_water_opening", "Stok air awal depot (cut-over)");
 
   registerAuditFieldLabel("meter_reading", "readingL", { label: "Angka meter", format: "liter" });
   registerAuditFieldLabel("meter_reading", "phase", { label: "Pembacaan", format: "enum:meter_phase" });
@@ -57,6 +58,8 @@ export function registerAudit(): void {
   registerAuditFieldLabel("water_balance", "investigationReason", { label: "Alasan susut", format: "enum:loss_reason" });
   registerAuditFieldLabel("tank_level_reading", "levelL", { label: "Level tandon", format: "liter" });
   registerAuditFieldLabel("quality_test", "passed", { label: "Lulus" });
+  registerAuditFieldLabel("depot_water_opening", "volumeL", { label: "Stok air awal", format: "liter" });
+  registerAuditFieldLabel("depot_water_opening", "balanceAfterL", { label: "Saldo buku air", format: "liter" });
   registerAuditFieldLabel("quality_test_schedule", "nextDueDate", { label: "Uji berikutnya", format: "date" });
 
   const readPerms = ["m8.production.read", "m8.water_balance.read", "m8.truck_fill.read"] as const;

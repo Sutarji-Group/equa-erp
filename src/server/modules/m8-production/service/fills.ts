@@ -22,9 +22,9 @@ import { M8_ATTACHMENT_KINDS, volumeNeedsReason } from "@/client/m8-production/c
 import { record as auditRecord } from "@/server/core/audit";
 import { systemContext, type ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
-import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
+import { DomainError, NotFoundError, parseInput, ValidationError } from "@/server/core/errors";
 import { emit, type DomainEvent } from "@/server/core/events";
-import { assertSourceScope, authorize, runService, sod } from "@/server/core/rbac";
+import { assertSourceScope, authorize, inSourceScope, runService, sod } from "@/server/core/rbac";
 import { linkAttachment } from "@/server/core/storage";
 
 import { attachmentOfKind, liter, m8Rules, notifyOnce, plannedSourceByAddress, resolveOperatorSource, type M8FieldMeta } from "./common";
@@ -513,6 +513,14 @@ export async function listFills(tx: Tx, tenantId: string, input: { from: Busines
     recordedByName: r.recordedByName,
     deviceSpare: !!r.deviceSpare,
   }));
+}
+
+/** Kantor: pengisian rentang tanggal (izin `m8.truck_fill.read`, lingkup sumber pelaku). */
+export async function fillsInRange(ctx: ActorContext, input: { from: BusinessDate; to: BusinessDate; sourceId?: string | null; truckId?: string | null }, opts: { tx?: Tx } = {}): Promise<FillListRow[]> {
+  await authorize(ctx, "m8.truck_fill.read", { tx: opts.tx });
+  if (input.to < input.from) throw ValidationError.field("to", "Tanggal akhir tidak boleh sebelum tanggal awal.");
+  const rows = await listFills(opts.tx ?? getDb(), ctx.tenantId, input);
+  return rows.filter((r) => inSourceScope(ctx, r.waterSourceId, r.tenantId));
 }
 
 /** Pengisian dari ponsel perangkat cadangan (BRD 10.5) — penanda di tampilan kantor. */

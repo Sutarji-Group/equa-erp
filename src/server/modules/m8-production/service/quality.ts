@@ -360,6 +360,24 @@ export async function qualityOverview(ctx: ActorContext, input: { locationId?: s
   return { schedules, tests };
 }
 
+export type QualityLocation = { value: string; label: string; locationType: "water_source" | "outlet"; id: string };
+
+/** Pilihan lokasi uji mutu (sumber air + depot, lingkup pelaku) — nilai `water_source:<id>` / `outlet:<id>`. */
+export async function qualityLocations(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<QualityLocation[]> {
+  await authorize(ctx, "m8.quality_test.read", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const sources = await tx.select().from(waterSources).where(eq(waterSources.tenantId, ctx.tenantId)).orderBy(asc(waterSources.code));
+  const depots = await tx.select().from(outlets).where(and(eq(outlets.tenantId, ctx.tenantId), eq(outlets.kind, "depot"))).orderBy(asc(outlets.code));
+  return [
+    ...sources
+      .filter((s) => inSourceScope(ctx, s.id, s.tenantId))
+      .map((s) => ({ value: `water_source:${s.id}`, label: `Sumber ${s.code} · ${s.name}`, locationType: "water_source" as const, id: s.id })),
+    ...depots
+      .filter((o) => inOutletScope(ctx, o.id, o.tenantId))
+      .map((o) => ({ value: `outlet:${o.id}`, label: `Depot ${o.code} · ${o.name}`, locationType: "outlet" as const, id: o.id })),
+  ];
+}
+
 /** Karyawan aktif yang dapat menjadi penanggung jawab tindakan (pemilik, Admin Keuangan, operator sumber/depot). */
 export async function actionOwnerCandidates(tx: Tx | Db, tenantId: string, opts: { sourceId?: string | null } = {}): Promise<{ id: string; name: string }[]> {
   const rows = await tx
