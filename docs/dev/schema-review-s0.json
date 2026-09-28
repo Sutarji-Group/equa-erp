@@ -1,0 +1,253 @@
+{
+ "gaps": [
+  {
+   "severity": "major",
+   "module": "M6/M7 (kas outlet)",
+   "target": "deposits.shift_id (deposits_shift_uq) + shifts.deposit_id",
+   "problem": "Indeks unik deposits_shift_uq (satu setoran per shift) dan kolom tunggal shifts.deposit_id membuat \"setor sebagian\" di tengah shift tidak bisa dicatat sebagai setoran. Padahal KP mewajibkan setor bank sebagian dengan slip saat kas berjalan melampaui PAR-02 (BR-08), lalu setoran akhir saat tutup shift. Akibatnya shift yang sudah setor sebagian tidak dapat lagi membuat setoran akhirnya.",
+   "fix": "Tambah deposits.is_partial boolean NOT NULL DEFAULT false. Ganti deposits_shift_uq menjadi uniqueIndex (shift_id) WHERE shift_id IS NOT NULL AND is_partial = false. shifts.deposit_id tetap menunjuk setoran akhir. Tambah shifts.partial_deposit_total bigint NOT NULL DEFAULT 0, atau hitung Σ deposits is_partial. Rumus deposit_amount akhir = tunai seharusnya − kas awal tetap − Σ setoran sebagian.",
+   "prdRef": "US-M6-02 KP-2 & KP-5, US-M7-09 KP-1, BR-08, PTB-23"
+  },
+  {
+   "severity": "major",
+   "module": "M6/M7 (POS offline)",
+   "target": "pos_sales.number (uq outlet_id+number); purchase_receipts.number; internal_transfers.number",
+   "problem": "Nomor dokumen NOT NULL + UNIQUE berformat urut ({kodeOutlet}-YYMMDD-NNNN, NB-YY-NNNNNN, TI-YY-NNNNN) padahal barisnya dibuat offline (punya fieldMeta, ID dari perangkat). Dua perangkat di outlet yang sama, misalnya perangkat cadangan menurut 7.6.6, akan menghasilkan nomor yang sama. Sinkron kedua ditolak oleh indeks unik, sehingga transaksi hilang atau dobel. Jika nomor diberikan server saat sinkron, tidak ada kolom untuk nomor yang sudah tampil atau tercetak di perangkat.",
+   "fix": "Tambah local_number text NOT NULL (nomor terbit di perangkat, memuat kode perangkat, mis. D01-270926-P2-0007) dan device_seq integer NOT NULL, dengan uniqueIndex (device_id, local_number). Jadikan number nullable dan isi server saat sinkron (uniqueIndex outlet_id+number WHERE number IS NOT NULL), ATAU tetapkan format number wajib memuat kode perangkat. Terapkan pola yang sama untuk purchase_receipts dan internal_transfers.",
+   "prdRef": "US-M6-01 KP-4/KP-5, US-M6-06 KP-2, 7.6.6, Bab 6.4 butir 2, D-04"
+  },
+  {
+   "severity": "major",
+   "module": "M6 (shift offline)",
+   "target": "shifts (shifts_one_open_per_outlet_uq) + pos_sales.shift_id NOT NULL",
+   "problem": "Shift yang dibuka offline di perangkat cadangan saat shift lama masih 'open' akan ditolak indeks unik parsial. Karena pos_sales.shift_id NOT NULL FK, seluruh penjualan shift itu ikut gagal tersinkron. Ini bertentangan dengan \"tidak ada transaksi hilang\" dan \"data lapangan tidak ditimpa; konflik ditampilkan\". Tabel shifts tidak punya kolom konflik.",
+   "fix": "Tambah shifts.sync_conflict boolean NOT NULL DEFAULT false, sync_conflict_note text, conflict_resolved_at timestamptz, conflict_resolved_by uuid → users. Ubah indeks menjadi uniqueIndex (outlet_id) WHERE status='open' AND sync_conflict=false. Handler sinkron menyimpan shift yang bentrok sebagai konflik, bukan menolaknya.",
+   "prdRef": "7.6.6, US-M6-06 KP-1/KP-3, Bab 6.4 butir 3, US-M3-09 KP-2"
+  },
+  {
+   "severity": "major",
+   "module": "M6/M7 (koreksi POS)",
+   "target": "pos_sales (tidak ada reversal_of_id)",
+   "problem": "Transaksi POS hanya bisa di-void selama shift terbuka. Tidak ada baris pembalik untuk koreksi setelah shift ditutup, padahal PRD mengatur koreksi pasca-tutup oleh Admin Keuangan lewat pembalik dan void yang disetujui setelah shift ditutup diproses sebagai pembalik. replaces_sale_id tidak menggantikan pembalik bernilai negatif yang masuk ke shift/tanggal koreksi dan ke jurnal M11.",
+   "fix": "Tambah pos_sales.reversal_of_id uuid → pos_sales(id), is_reversal boolean NOT NULL DEFAULT false, reversal_reason text, correction_approval_id uuid → approval_requests. Tambah uniqueIndex (reversal_of_id) WHERE reversal_of_id IS NOT NULL. Baris pembalik berisi total dan pos_sale_lines negatif, dengan business_date dan shift saat koreksi.",
+   "prdRef": "US-M6-02 KP-4, US-M6-03 KP-2 (PTB-43), BR-38, 7.11.4 (void = pembalik)"
+  },
+  {
+   "severity": "major",
+   "module": "Lintas modul (hardening DB)",
+   "target": "src/db/sql/hardening.sql — journal_lines, stock_ledger, outlet_water_ledger, payment_allocations, office_cash_movements, journals(posted), trip_payments, customer_payments, meter_readings, truck_fills",
+   "problem": "Trigger hanya melarang DELETE/TRUNCATE. Baris buku besar dan transaksi keuangan yang sudah terposting masih bisa di-UPDATE, misalnya mengubah amount menjadi 0 atau debit/kredit jurnal terposting. Ini \"penghapusan terselubung\" yang menembus aturan tanpa-hapus dan koreksi-lewat-pembalik. Perubahan jurnal otomatis dan jurnal manual terposting pun tidak dicegah di DB.",
+   "fix": "Tambah APPEND_ONLY_TABLES (tolak UPDATE, EQ002) untuk journal_lines, stock_ledger, outlet_water_ledger, payment_allocations, supplier_payment_allocations, office_cash_movements. Tambah trigger penjaga kolom (equa_guard_immutable_columns) untuk: journals ketika OLD.status='posted' (hanya owner_reviewed_*, auto_reverse_on, updated_at yang boleh berubah); trip_payments/customer_payments (method, expected_amount, received_amount, amount, business_date, trip_id); pos_sales/pos_sale_lines (total, line_total, quantity, unit_price); meter_readings.reading_l; truck_fills.volume_l. Daftarkan di hardening.ts dan uji dengan SQLSTATE.",
+   "prdRef": "Bab 6.1, Bab 6.7, BR-38, NFR-11, US-M11-02 KP-1, US-M11-03 KP-3, US-M8-01 KP-5"
+  },
+  {
+   "severity": "major",
+   "module": "M11",
+   "target": "journals.period_id / journal_lines / accounting_periods.status",
+   "problem": "DB tidak menjamin tiga hal: (1) jurnal terposting seimbang (Σdebit = Σkredit = total_debit = total_credit); (2) tidak ada posting ke periode Ditutup/Dikunci; (3) tidak ada jurnal bertanggal sebelum cut-over selain saldo awal. journals.period_id juga nullable untuk jurnal terposting. Semua kontrol inti tutup buku hanya bergantung pada kode layanan.",
+   "fix": "Tambah CHECK (status <> 'posted' OR period_id IS NOT NULL). Tambah CONSTRAINT TRIGGER DEFERRABLE INITIALLY DEFERRED pada journal_lines/journals yang memvalidasi keseimbangan untuk status='posted'. Tambah trigger BEFORE INSERT/UPDATE pada journals/journal_lines yang menolak (SQLSTATE baru, mis. EQ003) bila accounting_periods.status IN ('closed','locked') untuk period_id, serta bila journal_date < tanggal cut-over tenant kecuali kind='opening_balance'.",
+   "prdRef": "US-M11-10 KP-3, BR-32, US-M11-02 KP-3, US-M11-09 KP-1, FR-M11-10"
+  },
+  {
+   "severity": "major",
+   "module": "M3",
+   "target": "trip_payments (tidak ada unik per rit)",
+   "problem": "Tidak ada jaminan hanya satu pembayaran aktif per rit. Skenario ponsel cadangan (7.3.6: data ponsel rusak dipulihkan setelah rit dilanjutkan di ponsel lain) atau kernet pengganti dapat mengirim dua perintah berbeda untuk rit yang sama. Kas seharusnya sopir terhitung ganda dan menjadi selisih palsu.",
+   "fix": "Tambah trip_payments.reversed_at timestamptz dan reversed_by_id uuid → trip_payments. Tambah uniqueIndex trip_payments_live_uq (trip_id) WHERE reversal_of_id IS NULL AND reversed_at IS NULL, dan uniqueIndex (reversal_of_id) WHERE reversal_of_id IS NOT NULL. Tambah CHECK received_amount >= 0 AND underpayment_amount >= 0 AND (method <> 'cash' OR received_amount + underpayment_amount = expected_amount). Pembayaran kedua disimpan sebagai konflik sinkron.",
+   "prdRef": "US-M3-04 KP-1/KP-2, US-M3-07 KP-1, 7.3.6, Bab 6.4 butir 2"
+  },
+  {
+   "severity": "major",
+   "module": "M8",
+   "target": "truck_fills.trip_id",
+   "problem": "KP menetapkan \"satu pengisian terkait satu rit\" (PTB-09), tetapi hanya ada indeks non-unik. Pengisian ganda untuk rit yang sama (dua operator/perangkat, atau pencatatan ulang) lolos dan merusak neraca air, misalnya memicu susut negatif palsu.",
+   "fix": "Tambah truck_fills.reversed_at timestamptz dan reversed_by_id uuid. Tambah uniqueIndex truck_fills_trip_live_uq (trip_id) WHERE trip_id IS NOT NULL AND reversal_of_id IS NULL AND reversed_at IS NULL, serta uniqueIndex (reversal_of_id) WHERE reversal_of_id IS NOT NULL.",
+   "prdRef": "US-M8-02 KP-2 & KP-6, PTB-09, US-M8-04 KP-5"
+  },
+  {
+   "severity": "major",
+   "module": "M10",
+   "target": "approval_requests.decided_by / requester_user_id; delegations",
+   "problem": "Pemisahan tugas \"pemohon tidak pernah dapat menyetujui permintaannya sendiri\" tidak dijaga di DB. Selain itu tidak ada pencegah permintaan persetujuan ganda yang masih 'submitted' untuk objek dan jenis yang sama. Handler persetujuan mengubah objek sumber otomatis (harga aktif, void, jurnal), sehingga dua persetujuan dapat menerapkan efek dua kali. Delegasi juga dapat menunjuk diri sendiri.",
+   "fix": "Tambah CHECK approval_requests_sod_chk (decided_by IS NULL OR decided_by <> requester_user_id). Tambah uniqueIndex approval_requests_live_uq (tenant_id, type, object_type, object_id) WHERE status = 'submitted'. Tambah CHECK delegations (delegate_user_id <> delegator_user_id AND valid_until > valid_from).",
+   "prdRef": "FR-M10-03, US-M10-03 KP-1, US-M10-04 KP-2/KP-3, Bab 6.2"
+  },
+  {
+   "severity": "major",
+   "module": "M1",
+   "target": "product_prices, zone_tariffs, fuel_components, special_prices (status/effective_from)",
+   "problem": "Tidak ada keunikan harga aktif per tanggal berlaku. Dua persetujuan untuk tanggal yang sama dapat menghasilkan dua baris 'active', sehingga \"harga yang berlaku pada tanggal transaksi\" menjadi ambigu. Ini melanggar prinsip harga hanya dari master yang deterministik.",
+   "fix": "Tambah partial uniqueIndex: product_prices (product_id, kind, effective_from) WHERE status='active'; zone_tariffs (tariff_zone_id, segment, effective_from) WHERE status='active' AND segment IS NOT NULL, dan (tariff_zone_id, effective_from) WHERE status='active' AND segment IS NULL; fuel_components (tenant_id, effective_from) WHERE status='active'; special_prices (customer_id, product_id, valid_from) WHERE status='active'.",
+   "prdRef": "BR-15, BR-16, BR-19, US-M1-02 KP-3/KP-4, US-M1-05 KP-1"
+  },
+  {
+   "severity": "major",
+   "module": "M1",
+   "target": "tariff_zones.min_distance_m / max_distance_m",
+   "problem": "Batas zona disimpan langsung di master tanpa tanggal berlaku, status, persetujuan, atau riwayat. Padahal perubahan zona termasuk jalur baku 6.2a (Admin Keuangan → pemilik, tanggal berlaku wajib, \"harga lama tetap berlaku\" bila lewat tenggat) atau keputusan langsung pemilik 6.2b. Daftar \"alamat yang berpindah zona akibat perubahan batas\" juga tidak dapat dibentuk dari data berversi.",
+   "fix": "Buat tabel tariff_zone_boundaries (id, tariff_zone_id → tariff_zones, min_distance_m integer NOT NULL, max_distance_m integer, effective_from date NOT NULL, status price_status DEFAULT 'pending', approval_request_id, is_owner_direct boolean, reason text, approved_by, approved_at, created_by, timestamps) dengan uniqueIndex (tariff_zone_id, effective_from) WHERE status='active'. Tambah customer_addresses.zone_boundary_id uuid dan zone_assigned_at timestamptz untuk daftar tinjauan alamat yang berpindah zona.",
+   "prdRef": "US-M1-05 KP-1/KP-4, Bab 6.2a (harga master, zona, komponen BBM), 6.2b, BR-19"
+  },
+  {
+   "severity": "major",
+   "module": "M2",
+   "target": "orders.recurring_order_id + requested_date",
+   "problem": "Tidak ada unik yang mencegah job H-2 (PAR-34) membangkitkan pesanan langganan dua kali untuk tanggal yang sama, misalnya karena job dijalankan ulang atau cron ganda. Pesanan dobel adalah masalah inti M2 (KPI-06 target 0).",
+   "fix": "Tambah uniqueIndex orders_recurring_date_uq (recurring_order_id, requested_date) WHERE recurring_order_id IS NOT NULL. Opsional: ganti recurring_orders.created_via dari text menjadi order_source_enum.",
+   "prdRef": "US-M2-06 KP-2/KP-3, 7.2.1, KPI-06"
+  },
+  {
+   "severity": "major",
+   "module": "Lintas modul (NFR-30 multi-tenant)",
+   "target": "shifts, pos_sales, pos_sale_lines, stock_*, consumable_receipts, water_supply_receipts, outlet_water_ledger, deposits, purchase_receipts, reorder_items, quality_checklists (tenant_id vs outlet_id)",
+   "problem": "tenant_id dan outlet_id adalah kolom independen. DB tidak mencegah baris dengan tenant_id berbeda dari tenant pemilik outlet atau shift-nya. Satu bug layanan dapat menempatkan data mitra di tenant EQUA atau sebaliknya, sehingga lolos filter tenant. Hal ini bertentangan dengan gerbang uji isolasi dan uji penetrasi lintas tenant.",
+   "fix": "Tambah uniqueIndex outlets_id_tenant_uq (id, tenant_id) dan shifts_id_tenant_uq (id, tenant_id). Ganti FK tunggal dengan foreignKey komposit {name} (outlet_id, tenant_id) → outlets(id, tenant_id) pada tabel transaksi outlet di atas, dan (shift_id, tenant_id) → shifts(id, tenant_id) pada pos_sales/shift_stock_counts. Tambah uniqueIndex employees (id, tenant_id) dan FK komposit users (employee_id, tenant_id).",
+   "prdRef": "NFR-30, US-M6-07 KP-2/KP-6, Bab 4.3, 9.6 (isolasi tenant), US-P3-10 KP-4"
+  },
+  {
+   "severity": "minor",
+   "module": "M2/M3",
+   "target": "trips (fieldMeta tunggal; tidak ada tanggal bisnis Selesai)",
+   "problem": "Satu rit memuat empat aksi lapangan (Berangkat/Tiba/Selesai/Gagal), masing-masing dengan perintah sinkron, waktu sinkron, dan kemungkinan dicatat kantor atau terlambat sinkron yang berbeda. fieldMeta hanya menyimpan satu set, sehingga sync_command_id/synced_at/late_sync saling menimpa. Tidak ada business_date penyelesaian dari perangkat, padahal rit lewat tanggal bisa selesai pada hari lain. Ini menyulitkan KPI-01, H+0 rit per truk, dan penandaan konflik per aksi.",
+   "fix": "Tambah trips.completion_business_date date + index (truck_id, completion_business_date). Buat tabel trip_status_events (id, tenant_id, trip_id → trips, status trip_status, device_time, synced_at, lat, lng, accuracy_m, user_id, device_id, sync_command_id UNIQUE, recorded_by_office, office_record_reason, late_sync, clock_skew_flagged, created_at). Tambah trips.sync_conflict_resolved_at timestamptz dan sync_conflict_resolved_by uuid.",
+   "prdRef": "Bab 6.7, Bab 5.3, US-M3-03 KP-6, KPI-01, 7.2.6 (konflik)"
+  },
+  {
+   "severity": "minor",
+   "module": "M12/M3",
+   "target": "fleet_events.explanation*",
+   "problem": "Keterangan perjalanan BR-25 diisi sopir dari aplikasi offline dan wajib diberikan \"hari yang sama\". Namun fleet_events tidak menyimpan waktu perangkat, perangkat, perintah sinkron, atau penanda terlambat untuk keterangan itu. explained_at tidak dapat membedakan waktu isi dan waktu sinkron.",
+   "fix": "Tambah fleet_events.explanation_device_time timestamptz, explanation_device_id uuid → devices, explanation_sync_command_id uuid, explanation_business_date date, explanation_late boolean NOT NULL DEFAULT false.",
+   "prdRef": "BR-25, US-M3-06 KP-4, US-M12-05 KP-3/KP-4"
+  },
+  {
+   "severity": "minor",
+   "module": "Core (penomoran)",
+   "target": "document_sequences (kind, scope_key); kolom number unik global",
+   "problem": "Urutan nomor tidak dibedakan per tenant. Kode outlet hanya unik per tenant, sehingga scope 'D01-270926' milik mitra dan EQUA berbagi counter. Nomor setoran, jurnal, dan persetujuan tenant mitra juga berbagi urutan dan keunikan global dengan EQUA, sehingga volume transaksi antar tenant bocor.",
+   "fix": "Tambah document_sequences.tenant_id uuid NOT NULL → tenants dengan uniqueIndex (tenant_id, kind, scope_key). Ubah unique number pada deposits, journals, approval_requests, purchase_receipts, internal_transfers menjadi uniqueIndex (tenant_id, number).",
+   "prdRef": "NFR-30, D-04, US-M6-07 KP-2 & KP-4"
+  },
+  {
+   "severity": "minor",
+   "module": "Lintas modul (NFR-30)",
+   "target": "stock_count_lines, consumable_receipt_lines, product_prices, purchase_receipt_lines, internal_transfer_lines, quality_checklist_items, device_usage_logs",
+   "problem": "Tabel anak yang dipakai tenant mitra (POS, stok, harga jual mitra) tidak punya tenant_id. Isolasi hanya lewat join ke induk, tidak konsisten dengan pola pos_sale_lines, dan menyulitkan uji isolasi atau RLS di masa depan.",
+   "fix": "Tambah tenant_id uuid NOT NULL → tenants (disalin dari induk) + index (tenant_id, …) pada tabel-tabel tersebut, sejalan dengan pos_sale_lines/shift_stock_counts.",
+   "prdRef": "NFR-30, US-M6-07 KP-2, US-P3-02 KP-2"
+  },
+  {
+   "severity": "minor",
+   "module": "M5",
+   "target": "customers (pelepasan Ditahan oleh pemilik)",
+   "problem": "Pembukaan status Ditahan sebelum lunas \"berlaku sampai keterlambatan berikutnya\", tetapi cakupan pelepasan tidak tersimpan eksplisit. Job harian harus menurunkannya dari customer_credit_history agar tidak langsung menahan ulang pelanggan karena faktur lama yang masih lewat tempo. Ini rawan salah hitung.",
+   "fix": "Tambah customers.hold_released_at timestamptz, hold_released_by uuid → users, hold_release_approval_id uuid → approval_requests, hold_release_covers_due_until date (faktur dengan due_date ≤ nilai ini tidak memicu Ditahan ulang).",
+   "prdRef": "US-M5-03 KP-3, BR-03, Bab 6.2a (pembukaan Ditahan)"
+  },
+  {
+   "severity": "minor",
+   "module": "M5/M4",
+   "target": "invoices (piutang sementara transfer; penghapusan piutang); incoming_transfers.temporary_invoice_id",
+   "problem": "Penanda \"transfer belum diterima\" pada piutang sementara tidak ada di invoices, dan incoming_transfers.temporary_invoice_id tidak ber-FK. Penghapusan piutang tak tertagih lewat jurnal manual tidak punya kolom pengurang, sehingga outstanding_amount tidak bisa turun tanpa nota kredit. Tidak ada CHECK konsistensi outstanding_amount.",
+   "fix": "Tambah invoices.pending_transfer_id uuid → incoming_transfers (atau jenis invoice_kind 'unreceived_transfer', ditambahkan di labels), written_off_amount bigint NOT NULL DEFAULT 0, written_off_at timestamptz, write_off_journal_id uuid → journals, write_off_approval_id uuid. Tambah CHECK outstanding_amount = amount − paid_amount − credited_amount − written_off_amount AND outstanding_amount >= 0. Jadikan temporary_invoice_id FK bernama.",
+   "prdRef": "US-M4-04 KP-4, PTB-28, 7.5.6, US-M5-01 KP-6"
+  },
+  {
+   "severity": "minor",
+   "module": "Lintas modul (idempotensi sinkron)",
+   "target": "<tabel lapangan>.sync_command_id (trip_payments, customer_payments, trip_expenses, trip_incidents, meter_readings, truck_fills, tank_level_readings, consumable_receipts, water_supply_receipts, stock_counts, quality_checklists)",
+   "problem": "Idempotensi hanya bergantung pada PK sync_commands yang diinsert dalam transaksi yang sama. Tidak ada pertahanan lapis kedua di tabel yang secara desain dibuat satu baris per perintah, jadi bug handler (sync_commands diinsert terpisah atau retry) dapat menggandakan transaksi.",
+   "fix": "Tambah uniqueIndex <tabel>_sync_command_uq (sync_command_id) WHERE sync_command_id IS NOT NULL pada tabel satu-baris-per-perintah tersebut.",
+   "prdRef": "Bab 6.4 butir 2, NFR-07, US-M3-09 KP-2, US-M6-06 KP-2"
+  },
+  {
+   "severity": "minor",
+   "module": "M4/M5/M6/M7 (posting turunan)",
+   "target": "incoming_transfers(source_object_*), office_cash_movements(source_object_*), stock_ledger(source_object_*), outlet_water_ledger(source_object_*), consumable_receipts.internal_transfer_id, invoices.pos_sale_id",
+   "problem": "Posting turunan (transfer tercatat dari pembayaran rit, mutasi kas kantor dari setoran, kartu stok dari penjualan/resep, buku air dari pasokan, faktur toko dari penjualan tempo, penerimaan transfer internal) tidak punya unik per sumber. Event atau handler yang terulang akan menggandakan saldo.",
+   "fix": "Tambah partial uniqueIndex: incoming_transfers (source_object_type, source_object_id) WHERE source_object_id IS NOT NULL; office_cash_movements (kind, source_object_type, source_object_id) WHERE reversal_of_id IS NULL AND source_object_id IS NOT NULL; stock_ledger (source_object_type, source_object_id, product_id, kind) WHERE reversal_of_id IS NULL; outlet_water_ledger (source_object_type, source_object_id, kind); consumable_receipts (internal_transfer_id) WHERE NOT NULL; invoices (pos_sale_id) WHERE pos_sale_id IS NOT NULL; incoming_transfers (shift_id) WHERE source_kind='qris_shift'.",
+   "prdRef": "US-M4-04 KP-1, US-M4-01 KP-3, US-M6-04 KP-1, US-M6-05 KP-3, US-M7-04 KP-3, US-M7-06 KP-1"
+  },
+  {
+   "severity": "minor",
+   "module": "M7",
+   "target": "purchase_receipts.supplier_note_number",
+   "problem": "Nota pemasok yang sama dapat diinput dua kali, sehingga stok dan utang pemasok menggelembung. Tidak ada unik (pemasok, nomor nota).",
+   "fix": "Tambah uniqueIndex purchase_receipts_supplier_note_uq (tenant_id, supplier_id, supplier_note_number) WHERE supplier_note_number IS NOT NULL AND reversal_of_id IS NULL AND status <> 'reversed'.",
+   "prdRef": "BR-28, US-M7-02 KP-1/KP-6, US-M7-08 KP-1"
+  },
+  {
+   "severity": "minor",
+   "module": "M3/M6/M7 (koreksi)",
+   "target": "trip_expenses, supplier_payment_allocations, internal_transfers, consumable_receipts, water_supply_receipts, outlet_water_ledger",
+   "problem": "Tabel keuangan atau stok ini tidak punya kolom pembalik, padahal koreksinya wajib lewat baris pembalik beralasan (> Rp 500.000 disetujui pemilik). Contohnya pengeluaran rit yang sudah diterima ternyata salah, atau alokasi pembayaran pemasok keliru.",
+   "fix": "Tambah reversal_of_id uuid (self-FK bernama), reversal_reason text, correction_approval_id uuid → approval_requests pada tabel-tabel tersebut, dengan uniqueIndex (reversal_of_id) WHERE NOT NULL.",
+   "prdRef": "BR-38, Bab 6.7, US-M3-08 KP-2, US-M7-08 KP-2, US-M6-05 KP-1"
+  },
+  {
+   "severity": "minor",
+   "module": "M1",
+   "target": "customers.segment / credit_status / credit_limit",
+   "problem": "BR-04 \"rumah tangga tunai saja, tanpa pengecualian\" (ditegaskan CR-12) hanya dijaga aplikasi. Tidak ada CHECK yang mencegah pelanggan household berstatus Tempo, berbatas kredit > 0, atau bertagihan bulanan.",
+   "fix": "Tambah CHECK customers_household_cash_chk (segment <> 'household' OR (credit_status = 'cash' AND credit_limit = 0 AND monthly_billing = false)), serta CHECK credit_limit >= 0 AND payment_term_days > 0.",
+   "prdRef": "BR-04, US-M1-01 KP-4, CR-12"
+  },
+  {
+   "severity": "minor",
+   "module": "M10/Tahap 2",
+   "target": "audit_logs (aktor pelanggan); orders.created_by / cancelled_by",
+   "problem": "Aksi dari aplikasi pelanggan (buat pesanan, batal sendiri sampai rit Berangkat, keluhan) tidak punya kolom pelaku karena customer_accounts bukan users. created_by/cancelled_by bernilai null dan jejak audit tidak menyebut siapa pelakunya.",
+   "fix": "Tambah audit_logs.actor_customer_account_id uuid (refId) dan domain_events.actor_customer_account_id uuid; orders.created_by_customer_account_id uuid → customer_accounts; orders.cancelled_by_customer_account_id uuid → customer_accounts.",
+   "prdRef": "US-M10-05 KP-1, Bab 6.7, US-P2-02 KP-4/KP-5"
+  },
+  {
+   "severity": "minor",
+   "module": "M10",
+   "target": "audit_logs.prev_hash",
+   "problem": "Rantai hash dapat bercabang bila dua transaksi membaca hash terakhir yang sama secara bersamaan. Tidak ada constraint yang mendeteksi atau mencegah percabangan, sehingga verifyChain bisa gagal tanpa sebab yang terlihat.",
+   "fix": "Tambah uniqueIndex audit_logs_prev_hash_uq (prev_hash) WHERE prev_hash IS NOT NULL dan uniqueIndex audit_logs_genesis_uq ((true)) WHERE prev_hash IS NULL (satu genesis). Insert diserialisasi dengan pg_advisory_xact_lock di audit.record.",
+   "prdRef": "US-M10-05 KP-2, NFR-11"
+  },
+  {
+   "severity": "minor",
+   "module": "M9/M11",
+   "target": "report_snapshots (uq tenant_id, report_key, period, revision)",
+   "problem": "Filter (outlet, lini, truk) tidak ikut dalam kunci unik. Dua laporan Final untuk periode yang sama dengan filter berbeda saling bentrok, atau salah satunya ditimpa. Syarat \"berkas Final identik saat diekspor ulang\" tidak terjamin per varian.",
+   "fix": "Tambah report_snapshots.scope_key text NOT NULL DEFAULT '' (hash kanonik filter). Ubah unik menjadi (tenant_id, report_key, period, scope_key, revision) dan tambah uniqueIndex (tenant_id, report_key, period, scope_key) WHERE status='final' AND superseded_by_id IS NULL.",
+   "prdRef": "US-M9-03 KP-4, US-M11-04 KP-2, US-M11-10 KP-4"
+  },
+  {
+   "severity": "minor",
+   "module": "M6/Tahap 3",
+   "target": "product_prices (tanpa outlet); parameters (tanpa batas untuk mitra)",
+   "problem": "PRD meminta pengaturan harga per tenant/outlet tanpa kode, dan mitra boleh mengubah kas awal, ambang void, dan resep \"dalam batas yang ditetapkan EQUA\" dengan harga anjuran EQUA tampil. Model tidak punya harga per outlet, harga anjuran, maupun batas min/maks parameter yang boleh diubah mitra.",
+   "fix": "Tambah product_prices.outlet_id uuid NULL → outlets (masukkan ke unik harga aktif) dan product_prices.recommended_price bigint (atau price_kind 'recommended'). Tambah parameters.min_value jsonb, max_value jsonb, tenant_editable boolean NOT NULL DEFAULT false.",
+   "prdRef": "US-M6-07 KP-3, US-P3-02 KP-1, PTB-56"
+  },
+  {
+   "severity": "minor",
+   "module": "RL-7 / Tahap 3",
+   "target": "outlets (tanggal aktif untuk tagihan langganan)",
+   "problem": "Tagihan langganan dihitung \"jumlah outlet aktif × tarif\" per bulan dan outlet mitra baru Aktif setelah onboarding lengkap. outlets hanya punya is_active dan deactivated_at, tanpa tanggal mulai aktif, sehingga jumlah outlet aktif per bulan (termasuk outlet yang mulai atau berhenti di tengah bulan) tidak dapat direkonstruksi.",
+   "fix": "Tambah outlets.activated_on date, onboarding_completed_at timestamptz, billing_start_date date. royalty_calculations memakai rentang activated_on..deactivated_at.",
+   "prdRef": "US-P3-09 KP-1, US-P3-01 KP-4, US-P3-04 KP-1"
+  },
+  {
+   "severity": "minor",
+   "module": "M2/M5",
+   "target": "orders (persetujuan kurang bayar kedua); trips (penanda Ditahan)",
+   "problem": "Satu pesanan bisa sekaligus butuh persetujuan kredit dan persetujuan \"kurang bayar kedua\" (PTB-18), tetapi hanya ada credit_approval_request_id. Penanda rit tempo yang belum Berangkat saat pelanggan menjadi Ditahan (untuk diubah ke tunai atau ditarik) juga tidak ada.",
+   "fix": "Tambah orders.underpayment_approval_request_id uuid → approval_requests (FK bernama), trips.credit_hold_flagged_at timestamptz, trips.credit_hold_resolution text.",
+   "prdRef": "US-M2-05 KP-6, PTB-18, US-M5-03 KP-2, PTB-27"
+  },
+  {
+   "severity": "minor",
+   "module": "M12",
+   "target": "gps_positions",
+   "problem": "Tidak ada unik untuk mencegah posisi ganda dari retry penghubung vendor atau pengiriman ulang outbox GPS ponsel. Tidak ada juga indeks yang efisien untuk job retensi 12 bulan (hapus berdasarkan waktu lintas truk).",
+   "fix": "Tambah uniqueIndex gps_positions_dedupe_uq (truck_id, source, device_time). Tambah index gps_positions_time_idx (device_time), atau BRIN pada server_time, untuk withRetentionPurge (PAR-52).",
+   "prdRef": "US-M12-01 KP-1/KP-6, NFR-21, PTB-33"
+  }
+ ],
+ "overall": "Model data F2 (src/db/schema/**, 15 berkas) secara umum sudah mencakup objek dan siklus status PRD 5.1/5.2 dan bagian \"Objek & status\" semua modul M1–M12, Tahap 2 Bab 8, Tahap 3 Bab 9, termasuk RL-7 9.10.\n\nYang sudah benar:\n- Enum sesuai ARCHITECTURE §4.\n- Uang disimpan sebagai bigint rupiah.\n- BR-36 dijaga lewat users.employee_id UNIQUE.\n- Hanya satu shift terbuka per outlet (indeks unik parsial).\n- Idempotensi sinkron lewat PK sync_commands; fieldMeta menyediakan penanda \"dicatat kantor\", \"terlambat sinkron\", dan jam perangkat menyimpang.\n- Mayoritas tabel keuangan punya reversal_of_id.\n- Trigger larangan DELETE/TRUNCATE mencakup seluruh tabel di skema public (kecuali 5 tabel teknis); audit_logs, access_logs, dan domain_events append-only.\n- Indeks untuk kueri berat sudah memadai: kas hari ini (trip_payments driver+tanggal, pos_sales outlet+tanggal, deposits tenant+tanggal), papan jadwal (trips truck+tanggal dan status+tanggal), umur piutang (invoices status+due_date), dan posisi GPS terakhir (gps_positions truck_id+device_time).\n\nTidak ditemukan temuan critical. Ada 13 temuan major, dengan tema utama:\n1. **Pola offline dan perangkat cadangan bentrok dengan constraint:**\n   - penomoran dokumen POS, nota, dan transfer yang dibuat di perangkat;\n   - shift offline yang ditolak indeks unik lalu menyeret penjualannya;\n   - setor sebagian yang terblokir deposits_shift_uq.\n2. **Koreksi dan imutabilitas:**\n   - pos_sales tanpa baris pembalik;\n   - UPDATE pada baris buku besar dan transaksi terposting tidak dijaga DB;\n   - tidak ada penjaga DB untuk keseimbangan jurnal dan posting ke periode terkunci.\n3. **Keunikan bisnis yang hilang:**\n   - satu pembayaran aktif per rit;\n   - satu pengisian per rit;\n   - satu harga aktif per tanggal berlaku;\n   - pesanan langganan per tanggal;\n   - satu permintaan persetujuan aktif per objek, plus CHECK pemohon ≠ penyetuju.\n4. **Batas zona tarif tanpa versi dan persetujuan** (6.2a).\n5. **Konsistensi tenant_id terhadap outlet** tidak dijamin FK komposit (NFR-30).\n\nTemuan minor terutama berupa penguatan: metadata per aksi lapangan pada rit dan keterangan BR-25, penomoran per tenant, tenant_id di tabel anak, unik per sumber untuk posting turunan, CHECK BR-04, aktor aplikasi pelanggan di jejak audit, deteksi percabangan rantai hash, dan kunci snapshot laporan.\n\nSemua perbaikan yang diusulkan bersifat aditif (kolom, indeks, CHECK, trigger) dan tidak mengubah desain dasar. Perubahan di core.ts dan hardening.sql wajib mengikuti aturan append-only berkas bersama. Tidak ada berkas yang diubah dalam tinjauan ini."
+}
