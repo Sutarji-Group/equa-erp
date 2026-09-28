@@ -35,6 +35,9 @@ import { requestIp } from "./device-auth";
 import { isPending2fa } from "./resolver";
 import { SESSION_COOKIE, validateSession, type SessionInvalidReason, type SessionRow } from "./session";
 import type { RequestMeta } from "./web-login";
+import { loginUrl, reasonParam } from "./login-urls";
+
+export { LOGIN_REASON_MESSAGES, loginUrl, safeNextPath } from "./login-urls";
 
 export type OfficeUser = {
   id: string;
@@ -57,36 +60,6 @@ export type OfficeSessionState =
   | ActiveOfficeSession
   | { state: "totp" | "totp_enroll"; session: SessionRow; user: OfficeUser }
   | { state: "none"; reason: SessionInvalidReason };
-
-/** Alasan (query `?alasan=`) di halaman masuk. */
-export const LOGIN_REASON_MESSAGES: Record<string, string> = {
-  "sesi-habis": "Sesi Anda berakhir karena tidak aktif. Silakan masuk lagi.",
-  "sesi-maksimal": "Sesi Anda sudah mencapai batas waktu maksimal. Silakan masuk lagi.",
-  "sesi-dicabut": "Sesi Anda diakhiri. Silakan masuk lagi.",
-  "akun-nonaktif": "Akun Anda tidak aktif. Hubungi admin sistem.",
-  keluar: "Anda sudah keluar. Sampai jumpa.",
-  "perlu-masuk": "Silakan masuk untuk melanjutkan.",
-};
-
-function reasonParam(reason: SessionInvalidReason): string | null {
-  switch (reason) {
-    case "expired_idle":
-      return "sesi-habis";
-    case "expired_max":
-      return "sesi-maksimal";
-    case "revoked":
-      return "sesi-dicabut";
-    case "user_inactive":
-      return "akun-nonaktif";
-    default:
-      return null;
-  }
-}
-
-/** URL halaman masuk dengan alasan (Bahasa Indonesia di `LOGIN_REASON_MESSAGES`). */
-export function loginUrl(reason?: string | null): string {
-  return reason ? `/masuk?alasan=${encodeURIComponent(reason)}` : "/masuk";
-}
 
 async function officeUser(userId: string, roles: RoleCode[]): Promise<OfficeUser> {
   const rows = await getDb()
@@ -168,10 +141,4 @@ export async function clearSessionCookie(): Promise<void> {
 /** Token sesi dari cookie (untuk langkah 2FA/keluar). */
 export async function currentSessionToken(): Promise<string | null> {
   return (await cookies()).get(SESSION_COOKIE)?.value ?? null;
-}
-
-/** Jalur lanjutan aman (relatif, bukan ke halaman masuk). */
-export function safeNextPath(raw: unknown): string {
-  if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/masuk")) return "/beranda";
-  return raw;
 }

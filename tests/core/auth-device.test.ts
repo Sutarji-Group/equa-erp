@@ -136,6 +136,18 @@ describe("Perangkat terdaftar (US-M10-02 KP-1/KP-6/KP-7)", () => {
     await expectAuthError(dev.auth(), "DEVICE_WIPE");
   });
 
+  it("US-M10-02 KP-6 kode aktivasi baru tidak dapat diterbitkan selama perintah hapus data belum dijalankan", async () => {
+    const dev = await activateSeedDevice("POS-D02");
+    await requestWipe(seededContext("admin1"), dev.deviceId, "Tablet hilang dari depot");
+    await expect(issueActivationCode(seededContext("admin1"), dev.deviceId)).rejects.toThrow(/hapus data perangkat ini belum dijalankan/);
+    // Setelah perangkat lama menjalankan hapus data (kontak berikutnya), perangkat dapat diaktifkan ulang.
+    await expectAuthError(dev.auth(), "DEVICE_WIPE");
+    const again = await issueActivationCode(seededContext("admin1"), dev.deviceId);
+    const act = await activateDevice(again.code);
+    expect(act.device.home).toBe("/pos");
+    expect(act.device.source).toBe("pos");
+  });
+
   it("US-M10-02 KP-7 riwayat pemakaian perangkat: aktivasi, login, PIN salah", async () => {
     const dev = await activateSeedDevice("HP-T5");
     await expectAuthError(pinLogin(await dev.auth(), { userId: userIdByUsername("sopir5"), pin: "999999" }), "PIN_INVALID");

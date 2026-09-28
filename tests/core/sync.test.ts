@@ -2,8 +2,8 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { accessLogs, attachments, crewRosters, devices, deviceUsageLogs, syncCommands } from "@/db/schema";
-import { deviceId, EQUA_TENANT_ID, SEED_DEMO_PIN, truckId, userIdByUsername } from "@/db/seed";
+import { accessLogs, attachments, crewRosters, devices, deviceUsageLogs, employees, outlets, syncCommands } from "@/db/schema";
+import { deviceId, EQUA_TENANT_ID, outletId, SEED_DEMO_PIN, truckId, userIdByUsername } from "@/db/seed";
 import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
 import { activateDevice, authenticateDevice, issueActivationCode, pinLogin, signDeviceToken, type DeviceAuth } from "@/server/core/auth";
@@ -59,6 +59,20 @@ beforeAll(() => {
       schema: z.object({}),
       handle: () => {
         throw new DomainError("TEST_RULE", "Setoran hari ini sudah ditutup. Hubungi Admin Keuangan.");
+      },
+    }),
+    registerSyncHandler("test.unique_clash", {
+      permission: null,
+      schema: z.object({}),
+      handle: async (_ctx, _p, { tx }) => {
+        await tx.insert(employees).values({ tenantId: EQUA_TENANT_ID, employeeNo: "EQ-001", fullName: "Duplikat", position: "Uji" });
+      },
+    }),
+    registerSyncHandler("test.forbidden_delete", {
+      permission: null,
+      schema: z.object({}),
+      handle: async (_ctx, _p, { tx }) => {
+        await tx.delete(outlets).where(eq(outlets.id, outletId("D01")));
       },
     }),
     registerSyncHandler("test.with_photo", {
@@ -158,6 +172,16 @@ describe("Sinkron push (docs/ARCHITECTURE.md §7)", () => {
     expect(again.results[0]).toMatchObject({ status: "duplicate", originalStatus: "rejected" });
     const stored = await t.db.select().from(syncCommands).where(eq(syncCommands.id, (batch[3] as { id: string }).id));
     expect(stored[0]!.status).toBe("rejected");
+  });
+
+  it("NFR-07 pelanggaran unik data bisnis & larangan hapus DB → ditolak final (tidak diulang tanpa henti)", async () => {
+    const clash = cmd(dev.userId, "test.unique_clash", {});
+    const del = cmd(dev.userId, "test.forbidden_delete", {});
+    const res = await processPush(await dev.auth(), { commands: [clash, del] });
+    expect(res.results[0]).toMatchObject({ status: "rejected", code: "DUPLICATE_DATA" });
+    expect(res.results[1]).toMatchObject({ status: "rejected", code: "HARDENING" });
+    expect(res.results[1]!.message).toMatch(/tidak boleh dihapus/);
+    expect((await processPush(await dev.auth(), { commands: [clash] })).results[0]).toMatchObject({ status: "duplicate", originalStatus: "rejected" });
   });
 
   it("Bab 6.4 butir 3 konflik dengan perubahan kantor tetap diterapkan dan ditandai conflict", async () => {

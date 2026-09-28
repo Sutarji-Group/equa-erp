@@ -18,6 +18,7 @@ import {
   verifyTotpLogin,
   webActorFromToken,
 } from "@/server/core/auth";
+import { safeNextPath } from "@/server/core/auth/login-urls";
 import { ValidationError } from "@/server/core/errors";
 import * as params from "@/server/core/params";
 
@@ -102,6 +103,13 @@ describe("Login web kantor & 2FA (US-M10-02 KP-4)", () => {
     const [after] = await t.db.select().from(users).where(eq(users.id, u.userId));
     expect(after!.totpEnabled).toBe(true);
     expect((await webActorFromToken(res.token))?.roles).toEqual(["finance_admin"]);
+  });
+
+  it("NFR-09 jalur lanjutan setelah masuk hanya relatif di situs ini (tanpa pengalihan terbuka)", () => {
+    expect(safeNextPath("/pesanan?status=baru")).toBe("/pesanan?status=baru");
+    for (const bad of ["//evil.example", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "/masuk/2fa", "", null, "/a\u0000b"]) {
+      expect(safeNextPath(bad)).toBe("/beranda");
+    }
   });
 
   it("US-M10-02 KP-4 kata sandi minimal 10 karakter", async () => {

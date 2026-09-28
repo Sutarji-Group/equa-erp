@@ -115,6 +115,7 @@ export async function loginWithPassword(input: { username: string; password: str
     throw new AuthError("ACCOUNT_LOCKED", lockedMessage(user.lockedUntil), { lockedUntil: user.lockedUntil.toISOString() });
   }
 
+  if (!user.passwordHash) await burnVerify(password);
   const passwordOk = await verifySecretHash(user.passwordHash, password);
   if (!passwordOk) {
     const lockedUntil = await withTx(async (tx) => {

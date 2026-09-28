@@ -22,7 +22,7 @@ import { isBusinessDate, toBusinessDate } from "@/lib/time";
 
 import { ensureBootstrapped } from "../bootstrap";
 import { getDb, withTx, type Tx } from "../db";
-import { DomainError, ForbiddenError, parseInput, toUserMessage } from "../errors";
+import { DomainError, ForbiddenError, isHardeningViolation, parseInput, toUserMessage } from "../errors";
 import { get as getParam } from "../params-read";
 import { can, logDenialIfNeeded, permissionDenied } from "../rbac/authorize";
 import type { DeviceAuth } from "../auth/device-auth";
@@ -109,7 +109,7 @@ async function storeRejected(auth: DeviceAuth, cmd: SyncCommandInput, message: s
         deviceId: auth.device.id,
         userId: cmd.userId,
         type: cmd.type,
-        payload: (cmd.payload ?? null) as object,
+        payload: (cmd.payload ?? {}) as object,
         deviceTime: cmd.deviceTime,
         businessDate: cmd.businessDate,
         receivedAt: auth.now,
@@ -215,7 +215,7 @@ async function processOne(auth: DeviceAuth, raw: unknown, skew: { ms: number | n
         deviceId: auth.device.id,
         userId: cmd.userId,
         type: cmd.type,
-        payload: (cmd.payload ?? null) as object,
+        payload: (cmd.payload ?? {}) as object,
         deviceTime: cmd.deviceTime,
         businessDate: cmd.businessDate,
         receivedAt: now,
@@ -242,11 +242,19 @@ async function processOne(auth: DeviceAuth, raw: unknown, skew: { ms: number | n
     if (isUniqueViolation(error)) {
       const again = await existingResult(db, auth, cmd.id);
       if (again) return again;
+      // Pelanggaran unik tabel bisnis (bukan ID perintah): data yang sama sudah tercatat → final, tidak diulang.
+      const res = await storeRejected(
+        auth,
+        cmd,
+        "Data ini bentrok dengan data yang sudah tercatat (mungkin sudah dikirim dari perangkat lain). Admin Keuangan/Dispatcher akan memeriksanya.",
+        clockSkewMs,
+      );
+      return { ...res, code: "DUPLICATE_DATA" };
     }
     if (error instanceof ForbiddenError && holder.ctx) await logDenialIfNeeded(holder.ctx, error);
-    if (error instanceof DomainError) {
+    if (error instanceof DomainError || isHardeningViolation(error)) {
       const res = await storeRejected(auth, cmd, toUserMessage(error), clockSkewMs);
-      return { ...res, code: error.code };
+      return { ...res, code: error instanceof DomainError ? error.code : "HARDENING" };
     }
     console.error(`[equa] perintah sinkron ${cmd.type} (${cmd.id}) gagal:`, error);
     return { id: cmd.id, status: "retry", code: "SERVER_ERROR", message: "Server sedang bermasalah. Data tetap tersimpan di ponsel dan akan dikirim ulang." };

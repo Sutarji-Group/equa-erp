@@ -252,6 +252,13 @@ export async function issueActivationCode(ctx: ActorContext, deviceId: string, o
   return runService(ctx, opts, async (tx) => {
     const device = await requireDevice(tx, ctx, deviceId);
     if (device.kind === "gps") throw ValidationError.field("deviceId", "Perangkat GPS tidak diaktifkan lewat kode.");
+    if (device.status === "wipe_pending") {
+      // Perintah hapus data harus dijalankan dulu pada kontak berikutnya perangkat lama (US-M10-02 KP-6).
+      throw ValidationError.field(
+        "deviceId",
+        "Perintah hapus data perangkat ini belum dijalankan. Daftarkan perangkat pengganti sebagai perangkat baru.",
+      );
+    }
     const activation = newActivationCode(ctx.now);
     await tx
       .update(devices)
