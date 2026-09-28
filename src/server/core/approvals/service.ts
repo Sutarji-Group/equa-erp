@@ -63,17 +63,31 @@ export type ApprovalHandlers = {
 
 const handlerRegistry = new Map<string, ApprovalHandlers>();
 
-/** Daftarkan handler jenis persetujuan milik modul (menggantikan pendaftaran sebelumnya untuk jenis yang sama). */
-export function registerApprovalHandler(type: ApprovalType, handlers: ApprovalHandlers): () => void {
+function handlerKey(type: string, objectType?: string | null): string {
+  return objectType ? `${type}#${objectType}` : type;
+}
+
+/**
+ * Daftarkan handler jenis persetujuan milik modul (menggantikan pendaftaran sebelumnya untuk kunci yang sama).
+ * Jenis bersama lintas modul (mis. `correction`, BR-38) didaftarkan per jenis objek:
+ * `registerApprovalHandler("correction", handlers, { objectType: "pos_sale" })` — handler dipilih dari
+ * `approval_requests.object_type`; bila tidak ada handler khusus objek, dipakai handler umum jenis itu.
+ */
+export function registerApprovalHandler(
+  type: ApprovalType,
+  handlers: ApprovalHandlers,
+  opts: { objectType?: string } = {},
+): () => void {
   if (!getApprovalType(type)) throw new Error(`Jenis persetujuan tidak dikenal: ${type}. Tambahkan di approvals/registry.ts.`);
-  handlerRegistry.set(type, handlers);
+  const key = handlerKey(type, opts.objectType);
+  handlerRegistry.set(key, handlers);
   return () => {
-    if (handlerRegistry.get(type) === handlers) handlerRegistry.delete(type);
+    if (handlerRegistry.get(key) === handlers) handlerRegistry.delete(key);
   };
 }
 
-export function getApprovalHandlers(type: string): ApprovalHandlers | undefined {
-  return handlerRegistry.get(type);
+export function getApprovalHandlers(type: string, objectType?: string | null): ApprovalHandlers | undefined {
+  return (objectType ? handlerRegistry.get(handlerKey(type, objectType)) : undefined) ?? handlerRegistry.get(type);
 }
 
 function requireDef(type: string): ApprovalTypeDef {
@@ -343,7 +357,7 @@ export async function decide(
     }
 
     const status = decision === "approve" ? "approved" : "rejected";
-    const handlers = handlerRegistry.get(def.type);
+    const handlers = getApprovalHandlers(def.type, request.objectType);
     const handler = decision === "approve" ? handlers?.onApproved : handlers?.onRejected;
 
     const [updated] = await tx
@@ -442,7 +456,7 @@ export async function cancel(ctx: ActorContext, id: string, reason: string, opts
       .set({ status: "cancelled", cancelledAt: ctx.now, cancelReason: cleanReason })
       .where(eq(approvalRequests.id, id))
       .returning();
-    const handler = handlerRegistry.get(request.type)?.onCancelled;
+    const handler = getApprovalHandlers(request.type, request.objectType)?.onCancelled;
     if (handler) await handler({ tx, request: updated!, ctx, decision: "cancelled", reason: cleanReason });
     await auditRecord(tx, {
       ctx,
@@ -592,7 +606,7 @@ async function processExpiry(tx: Tx, id: string, now: Date): Promise<"expired" |
   const def = getApprovalType(request.type);
   if (!def || def.onExpire === "none") return "skipped";
   const ctx = systemContext({ tenantId: request.tenantId, now });
-  const handlers = handlerRegistry.get(request.type);
+  const handlers = getApprovalHandlers(request.type, request.objectType);
 
   if (def.onExpire === "expire") {
     const [updated] = await tx

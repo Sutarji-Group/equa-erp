@@ -123,8 +123,22 @@ Tanggal baseline: 27 September 2026.
   dibangun sebagai HANDLER SINKRON POS + penyedia pull. Halaman `/toko/*` untuk pemilik, Admin Keuangan, akuntan.
 - Portal pemilik mitra (RL-7) memakai `loginWithPassword(..., { interface: "portal" })`.
 
-## D-08 Perilaku lewat tenggat permintaan akses (SEMENTARA — menunggu konfirmasi PM)
+## D-08 Perilaku lewat tenggat permintaan akses — DIKONFIRMASI PM (28 Sep 2026): `escalate`
 - `account_create`, `role_grant`, `scope_extension` tetap `escalate` (tetap terbuka, ditandai terlambat, pengingat ke
   pemilik; akun/peran TIDAK aktif selama belum disetujui — kolom PRD "Akun/peran tidak aktif" terpenuhi karena
   permintaan tidak pernah memberi akses tanpa keputusan). Alternatif `expire` (permintaan gugur, harus diajukan ulang)
   dapat diganti di `approvals/registry.ts` tanpa perubahan skema bila PM memilihnya.
+
+## D-09 Keputusan PM atas isu integrasi ronde 1–2 (28 Sep 2026)
+1. **Data pribadi di jejak audit setelah anonimisasi.** Jejak audit tetap append-only (NFR-11) dan menyimpan nilai lama
+   sebagai catatan wajib hukum (pembukuan ≥ 10 tahun, BR-31). Mitigasi: tampilan & ekspor jejak audit untuk objek
+   pelanggan yang sudah dianonimkan HARUS menyamarkan nilai data pribadi bagi semua peran kecuali pemilik (dikerjakan
+   pada sprint pengerasan S5). Dicatat sebagai risiko kepatuhan RP-15 untuk ditinjau konsultan hukum.
+2. **Menu 'Impor data awal'** tetap berizin `m1.import.create` (Dispatcher/Admin Keuangan yang mengimpor). Pemilik
+   menandatangani ringkasan lewat `/master/tanda-tangan` — sesuai pemisahan tugas (pemilik tidak menginput data).
+3. **Koreksi lintas modul (BR-38):** satu jenis persetujuan `correction`, handler didaftarkan per `objectType`
+   (lihat ARCHITECTURE §8). Modul yang membutuhkan koreksi > PAR-21 WAJIB memakai mekanisme ini.
+4. **Pemberitahuan setoran depot terlambat (PAR-27)** dimiliki M6 (`m6.deposit.late_check`); M4 TIDAK membuat job duplikat,
+   hanya menampilkan sorotan di 'Kas hari ini'.
+5. **Template WA konfirmasi pesanan** boleh diedit dari layar M2 (izin `m1.wa_template.*`), tabel tetap milik M1.
+6. Backlog lintas modul dilacak di `docs/dev/backlog.md`.

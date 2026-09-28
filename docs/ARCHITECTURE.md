@@ -243,6 +243,11 @@ sebagai insiden.
 
 Tambahan modul (integrasi ronde 1): `employee.exited` (dipancarkan M1 saat tanggal keluar karyawan diisi/diubah dan saat
 tercapai; ditangani M10 → akun dinonaktifkan pada tanggal keluar, BR-37).
+Tambahan ronde 2 (M2): `order.created` · `order.status_changed` (setiap transisi status pesanan, Bab 5.2).
+
+Persetujuan jenis bersama (mis. `correction`, BR-38) didaftarkan per jenis objek:
+`registerApprovalHandler("correction", handlers, { objectType: "pos_sale" })`; handler dipilih dari
+`approval_requests.object_type` dengan cadangan ke handler umum jenis itu.
 
 Tambahan modul (integrasi ronde 2): `order.created` (dipancarkan M2 saat pesanan dibuat dari kantor atau langganan;
 payload mandiri: harga terkunci, cara bayar, asal — US-M2-01, US-M2-06) · `order.status_changed` (transisi status pesanan
