@@ -6,15 +6,15 @@
 
 ## Ringkasan
 
-- **Prioritas M:** 222/490 KP (45.3%) · story: 35 lengkap, 24 sebagian, 35 belum
-- **Semua prioritas:** 243/554 KP (43.9%) · story: 40 lengkap, 26 sebagian, 48 belum
-- Uji dipindai: 678 judul di 86 berkas; 480 judul merujuk user story.
+- **Prioritas M:** 267/490 KP (54.5%) · story: 44 lengkap, 19 sebagian, 31 belum
+- **Semua prioritas:** 290/554 KP (52.3%) · story: 50 lengkap, 20 sebagian, 44 belum
+- Uji dipindai: 763 judul di 98 berkas; 563 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
 | M1 — Master Data | 6 | 6 | 0 | 0 | 36/36 | 100.0 |
 | M2 — Pesanan & Penjadwalan Rit | 11 | 11 | 0 | 0 | 51/51 | 100.0 |
-| M3 — Aplikasi Sopir | 10 | 0 | 6 | 4 | 8/55 | 14.5 |
+| M3 — Aplikasi Sopir | 10 | 10 | 0 | 0 | 55/55 | 100.0 |
 | M4 — Kas & Setoran | 6 | 0 | 2 | 4 | 2/36 | 5.6 |
 | M5 — Piutang & Penagihan | 7 | 0 | 3 | 4 | 4/32 | 12.5 |
 | M6 — Penjualan Depot (POS) | 7 | 7 | 0 | 0 | 42/42 | 100.0 |
@@ -63,20 +63,20 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M3 — Aplikasi Sopir
 
-8/55 KP (14.5%) · story: 0 lengkap, 6 sebagian, 4 belum
+55/55 KP (100.0%) · story: 10 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M3-01 | Melihat daftar rit hari ini dan menuju lokasi | M | 0/7 | belum | 1, 2, 3, 4, 5, 6, 7 | 0 |
-| US-M3-02 | Mencatat Berangkat dan Tiba dengan waktu dan lokasi otomatis | M | 0/6 | belum | 1, 2, 3, 4, 5, 6 | 0 |
-| US-M3-03 | Menyelesaikan rit dengan bukti kirim | M | 1/7 | sebagian | 1, 2, 3, 4, 5, 7 | 8 |
-| US-M3-04 | Mencatat pembayaran per rit | M | 2/6 | sebagian | 3, 4, 5, 6 | 3 |
-| US-M3-05 | Menerima pelunasan piutang saat pengiriman | M | 0/5 | belum | 1, 2, 3, 4, 5 | 0 |
-| US-M3-06 | Menandai rit gagal, melaporkan kendala, dan memberi keterangan perjalanan | M | 1/4 | sebagian | 1, 2, 3 | 1 |
-| US-M3-07 | Melihat kas di tangan dan menyetor akhir hari | M | 0/6 | belum | 1, 2, 3, 4, 5, 6 | 0 |
-| US-M3-08 | Mencatat pengeluaran rit | S | 1/3 | sebagian | 1, 3 | 1 |
-| US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 2/5 | sebagian | 1, 3, 5 | 9 |
-| US-M3-10 | Keamanan perangkat dan kesiapan lapangan | M | 1/6 | sebagian | 2, 3, 4, 5, 6 | 7 |
+| US-M3-01 | Melihat daftar rit hari ini dan menuju lokasi | M | 7/7 | lengkap | — | 24 |
+| US-M3-02 | Mencatat Berangkat dan Tiba dengan waktu dan lokasi otomatis | M | 6/6 | lengkap | — | 12 |
+| US-M3-03 | Menyelesaikan rit dengan bukti kirim | M | 7/7 | lengkap | — | 30 |
+| US-M3-04 | Mencatat pembayaran per rit | M | 6/6 | lengkap | — | 16 |
+| US-M3-05 | Menerima pelunasan piutang saat pengiriman | M | 5/5 | lengkap | — | 8 |
+| US-M3-06 | Menandai rit gagal, melaporkan kendala, dan memberi keterangan perjalanan | M | 4/4 | lengkap | — | 8 |
+| US-M3-07 | Melihat kas di tangan dan menyetor akhir hari | M | 6/6 | lengkap | — | 12 |
+| US-M3-08 | Mencatat pengeluaran rit | S | 3/3 | lengkap | — | 11 |
+| US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 5/5 | lengkap | — | 25 |
+| US-M3-10 | Keamanan perangkat dan kesiapan lapangan | M | 6/6 | lengkap | — | 21 |
 
 ## M4 — Kas & Setoran
 

@@ -17,6 +17,7 @@
  */
 import "server-only";
 
+import { is } from "drizzle-orm";
 import { PgTransaction } from "drizzle-orm/pg-core";
 
 import { getDb, runInTransactionScope, runOutsideTransactionScope, setDbForTests, type Db, type DbOrTx, type DbTransaction } from "@/db/client";
@@ -27,9 +28,16 @@ export type { Db, DbTransaction };
 /** Transaksi atau basis data. */
 export type Tx = DbOrTx;
 
-/** Benar bila `tx` adalah transaksi terbuka (bukan instans db). */
+/**
+ * Benar bila `tx` adalah transaksi terbuka (bukan instans db).
+ *
+ * Memakai `is()` Drizzle (pembanding `entityKind`), BUKAN `instanceof`: di runtime Next tiap rute dibundel dengan
+ * salinan drizzle-orm sendiri, sedangkan handle db di `globalThis` dibuat oleh rute yang pertama memanggil `getDb()`
+ * — transaksinya bukan instans kelas `PgTransaction` milik bundel rute lain (mis. `/api/sync/push`), sehingga
+ * `withSavepoint` salah jatuh ke `withTx` → `getDb()` di dalam transaksi (galat dev / deadlock PGlite `next start`).
+ */
 export function isTransaction(tx: Tx | undefined): tx is DbTransaction {
-  return tx instanceof PgTransaction;
+  return is(tx, PgTransaction);
 }
 
 type AfterCommitFn = () => unknown;

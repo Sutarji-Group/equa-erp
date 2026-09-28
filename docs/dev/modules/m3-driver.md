@@ -117,6 +117,8 @@ rit sudah Selesai/Gagal oleh perintah lain → konflik (catatan pertama berlaku)
   galat handler): `return tx instanceof PgTransaction || (!!tx && typeof (tx as { rollback?: unknown }).rollback === "function");`
   (atau `drizzle-orm` di `serverExternalPackages`). Sampai diperbaiki, `e2e/m3-driver.mobile.spec.ts` gagal pada build
   produksi (lulus dengan `E2E_DEV=1`).
+  **DIPERBAIKI saat integrasi M3+M7** (backlog B-26): `isTransaction()` kini `is(tx, PgTransaction)` (pembanding
+  `entityKind` Drizzle, aman lintas salinan bundel); seluruh E2E (termasuk `m3-driver.mobile.spec.ts`) lulus pada build produksi.
 - M4: panggil `isDriverDayFullySynced` sebelum menutup setoran; bentuk selisih & `discrepancy.formed` (memicu kunci PAR-83);
   panggil `reopenDriverDeposit` dari layar setoran.
 - M5: terapkan `collection.recorded` ke faktur, buat faktur kurang bayar/tempo dari `trip.payment_recorded`, konversi

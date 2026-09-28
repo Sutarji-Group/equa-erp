@@ -255,6 +255,15 @@ dari alur kantor: Menunggu persetujuan, Dibatalkan, keputusan persetujuan — US
 (tanpa mengubah yang ada) pada payload `shift.closed`, `pos_sale.recorded`, `pos_sale.voided`, `water_supply.confirmed`
 (payload mandiri PTB-47; rincian di `docs/dev/modules/m6-pos.md`).
 
+Tambahan modul (integrasi M3 + M7): `store_return.recorded` (dipancarkan M7 saat retur barang toko pelanggan dicatat
+setelah shift ditutup; payload `{ storeReturnId, posSaleId, method, amount, cogs, lines, reason }` → M5 nota kredit
+(tempo) / pengembalian dana (tunai/QRIS), M11 jurnal). M3 menambah field OPSIONAL (tanpa mengubah yang ada) pada
+`trip.departed`, `trip.arrived`, `trip.completed` (termasuk `isInternal`, `destinationOutletId`, `volumeL`,
+`completedAt` untuk M6 — B-01), `trip.failed`, `trip.payment_recorded`, `collection.recorded`,
+`trip.expense_recorded`, `deposit.submitted`; M7 menambah field opsional pada `pos_sale.recorded`,
+`supplier_payment.recorded`, `purchase_receipt.recorded` (rincian di `docs/dev/modules/m3-driver.md` §2 dan
+`docs/dev/modules/m7-store.md`).
+
 Payload tiap event diketik di `src/server/core/events.types.ts`. Modul menambah event baru hanya dengan menambah entri
 di berkas itu (tambahan, tidak mengubah yang ada). M11 berlangganan event keuangan untuk jurnal otomatis (PRD 7.11.4);
 M9 membaca data, tidak berlangganan.
