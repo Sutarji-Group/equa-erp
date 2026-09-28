@@ -802,3 +802,43 @@ export const importBatchesRelations = relations(importBatches, ({ many }) => ({
 export const importBatchRowsRelations = relations(importBatchRows, ({ one }) => ({
   batch: one(importBatches, { fields: [importBatchRows.batchId], references: [importBatches.id] }),
 }));
+
+// =====================================================================================================================
+// Tambahan modul M1 (agen M1 — append): harga berlaku sebelum sistem per pelanggan (dari impor data awal)
+// =====================================================================================================================
+
+/**
+ * Harga air truk yang berlaku SAAT INI per pelanggan sebelum sistem (US-M1-06 KP-1 "harga saat ini per pelanggan"),
+ * hasil impor data awal. Dipakai simulasi harga zona baru vs harga berlaku (US-M1-05 KP-5, K23, R14) — BUKAN harga
+ * transaksi (harga transaksi hanya dari master: tarif zona + BBM atau harga khusus, BR-19). Impor ulang (mode uji)
+ * menandai baris lama `is_current = false` (tanpa DELETE).
+ */
+export const customerLegacyPrices = pgTable(
+  "customer_legacy_prices",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references((): AnyPgColumn => customers.id),
+    /** Kosong = berlaku untuk semua alamat pelanggan. */
+    addressId: uuid("address_id").references((): AnyPgColumn => customerAddresses.id),
+    pricePerTrip: money("price_per_trip").notNull(),
+    notes: text("notes"),
+    importBatchId: uuid("import_batch_id").references((): AnyPgColumn => importBatches.id),
+    isCurrent: boolean("is_current").notNull().default(true),
+    supersededAt: tstz("superseded_at"),
+    ...timestamps(),
+    createdBy: createdBy(),
+  },
+  (t) => [
+    index("customer_legacy_prices_customer_idx").on(t.customerId, t.isCurrent),
+    index("customer_legacy_prices_tenant_idx").on(t.tenantId),
+    check("customer_legacy_prices_price_chk", sql`${t.pricePerTrip} > 0`),
+  ],
+);
+
+export const customerLegacyPricesRelations = relations(customerLegacyPrices, ({ one }) => ({
+  customer: one(customers, { fields: [customerLegacyPrices.customerId], references: [customers.id] }),
+  address: one(customerAddresses, { fields: [customerLegacyPrices.addressId], references: [customerAddresses.id] }),
+}));

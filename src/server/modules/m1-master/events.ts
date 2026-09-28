@@ -1,20 +1,24 @@
 /**
  * M1 — handler event domain milik modul ini.
  *
- * Daftarkan HANYA di dalam `registerEvents()` (bukan di top-level berkas) agar impor melingkar core ↔ modul aman:
- * ```ts
- * import { on } from "@/server/core/events";
- * export function registerEvents(): void {
- *   on("trip.completed", async (event, tx) => { … }, { name: "m1-master:contoh" });
- * }
- * ```
- * Handler berjalan di transaksi yang sama dengan `emit`, di SAVEPOINT (bawaan `isolate: true`): galat handler hanya
- * membatalkan tulisan handler itu dan dicatat sebagai insiden — transaksi sumber (mis. perintah lapangan) tetap commit
- * (R04, Bab 6.4 butir 3). Pakai `{ isolate: false }` hanya untuk efek yang wajib atomik dengan sumbernya. `name` wajib
- * unik (registrasi ulang bernama sama mengganti yang lama). Isi `tenantId` jurnal/notifikasi dari `event.tenantId`.
+ * - `trip.completed` (`m1-master:propose_coordinate`): alamat kirim yang koordinatnya "Belum dikunci" mendapat usulan
+ *   kunci koordinat dari lokasi Selesai rit (rit pertama); Dispatcher diberi tahu dan mengonfirmasi di
+ *   /master/pelanggan (US-M1-01 KP-2, BRD 10.2, US-M3-03 KP-4). Terisolasi savepoint (galat → insiden; rit tetap sah).
  */
 import "server-only";
 
+import { EQUA_TENANT_ID } from "@/server/core/context";
+import { on } from "@/server/core/events";
+
+import { proposeCoordinateFromTrip } from "./service/customers";
+
 export function registerEvents(): void {
-  // Belum ada handler — diisi agen modul M1.
+  on(
+    "trip.completed",
+    async (event, tx) => {
+      if (event.payload.isInternal) return;
+      await proposeCoordinateFromTrip(tx, { tripId: event.payload.tripId, tenantId: event.tenantId ?? EQUA_TENANT_ID, now: event.occurredAt });
+    },
+    { name: "m1-master:propose_coordinate" },
+  );
 }

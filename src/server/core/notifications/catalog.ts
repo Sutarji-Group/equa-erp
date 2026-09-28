@@ -101,6 +101,13 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("auth.totp_unreadable", "Rahasia 2FA pengguna tidak terbaca", "high", ["owner", "system_admin"], "Reset 2FA lewat Akses > Pengguna (berjejak)", "PTB-35"),
   e("user.totp_reset", "2FA pengguna direset", "info", ["owner"], "Informasi", "PTB-35, 7.10.6"),
   e("pos.void_requested", "Permintaan void POS", "info", ["finance_admin"], "Pantau; keputusan oleh pemilik", "6.2a, BR-13"),
+
+  // --- M1 master data (tambahan agen M1) ---
+  e("address.coordinate_proposed", "Usulan kunci koordinat alamat dari rit Selesai", "normal", ["dispatcher"], "Konfirmasi atau tolak koordinat di Data master > Pelanggan", "US-M1-01 KP-2, BRD 10.2"),
+  e("truck.trips_need_reassignment", "Rit perlu dipindahkan: truk Perbaikan/Nonaktif", "high", ["dispatcher"], "Pindahkan rit ke truk lain", "US-M1-03 KP-2"),
+  e("zone.addresses_moved", "Alamat berpindah zona akibat perubahan batas", "normal", ["owner"], "Tinjau daftar alamat di Data master > Zona tarif", "US-M1-05 KP-4"),
+  e("initial_data.signoff_pending", "Ringkasan data awal menunggu tanda tangan", "normal", ["owner"], "Tinjau & tanda tangani sebelum go-live", "US-M1-06 KP-4, NFR-34"),
+  e("credit.migrated_set", "Tempo migrasi ditetapkan pemilik (tanda tangan data awal)", "info", ["finance_admin"], "Perhatikan batas & tempo pelanggan lama", "US-M1-06 KP-6, 6.2b"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */
