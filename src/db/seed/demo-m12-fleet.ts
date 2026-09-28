@@ -114,6 +114,21 @@ function dayWithTrips(date: string, list: readonly DemoTrip[], stopover?: { trip
   return segs;
 }
 
+/** T4 kemarin: perjalanan di luar jadwal 15.00 pool → warung (20 menit) → pool — jejak kejadian demo `off_schedule_trip`. */
+function offScheduleExcursion(date: string, from: Date): Segment[] {
+  const out = wibToUtc(date, "15:00");
+  const arrive = new Date(out.getTime() + travelMs(POOL, WARUNG));
+  const back = minutes(arrive, 20);
+  const home = new Date(back.getTime() + travelMs(WARUNG, POOL));
+  return [
+    { kind: "dwell", at: POOL, from, to: out },
+    { kind: "drive", from: POOL, to: WARUNG, start: out, end: arrive },
+    { kind: "dwell", at: WARUNG, from: arrive, to: back },
+    { kind: "drive", from: WARUNG, to: POOL, start: back, end: home },
+    { kind: "dwell", at: POOL, from: home, to: wibToUtc(date, "17:30") },
+  ];
+}
+
 /** Hari tanpa rit: isi di sumber lalu kembali ke pool (perjalanan yang diharapkan — tidak ditandai). */
 function dayWithoutTrips(date: string, variant: "fill" | "idle"): Segment[] {
   const segs: Segment[] = [];
@@ -211,19 +226,15 @@ export async function seedDemoM12Fleet(tx: DbOrTx, now: Date = new Date(), opts:
       if (own.length) {
         const failedIndex = own.findIndex((t) => t.failed);
         segs = dayWithTrips(date, own, code === "T5" && failedIndex >= 0 && date === yesterday ? { tripIndex: failedIndex, at: LAPAK, minutes: 24 } : undefined);
+        // Integrasi M8 + M12: seed M8 memberi T4 rit kemarin (sumber SA2) — perjalanan di luar jadwal 15.00 tetap
+        // tampil di jejak setelah rit terakhir (selaras dengan kejadian demo di bawah).
+        const lastSeg = segs[segs.length - 1];
+        if (code === "T4" && date === yesterday && lastSeg?.kind === "dwell" && lastSeg.at === POOL && lastSeg.from < wibToUtc(date, "15:00")) {
+          segs = [...segs.slice(0, -1), ...offScheduleExcursion(date, lastSeg.from)];
+        }
       } else if (code === "T4" && date === yesterday) {
         // Perjalanan di luar jadwal: diam di pool, 15.00 ke warung (bukan lokasi sah), 20 menit, kembali ke pool.
-        const out = wibToUtc(date, "15:00");
-        const arrive = new Date(out.getTime() + travelMs(POOL, WARUNG));
-        const back = minutes(arrive, 20);
-        const home = new Date(back.getTime() + travelMs(WARUNG, POOL));
-        segs = [
-          { kind: "dwell", at: POOL, from: wibToUtc(date, "06:00"), to: out },
-          { kind: "drive", from: POOL, to: WARUNG, start: out, end: arrive },
-          { kind: "dwell", at: WARUNG, from: arrive, to: back },
-          { kind: "drive", from: WARUNG, to: POOL, start: back, end: home },
-          { kind: "dwell", at: POOL, from: home, to: wibToUtc(date, "17:30") },
-        ];
+        segs = offScheduleExcursion(date, wibToUtc(date, "06:00"));
       } else if (code === "T6" && date === yesterday) {
         // Perangkat mati 09.40–10.25 (tanpa posisi), lalu aktif kembali.
         segs = [

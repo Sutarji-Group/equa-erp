@@ -272,6 +272,7 @@ export default async function RincianNeracaPage({ searchParams }: { searchParams
                         <M8Badge enumName="truck_fill_status" value={f.status} />
                         {f.isDepotSupply ? <ToneBadge tone="info">Pasokan depot</ToneBadge> : null}
                         {f.unplannedTruck ? <ToneBadge tone="warning">Di luar rencana</ToneBadge> : null}
+                        {f.geofenceMismatch && f.status !== "geofence_mismatch" ? <ToneBadge tone="danger">Tidak cocok geofence</ToneBadge> : null}
                         {f.reversalOfId ? <ToneBadge tone="danger">Pembalik</ToneBadge> : null}
                         {f.reversedAt ? <ToneBadge tone="muted">Dibalik</ToneBadge> : null}
                       </div>

@@ -16,10 +16,14 @@ function wibToday(): string {
 async function login(page: Page, username: "keuangan1" | "dispatcher1"): Promise<void> {
   const used = new Set<string>();
   for (let attempt = 0; attempt < 3; attempt++) {
-    await page.goto("/masuk");
-    await page.getByLabel("Nama pengguna").fill(username);
-    await page.getByLabel("Kata sandi", { exact: true }).fill(PASSWORD);
-    await page.getByRole("button", { name: "Masuk", exact: true }).click();
+    // Kode ditolak (mis. kode yang sama baru dipakai spesifikasi lain — anti pemakaian ulang) → sesi menunggu 2FA tetap
+    // aktif dan `/masuk` mengalihkan ke `/masuk/2fa`: isi ulang kode di halaman itu, bukan kata sandi lagi.
+    if (attempt === 0 || !/\/masuk\/2fa$/.test(page.url())) {
+      await page.goto("/masuk");
+      await page.getByLabel("Nama pengguna").fill(username);
+      await page.getByLabel("Kata sandi", { exact: true }).fill(PASSWORD);
+      await page.getByRole("button", { name: "Masuk", exact: true }).click();
+    }
     const secret = TOTP[username];
     if (!secret) {
       await expect(page).toHaveURL(/\/beranda$/);

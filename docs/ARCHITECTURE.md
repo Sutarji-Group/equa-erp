@@ -278,6 +278,20 @@ membentuk/menutup piutang sementara "transfer belum diterima" dari `transfer.not
 mengevaluasi status Ditahan setelah `cash_day.closed` (rincian di `docs/dev/modules/m4-cash.md` §3 dan
 `docs/dev/modules/m5-receivables.md` §3; uji `tests/integration/m4-m5.test.ts`).
 
+Tambahan modul (integrasi M8 + M12): TIDAK ada tipe event baru. M8 menambah field OPSIONAL pada
+`meter.reading_recorded` (`correctionOfId`, `adjustmentKind`, `lateReason`, …), `truck_fill.recorded` (`businessDate`,
+`filledAt`, `destinationOutletId`, `withoutTrip`, `unplannedTruck`; PEMBALIK Admin Keuangan = `volumeL` negatif +
+`reversalOfId` + `reason`) dan `water_balance.computed` (`status`, `isIncomplete`, `filledCustomerL`/`filledDepotL`,
+`returnedL`, `utilizationPct`/`utilizationHigh`, `avgLoss7dPct`, …); M12 menambah field opsional pada
+`fleet_event.detected` (`businessDate`, `endedAt`, `durationS`, `distanceM`, `lat`/`lng`, `deviceId`, `userId`,
+`requiresExplanation`, `locationType`/`locationId`, `truckFillId`, `waterSourceId`). Sambungan lintas modul: M12
+mendengar `truck_fill.recorded` (`m12-fleet:fill_geofence`) — truk di geofence sumber ± jendela → M12 memanggil
+`m8.setFillGeofenceResult(verified)`; tidak cocok → `fleet_event.detected` kind `fill_without_geofence` → M8
+(`m8-production:geofence`) menandai `truck_fills.geofence_mismatch` (tidak memblokir). M8 juga mendengar `trip.completed`
+internal, `trip.failed` (air kembali ke sumber) dan `water_supply.confirmed`; M12 mendengar `trip.departed`,
+`trip.arrived`, `trip.failed`, `trip.completed` (titik status, lokasi Selesai) dan `cash_day.closed` (rincian di
+`docs/dev/modules/m8-production.md` §2 dan `docs/dev/modules/m12-fleet.md` §3; uji `tests/integration/m8-m12.test.ts`).
+
 Payload tiap event diketik di `src/server/core/events.types.ts`. Modul menambah event baru hanya dengan menambah entri
 di berkas itu (tambahan, tidak mengubah yang ada). M11 berlangganan event keuangan untuk jurnal otomatis (PRD 7.11.4);
 M9 membaca data, tidak berlangganan.
@@ -293,11 +307,11 @@ M9 membaca data, tidak berlangganan.
 | M4 | `/kas` (kas hari ini), `/kas/setoran` (+ rincian `/kas/setoran/[id]`), `/kas/selisih`, `/kas/transfer`, `/kas/kantor`, `/kas/kas-kecil`, `/kas/tutup`, `/kas/ganti-rugi` |
 | M5 | `/piutang`, `/piutang/faktur`, `/piutang/pelunasan`, `/piutang/umur`, `/piutang/pengingat`, `/piutang/faktur-bulanan`, `/piutang/saldo-awal`, `/piutang/status-kredit` (+ rincian `/piutang/faktur/[id]`, `/piutang/pelunasan/[id]`, kartu piutang `/piutang/pelanggan/[id]`) |
 | M6/M7 (kantor) | `/outlet`, `/toko/barang`, `/toko/pemasok`, `/toko/pembelian`, `/toko/opname`, `/toko/pesan-ulang`, `/toko/utang` |
-| M8 (kantor) | `/produksi/neraca-air`, `/produksi/utilisasi`, `/produksi/mutu` |
+| M8 (kantor) | `/produksi/neraca-air` (+ rincian sumber-hari `/produksi/neraca-air/rincian`), `/produksi/pengisian` (pengisian vs jadwal, pasokan depot, stok air awal depot), `/produksi/utilisasi`, `/produksi/mutu`, `/produksi/kelola-meter` |
 | M9 | `/laporan/hari-ini` (H+0), `/laporan/bulanan`, `/laporan/katalog`, `/laporan/kinerja`, `/laporan/tren`, `/laporan/kpi`, `/kotak-masuk` |
 | M10 | `/akses/pengguna`, `/akses/peran`, `/akses/perangkat`, `/akses/sinkron`, `/akses/tinjauan`, `/akses/data-pribadi`, `/audit`, `/persetujuan`, `/notifikasi`, `/pengaturan/parameter`, `/pengaturan/notifikasi`, `/bantuan` |
 | M11 | `/akuntansi/akun`, `/akuntansi/pemetaan`, `/akuntansi/jurnal`, `/akuntansi/buku-besar`, `/akuntansi/laporan`, `/akuntansi/aset`, `/akuntansi/rekonsiliasi`, `/akuntansi/periode`, `/akuntansi/pajak`, `/akuntansi/saldo-awal` |
-| M12 | `/armada/peta`, `/armada/riwayat`, `/armada/kejadian` |
+| M12 | `/armada/peta`, `/armada/riwayat` (+ `/armada/riwayat/rit/[id]`, `/armada/riwayat/truk/[id]`), `/armada/kejadian` (+ `/armada/kejadian/[id]`), `/armada/perangkat`, `/armada/bbm`; peta langsung disematkan di `/jadwal` (pemilik & Dispatcher) |
 | RL-7 / Tahap 3 | `/kemitraan/*` (kantor), `/mitra/*` (portal) |
 
 Navigasi dirender dari registri `src/components/shared/nav/registry.ts` (sudah memuat semua entri + izin yang dibutuhkan).

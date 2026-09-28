@@ -121,10 +121,15 @@ Filter umum `from`, `to`, `sourceId`, `outletId`.
 
 ## 10. Belum / terbuka
 
-- Penjaga imutabel DB (`IMMUTABLE_COLUMN_GUARDS`, `src/db/hardening.ts`) untuk `meter_readings.reading_l` &
-  `truck_fills.volume_l` belum ditambahkan (berkas inti) — imutabilitas dijaga layanan (SOD-05). Usulan untuk Core.
-- M12: pencocokan geofence penuh (masuk/keluar sumber) memakai `setFillGeofenceResult`; M8 baru menangani
-  `fill_without_geofence`.
+- ~~Penjaga imutabel DB untuk `meter_readings.reading_l` & `truck_fills.volume_l`~~ — sudah ada sejak S0
+  (`IMMUTABLE_COLUMN_GUARDS` di `src/db/hardening.ts` + `hardening.sql`, SQLSTATE `EQ003`; `truck_fills.trip_id` sekali
+  isi); lapisan layanan (SOD-05) tetap menolak lebih dulu dengan pesan tindakan (dicek integrasi M8 + M12).
+- ~~M12: pencocokan geofence penuh~~ — SELESAI di integrasi M8 + M12: posisi GPS di geofence sumber ± jendela →
+  M12 memanggil `setFillGeofenceResult(verified)` (status "Terverifikasi geofence"); tidak cocok → `fleet_event.detected`
+  `fill_without_geofence` → handler `m8-production:geofence` menandai `geofence_mismatch` (badge "Tidak cocok geofence"
+  di `/produksi/pengisian` & rincian neraca). Uji `tests/integration/m8-m12.test.ts`. Terbuka: kejadian
+  `geofence_without_fill` (truk di sumber tanpa pengisian) belum ditampilkan di rincian neraca/investigasi susut
+  (`m12.geofenceFlagsFor`) — backlog B-45.
 - M9: ringkasan H+0 memakai `utilizationFlags` & `water_balance.computed` (belum dibangun).
 - Foto pembacaan demo tidak disertakan (seed tanpa berkas); unggahan foto kantor (koreksi, sertifikat) lewat Server
   Action tunduk batas 1 MB bawaan Next (B-18).
@@ -144,4 +149,4 @@ Filter umum `from`, `to`, `sourceId`, `outletId`.
   kerja): `tests/core/notifications.test.ts` "US-M9-04 KP-3 ringkasan e-mail harian" (jendela digest memakai
   `notifications.created_at` = jam nyata DB, uji mengunci 2026-09-28) dan `tests/m4-cash/deposits.test.ts` "US-M4-02
   KP-4" (`approval_requests.created_at` jam nyata vs `deadline_at` dari `ctx.now` tetap). Bukan akibat M8 — pemilik:
-  Core / M4.
+  Core / M4. DIPERBAIKI di integrasi M8 + M12 (uji memakai waktu tetap / hari nyata; kode layanan tidak diubah).

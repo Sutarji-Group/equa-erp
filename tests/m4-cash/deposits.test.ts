@@ -94,7 +94,9 @@ describe("M4 — penerimaan setoran & selisih (US-M4-02)", () => {
     expect(res.discrepancy).toMatchObject({ requiresOwnerDecision: true, status: "explained" });
     const req = (await t.db.select().from(approvalRequests).where(eq(approvalRequests.objectId, res.discrepancy!.id)))[0]!;
     expect(req).toMatchObject({ type: "cash_discrepancy", status: "submitted", approverRole: "owner", amount: -60_000 });
-    expect(req.deadlineAt!.getTime() - req.createdAt.getTime()).toBeLessThanOrEqual(24 * 3_600_000 + 60_000);
+    // Tenggat dihitung dari waktu layanan (ctx.now = pukul 15.00 WIB hari dunia), bukan `created_at` (jam DB nyata).
+    expect(req.deadlineAt!.getTime() - at(big.date).getTime()).toBeGreaterThan(0);
+    expect(req.deadlineAt!.getTime() - at(big.date).getTime()).toBeLessThanOrEqual(24 * 3_600_000 + 60_000);
     const notes = await notificationsOf(t.db, "discrepancy.over_threshold", res.discrepancy!.id);
     expect(notes.length).toBeGreaterThanOrEqual(2); // pemilik & Admin Keuangan
     expect(notes[0]!.severity).toBe("critical");

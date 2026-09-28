@@ -6,9 +6,9 @@
 
 ## Ringkasan
 
-- **Prioritas M:** 326/490 KP (66.5%) · story: 56 lengkap, 14 sebagian, 24 belum
-- **Semua prioritas:** 352/554 KP (63.5%) · story: 63 lengkap, 15 sebagian, 36 belum
-- Uji dipindai: 898 judul di 121 berkas; 695 judul merujuk user story.
+- **Prioritas M:** 372/490 KP (75.9%) · story: 67 lengkap, 10 sebagian, 17 belum
+- **Semua prioritas:** 411/554 KP (74.2%) · story: 78 lengkap, 11 sebagian, 25 belum
+- Uji dipindai: 1021 judul di 147 berkas; 816 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
@@ -19,11 +19,11 @@
 | M5 — Piutang & Penagihan | 7 | 7 | 0 | 0 | 32/32 | 100.0 |
 | M6 — Penjualan Depot (POS) | 7 | 7 | 0 | 0 | 42/42 | 100.0 |
 | M7 — Penjualan Toko & Stok | 9 | 9 | 0 | 0 | 37/37 | 100.0 |
-| M8 — Produksi & Stok Air | 7 | 0 | 2 | 5 | 3/29 | 10.3 |
+| M8 — Produksi & Stok Air | 7 | 7 | 0 | 0 | 29/29 | 100.0 |
 | M9 — Laporan & Dashboard Pemilik | 7 | 0 | 2 | 5 | 6/31 | 19.4 |
 | M10 — Pengguna, Hak Akses & Jejak Audit | 7 | 7 | 0 | 0 | 41/41 | 100.0 |
 | M11 — Akuntansi & Pajak | 10 | 0 | 6 | 4 | 7/47 | 14.9 |
-| M12 — Pelacakan Armada / GPS | 8 | 0 | 2 | 6 | 3/36 | 8.3 |
+| M12 — Pelacakan Armada / GPS | 8 | 8 | 0 | 0 | 36/36 | 100.0 |
 | P2 — Tahap 2: Aplikasi Pelanggan | 8 | 0 | 1 | 7 | 1/32 | 3.1 |
 | P3 — Tahap 3: Portal Kemitraan / Frenchise | 11 | 0 | 2 | 9 | 2/49 | 4.1 |
 
@@ -72,7 +72,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M3-03 | Menyelesaikan rit dengan bukti kirim | M | 7/7 | lengkap | — | 30 |
 | US-M3-04 | Mencatat pembayaran per rit | M | 6/6 | lengkap | — | 16 |
 | US-M3-05 | Menerima pelunasan piutang saat pengiriman | M | 5/5 | lengkap | — | 8 |
-| US-M3-06 | Menandai rit gagal, melaporkan kendala, dan memberi keterangan perjalanan | M | 4/4 | lengkap | — | 8 |
+| US-M3-06 | Menandai rit gagal, melaporkan kendala, dan memberi keterangan perjalanan | M | 4/4 | lengkap | — | 9 |
 | US-M3-07 | Melihat kas di tangan dan menyetor akhir hari | M | 6/6 | lengkap | — | 12 |
 | US-M3-08 | Mencatat pengeluaran rit | S | 3/3 | lengkap | — | 11 |
 | US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 5/5 | lengkap | — | 26 |
@@ -115,7 +115,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M6-02 | Buka dan tutup shift dengan kas dan stok fisik; setoran outlet | M | 7/7 | lengkap | — | 13 |
 | US-M6-03 | Void dengan alasan | M | 5/5 | lengkap | — | 10 |
 | US-M6-04 | Stok bahan habis pakai dan opname mingguan | M | 6/6 | lengkap | — | 8 |
-| US-M6-05 | Menerima pasokan air dan neraca air outlet | M | 6/6 | lengkap | — | 8 |
+| US-M6-05 | Menerima pasokan air dan neraca air outlet | M | 6/6 | lengkap | — | 9 |
 | US-M6-06 | Bekerja tanpa sinyal | M | 5/5 | lengkap | — | 12 |
 | US-M6-07 | Paket standar multi-tenant | M | 6/6 | lengkap | — | 14 |
 
@@ -137,17 +137,17 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M8 — Produksi & Stok Air
 
-3/29 KP (10.3%) · story: 0 lengkap, 2 sebagian, 5 belum
+29/29 KP (100.0%) · story: 7 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M8-01 | Mencatat produksi harian dari angka meter dengan foto | M | 1/5 | sebagian | 1, 2, 3, 4 | 2 |
-| US-M8-02 | Mencatat pengisian truk per rit | M | 2/6 | sebagian | 1, 3, 4, 5 | 2 |
-| US-M8-03 | Pasokan air ke depot sendiri | M | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M8-04 | Neraca air harian per sumber dan susut | M | 0/5 | belum | 1, 2, 3, 4, 5 | 0 |
-| US-M8-05 | Utilisasi kapasitas dan peringatan | S | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M8-06 | Catatan mutu air | S | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M8-07 | Bekerja tanpa sinyal di sumber air | M | 0/3 | belum | 1, 2, 3 | 0 |
+| US-M8-01 | Mencatat produksi harian dari angka meter dengan foto | M | 5/5 | lengkap | — | 19 |
+| US-M8-02 | Mencatat pengisian truk per rit | M | 6/6 | lengkap | — | 17 |
+| US-M8-03 | Pasokan air ke depot sendiri | M | 4/4 | lengkap | — | 6 |
+| US-M8-04 | Neraca air harian per sumber dan susut | M | 5/5 | lengkap | — | 11 |
+| US-M8-05 | Utilisasi kapasitas dan peringatan | S | 3/3 | lengkap | — | 4 |
+| US-M8-06 | Catatan mutu air | S | 3/3 | lengkap | — | 7 |
+| US-M8-07 | Bekerja tanpa sinyal di sumber air | M | 3/3 | lengkap | — | 8 |
 
 ## M9 — Laporan & Dashboard Pemilik
 
@@ -196,18 +196,18 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M12 — Pelacakan Armada / GPS
 
-3/36 KP (8.3%) · story: 0 lengkap, 2 sebagian, 6 belum
+36/36 KP (100.0%) · story: 8 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M12-01 | Menerima posisi dari perangkat GPS truk dan cadangan ponsel | M | 2/6 | sebagian | 2, 3, 4, 5 | 1 |
-| US-M12-02 | Peta posisi truk real-time | M | 0/5 | belum | 1, 2, 3, 4, 5 | 0 |
-| US-M12-03 | Riwayat perjalanan per rit dan per hari | M | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M12-04 | Pencocokan lokasi Selesai dengan alamat pelanggan | M | 0/5 | belum | 1, 2, 3, 4, 5 | 0 |
-| US-M12-05 | Perjalanan di luar jadwal atau jam operasional | M | 1/5 | sebagian | 1, 2, 4, 5 | 1 |
-| US-M12-06 | Geofence sumber air dan depot | S | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M12-07 | Jarak per rit untuk biaya BBM dan pemeriksaan zona | S | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M12-08 | Peringatan perangkat mati atau dicabut | M | 0/4 | belum | 1, 2, 3, 4 | 0 |
+| US-M12-01 | Menerima posisi dari perangkat GPS truk dan cadangan ponsel | M | 6/6 | lengkap | — | 15 |
+| US-M12-02 | Peta posisi truk real-time | M | 5/5 | lengkap | — | 10 |
+| US-M12-03 | Riwayat perjalanan per rit dan per hari | M | 4/4 | lengkap | — | 9 |
+| US-M12-04 | Pencocokan lokasi Selesai dengan alamat pelanggan | M | 5/5 | lengkap | — | 7 |
+| US-M12-05 | Perjalanan di luar jadwal atau jam operasional | M | 5/5 | lengkap | — | 14 |
+| US-M12-06 | Geofence sumber air dan depot | S | 4/4 | lengkap | — | 7 |
+| US-M12-07 | Jarak per rit untuk biaya BBM dan pemeriksaan zona | S | 3/3 | lengkap | — | 3 |
+| US-M12-08 | Peringatan perangkat mati atau dicabut | M | 4/4 | lengkap | — | 7 |
 
 ## P2 — Tahap 2: Aplikasi Pelanggan
 

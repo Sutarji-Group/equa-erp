@@ -4,8 +4,9 @@
  * - KP-1: radius per lokasi (master M1, bawaan PAR-54) → kejadian masuk/keluar per truk dengan waktu & lama
  *   (`geofence_enter` diperbarui lamanya saat keluar + `geofence_exit`). Histeresis `geofence_exit_margin_m`.
  * - KP-2: pengisian M8 tanpa posisi truk di geofence sumber dalam ± `fill_geofence_window_minutes` → ditandai
- *   (`fill_without_geofence`); truk di geofence sumber > `source_dwell_without_fill_minutes` tanpa pengisian tercatat →
- *   ditandai (`geofence_without_fill`). Dinilai setelah jendela lewat (pengisian dapat tersinkron terlambat).
+ *   (`fill_without_geofence`; M8 menandai `truck_fills.geofence_mismatch` lewat event); posisi di geofence →
+ *   `m8.setFillGeofenceResult(verified)` (status pengisian "Terverifikasi geofence", integrasi M8+M12); truk di
+ *   geofence sumber > `source_dwell_without_fill_minutes` tanpa pengisian tercatat → ditandai (`geofence_without_fill`). Dinilai setelah jendela lewat (pengisian dapat tersinkron terlambat).
  * - KP-3: rit internal (pasokan depot) Selesai tanpa posisi truk di geofence depot tujuan → `supply_without_geofence`.
  * - KP-4: kejadian bertanda masuk daftar tinjauan pemilik (+ notifikasi) dan dapat dibaca M8 (neraca air) lewat
  *   `geofenceFlagsFor` / event `fleet_event.detected`. Hanya dinilai bila perangkat GPS truk memang mengirim posisi pada
@@ -20,6 +21,7 @@ import { haversineMeters } from "@/lib/geo";
 import { formatJam, toBusinessDate, type BusinessDate } from "@/lib/time";
 
 import { withTx, type Db, type Tx } from "@/server/core/db";
+import { setFillGeofenceResult } from "@/server/modules/m8-production";
 
 import { cleanTrack, locationContaining, type TrackPoint } from "../domain/track";
 import { fleetTrucks, hasWorkingGps, legalLocations, m12Rules, positionsBetween, tenantsWithTrucks, toTrackPoints, type FleetTruck, type LegalLocation, type M12Rules } from "./common";
@@ -207,7 +209,11 @@ export async function checkFillGeofence(tx: Tx, fillId: string, now: Date): Prom
   if (points.length === 0) return "unverifiable";
   const radius = fill.sourceRadius ?? rules.geofence.waterSourceM;
   const center = { lat: fill.sourceLat, lng: fill.sourceLng };
-  if (points.some((p) => haversineMeters(p, center) <= radius)) return "ok";
+  if (points.some((p) => haversineMeters(p, center) <= radius)) {
+    // Integrasi M8 (US-M8-02 KP-4): pengisian terverifikasi geofence → status "Terverifikasi geofence" (idempoten).
+    await setFillGeofenceResult(tx, { truckFillId: fill.f.id, result: "verified", now });
+    return "ok";
+  }
   const created = await flagMismatch(tx, {
     truck,
     kind: "fill_without_geofence",

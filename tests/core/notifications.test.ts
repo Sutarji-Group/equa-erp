@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isHardeningViolation } from "@/db/hardening";
 import { notifications, pushSubscriptions, users } from "@/db/schema";
 import { EQUA_TENANT_ID, outletId, userIdByUsername } from "@/db/seed";
+import { toBusinessDate, wibToUtc } from "@/lib/time";
 import { withTx } from "@/server/core/db";
 import { NotFoundError, ValidationError } from "@/server/core/errors";
 import {
@@ -185,14 +186,17 @@ describe("Layanan notifikasi (US-M9-04)", () => {
     const none = await sendDailyDigest(DAY);
     expect(none.sent).toBe(false);
     await params.set(seededContext("pemilik", { now: DAY }), "notifications.digest_recipients", { emails: ["pemilik@equa.test"] }, "2026-09-28", "Alamat e-mail pemilik");
-    const res = await sendDailyDigest(new Date("2026-09-28T15:30:00Z"), { tenantId: EQUA_TENANT_ID });
+    // Jendela ringkasan = tanggal WIB `notifications.created_at` (jam DB nyata, bukan `now` notify) → ringkasan hari
+    // nyata pukul 22.30 WIB agar uji tidak bergantung jam dinding (gagal bila tanggal WIB nyata ≠ 2026-09-28).
+    const digestAt = wibToUtc(toBusinessDate(new Date()), "22:30");
+    const res = await sendDailyDigest(digestAt, { tenantId: EQUA_TENANT_ID });
     expect(res.sent).toBe(true);
     expect(res.notificationCount).toBeGreaterThan(0);
     const mail = sentEmailsForTests().at(-1)!;
     expect(mail.to).toEqual(["pemilik@equa.test"]);
     expect(mail.subject).toMatch(/Ringkasan harian EQUA/);
     expect(mail.text).toMatch(/Perlu perhatian segera/);
-    const again = await sendDailyDigest(new Date("2026-09-28T15:35:00Z"));
+    const again = await sendDailyDigest(new Date(digestAt.getTime() + 5 * 60_000));
     expect(again.notificationCount).toBe(0);
   });
 });

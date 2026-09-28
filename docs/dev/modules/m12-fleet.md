@@ -158,7 +158,10 @@ rute bawaan garis lurus × 1,3; OSRM opsional `MAP_ROUTING_URL`).
 - **M3**: untuk rit internal, jarak Selesai dibanding alamat pesanan — M12 menghitung ulang terhadap depot (KP-5);
   pertimbangkan menyelaraskan tingkat penyimpangan M3. `openExplanationTasks` memakai jendela hari ini & kemarin.
 - **M8**: tandai `truck_fills.geofence_mismatch` dari `fleet_event.detected` (`truckFillId`) dan pakai `geofenceFlagsFor`
-  pada neraca air (US-M12-06 KP-4).
+  pada neraca air (US-M12-06 KP-4). Integrasi M8 + M12: penandaan SELESAI (handler `m8-production:geofence`), dan
+  `checkFillGeofence` kini memanggil `m8.setFillGeofenceResult(verified)` bila truk berada di geofence sumber (status
+  pengisian "Terverifikasi geofence"); uji `tests/integration/m8-m12.test.ts`. Terbuka (B-45): `geofence_without_fill`
+  di rincian neraca / investigasi susut M8.
 - **M9**: H+0 memakai `fleetDaySummary(tx, tenantId, date, now)`; KPI-07 tersedia di `truck_day_summaries` / laporan
   `m12.truck_days`; pola penyimpangan `locationDeviationPatterns` (US-M9-05).
 - **M11**: `fuel_estimates` = informasi biaya BBM per rit lini L2 (tidak dijurnal).
@@ -168,3 +171,8 @@ rute bawaan garis lurus × 1,3; OSRM opsional `MAP_ROUTING_URL`).
 B-06 SELESAI (M12 memanggil M1 `compareTripDistanceToZone`/`getZoneTariff` dan M10 `raiseIncident`). B-17 SELESAI
 (`noLocation` → `no_location`; `outOfOrder`/`actual_order` ditandai di riwayat & laporan `m12.trips`; jarak dihitung
 server; posisi sumber `phone` dipakai jejak/peta/putar ulang; `requires_explanation` → tugas keterangan M3).
+
+Integrasi M8 + M12: seed demo M8 memberi T4 rit kemarin (sumber SA2) sehingga jejak T4 kemarin kini mengikuti rit; seed
+M12 tetap menambahkan perjalanan di luar jadwal 15.00 (pool → warung → pool, `offScheduleExcursion`) setelah rit terakhir
+agar jejak selaras dengan kejadian demo `off_schedule_trip` T4. Uji seed gabungan di `tests/integration/m8-m12.test.ts`
+(jejak T4, pengisian demo M8 tanpa penanda geofence, jejak hari ini tanpa kejadian).
