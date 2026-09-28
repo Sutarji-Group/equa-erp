@@ -36,3 +36,19 @@ Lihat `docs/DECISIONS.md` D-06. `pnpm typecheck && pnpm lint && pnpm test` harus
 - DB: `getDb()` / `setDbForTests()` / `createPgliteDb()` di `src/db/client.ts`. PGlite berkas (`.data/pglite`) hanya boleh dibuka satu proses — hentikan `pnpm dev` sebelum `pnpm db:push`/`db:seed`.
 - Komponen shadcn/ui di `src/components/ui/` (gaya new-york, Tailwind v4, Radix `radix-ui`). Registri shadcn tidak dapat diakses dari mesin agen; komponen baru disalin manual dari repo shadcn-ui (`apps/v4/registry/new-york-v4/ui/`).
 - Pustaka isomorfik: `@/lib/time` (WIB), `@/lib/money` (rupiah), `@/lib/ids` (UUID v7), `@/lib/geo`, `@/lib/labels`, `@/lib/env` (server).
+
+## Catatan teknis model data (F2)
+- Skema: `src/db/schema/<modul>.ts` (+ `core.ts`, `_columns.ts`), di-reexport `index.ts`. Impor di dalam skema memakai
+  jalur RELATIF (drizzle-kit CLI). `core.ts` tidak mengimpor berkas modul; enum yang dipakai > 1 modul ada di `core.ts`;
+  tabel modul lain hanya dirujuk di callback lazy (`.references(() => …)`, `relations()`). SATU `relations()` per tabel,
+  di berkas pemilik tabel (tipe Drizzle tidak menggabungkan beberapa deklarasi).
+- Konvensi kolom: `pk()` (uuid v7), `timestamps()`, `createdBy()`, `money()` (bigint rupiah), `liters()`, `businessDate()`
+  ('YYYY-MM-DD' WIB), `fieldMeta()` (device_time, synced_at, sync_command_id, recorded_by_office, late_sync,
+  clock_skew_flagged). Nilai enum = `src/lib/labels.ts` (`pgEnum(nama, enumValues(nama))`).
+- Unik multi-kolom WAJIB `uniqueIndex()` (bukan `unique()`), dan nama FK > 63 karakter WAJIB `foreignKey({ name })` —
+  agar `pnpm db:push` idempoten. Setelah mengubah skema: `pnpm typecheck && pnpm test` (snapshot uji dibangun ulang).
+- DB menolak DELETE/TRUNCATE tabel bisnis dan UPDATE/DELETE `audit_logs`/`access_logs`/`domain_events`
+  (`src/db/sql/hardening.sql`, SQLSTATE `EQ001`/`EQ002`, `isHardeningViolation()`); job retensi memakai `withRetentionPurge()`.
+- Uji DB: `useTestDb({ seed?: boolean })` atau `createTestDb()` dari `tests/helpers/db.ts` (PGlite dari snapshot cache,
+  ±1 detik). Data seed: ID deterministik `seedId(kunci)` + pembantu `userIdByUsername`, `outletId`, `truckId`,
+  `customerId`, `productId`, … dari `@/db/seed`.
