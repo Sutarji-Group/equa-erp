@@ -1,8 +1,11 @@
 "use client";
 
-import { FieldHomePage } from "@/components/field/field-home";
+import { ProduksiApp } from "@/components/m8-production/produksi-app";
 
-/** Beranda aplikasi Operator Produksi (M8 mengisi meter, pengisian truk, uji mutu). */
+/**
+ * Aplikasi Operator Produksi (M8, PRD 7.8): angka meter pagi/malam + foto, pengisian truk per rit, level tandon,
+ * investigasi susut, hasil uji mutu — offline-first (outbox sinkron), data referensi `m8.today` diunduh saat login.
+ */
 export default function ProduksiPage() {
-  return <FieldHomePage home="/produksi" title="Produksi Air" />;
+  return <ProduksiApp />;
 }

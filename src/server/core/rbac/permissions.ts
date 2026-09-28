@@ -533,6 +533,11 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   p("m5.credit_hold.evaluate", "Menghitung ulang umur piutang & status Ditahan sekarang", [O, FA], { ref: "US-M5-03 KP-1" }),
   p("m5.monthly_invoice.issue", "Menerbitkan faktur bulanan periode lalu (bila job belum berjalan)", [FA], { finance: true, ref: "US-M5-06 KP-2" }),
   p("m5.opening_balance.sign", "Menandatangani total saldo awal piutang", [O], { kind: "approve", ref: "US-M5-07 KP-2, NFR-34" }),
+
+  // ===================================================================================================================
+  // Tambahan modul M8 (Produksi & Stok Air) — hanya tambah
+  // ===================================================================================================================
+  p("m8.depot_water_opening.create", "Mencatat stok air awal depot saat cut-over", [FA], { ref: "B-10, US-M6-05 KP-3" }),
 ];
 
 const BY_KEY = new Map<string, PermissionDef>(PERMISSIONS.map((perm) => [perm.key, perm]));

@@ -459,6 +459,31 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         permission: "m8.utilization.read",
       },
       { id: "m8.quality", href: "/produksi/mutu", label: "Mutu air", icon: FlaskConical, permission: "m8.quality_test.read" },
+      // --- Tambahan M8 (hanya tambah) ---
+      {
+        id: "m8.fills",
+        href: "/produksi/pengisian",
+        label: "Pengisian & pasokan",
+        icon: Truck,
+        permission: "m8.truck_fill.read",
+        description: "Pengisian truk vs jadwal rit, pengisian tanpa rit, pasokan depot (diisi/diserahkan/diterima).",
+      },
+      {
+        id: "m8.meters",
+        href: "/produksi/kelola-meter",
+        label: "Meter sumber air",
+        icon: Gauge,
+        permission: ["m8.production.read", "m1.water_meter.update"],
+        description: "Pembacaan meter per sumber; putaran & penggantian meter (admin sistem/Admin Keuangan).",
+      },
+      {
+        id: "m8.water_balance.detail",
+        href: "/produksi/neraca-air/rincian",
+        label: "Rincian neraca harian",
+        icon: Droplets,
+        permission: "m8.water_balance.read",
+        hidden: true,
+      },
     ],
   },
   {

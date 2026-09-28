@@ -23,6 +23,7 @@ import { seedDemoM4Cash } from "./demo-m4-cash";
 import { seedDemoM5Receivables } from "./demo-m5-receivables";
 import { seedDemoM6Pos } from "./demo-m6-pos";
 import { seedDemoM7Store } from "./demo-m7-store";
+import { seedDemoM8Production } from "./demo-m8-production";
 import { seedId } from "./ids";
 import { seedOrganization } from "./org";
 import { DEFAULT_FEATURE_FLAGS, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS, PARAMETER_EFFECTIVE_FROM } from "./parameters";
@@ -110,6 +111,8 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoM5Receivables(tx);
     // M4 (Kas & Setoran) memakai data demo M3/M6/M7 di atas — jalankan paling akhir.
     await seedDemoM4Cash(tx);
+    // M8 (Produksi & Stok Air): meter, pengisian truk T3/T4, neraca air, mutu air (tidak memengaruhi demo kas M4).
+    await seedDemoM8Production(tx);
 
     const counts = await countRows(tx);
     return { parameters: paramRows.length, users: org.usersInserted, customers: cust.customers, counts };

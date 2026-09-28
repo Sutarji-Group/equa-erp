@@ -74,6 +74,11 @@ export const meterReadings = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    // --- Tambahan M8 (hanya tambah) ---
+    /** US-M8-01 KP-3: pembacaan yang dicatat setelah jam batas (PAR m8.production_rules) wajib beralasan. */
+    lateReason: text("late_reason"),
+    /** Putaran meter (KP-2): penyesuaian yang dipakai pembacaan ini (angka lebih kecil dari sebelumnya diterima). */
+    adjustmentId: uuid("adjustment_id"),
   },
   (t) => [
     uniqueIndex("meter_readings_meter_date_phase_uq")
@@ -148,6 +153,11 @@ export const truckFills = pgTable(
     /** Baris asal yang sudah dibalik: `reversed_at` + `reversed_by_id` (= baris pembalik). */
     reversedAt: tstz("reversed_at"),
     reversedById: uuid("reversed_by_id"),
+    // --- Tambahan M8 (hanya tambah) ---
+    /** Rit yang dipilih operator tetapi tidak dapat ditautkan (sudah berpengisian/ditarik kantor) — ditaut kemudian. */
+    requestedTripId: uuid("requested_trip_id").references((): AnyPgColumn => trips.id),
+    /** Bab 6.4 butir 3: catatan tabrakan dengan data kantor/perangkat lain (tampil ke Admin Keuangan). */
+    syncConflictNote: text("sync_conflict_note"),
   },
   (t) => [
     index("truck_fills_source_date_idx").on(t.waterSourceId, t.businessDate),
@@ -201,6 +211,13 @@ export const waterBalances = pgTable(
     verifiedAt: tstz("verified_at"),
     computedAt: tstz("computed_at"),
     ...timestamps(),
+    // --- Tambahan M8 (hanya tambah) ---
+    /** Air rit gagal yang dikembalikan ke sumber (US-M3-06 KP-2) — dikurangkan dari Σ pengisian. */
+    returnedL: liters("returned_l"),
+    /** US-M8-04 KP-5: catatan verifikasi Admin Keuangan atas susut negatif. */
+    verificationNote: text("verification_note"),
+    /** US-M8-04 KP-2: catatan pemilik saat menerima/mengembalikan penjelasan susut. */
+    reviewNote: text("review_note"),
   },
   (t) => [
     uniqueIndex("water_balances_source_date_uq").on(t.waterSourceId, t.businessDate),
@@ -278,6 +295,8 @@ export const qualityTests = pgTable(
     actionNote: text("action_note"),
     ...timestamps(),
     createdBy: createdBy(),
+    // --- Tambahan M8 (hanya tambah) ---
+    actionDoneBy: userRef("action_done_by"),
   },
   (t) => [index("quality_tests_location_idx").on(t.locationType, t.waterSourceId, t.outletId, t.testDate)],
 );
@@ -319,4 +338,57 @@ export const qualityTestsRelations = relations(qualityTests, ({ one }) => ({
   schedule: one(qualityTestSchedules, { fields: [qualityTests.scheduleId], references: [qualityTestSchedules.id] }),
   waterSource: one(waterSources, { fields: [qualityTests.waterSourceId], references: [waterSources.id] }),
   outlet: one(outlets, { fields: [qualityTests.outletId], references: [outlets.id] }),
+}));
+
+// =====================================================================================================================
+// Tambahan M8 (hanya tambah)
+// =====================================================================================================================
+
+/**
+ * Putaran (rollover) / penggantian meter yang dicatat admin sistem atau Admin Keuangan dengan alasan (US-M8-01 KP-2,
+ * 7.8.6). Putaran: pembacaan pertama sesudahnya boleh lebih kecil dari sebelumnya; produksi = (angka putaran − angka
+ * sebelumnya) + angka baru. Penggantian: meter lama ditutup (`water_meters.final_reading_l`), meter baru dengan angka
+ * awal; produksi hari itu diestimasi dari rata-rata 7 hari dan ditandai.
+ */
+export const meterAdjustments = pgTable(
+  "meter_adjustments",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    waterSourceId: uuid("water_source_id")
+      .notNull()
+      .references((): AnyPgColumn => waterSources.id),
+    waterMeterId: uuid("water_meter_id")
+      .notNull()
+      .references((): AnyPgColumn => waterMeters.id),
+    kind: meterAdjustmentKindEnum("kind").notNull(),
+    /** Tanggal bisnis kejadian (pembacaan sesudah kejadian bertanggal ini atau sesudahnya). */
+    businessDate: businessDate().notNull(),
+    occurredAt: tstz("occurred_at").notNull(),
+    /** Pembacaan terakhir sebelum kejadian (informasi). */
+    previousReadingId: uuid("previous_reading_id").references((): AnyPgColumn => meterReadings.id),
+    previousReadingL: meterLiters("previous_reading_l"),
+    /** Putaran: angka meter saat kembali ke nol (mis. 100.000.000 L). */
+    rolloverAtL: meterLiters("rollover_at_l"),
+    /** Penggantian: angka akhir meter lama. */
+    finalReadingL: meterLiters("final_reading_l"),
+    newMeterId: uuid("new_meter_id").references((): AnyPgColumn => waterMeters.id),
+    newInitialReadingL: meterLiters("new_initial_reading_l"),
+    /** Putaran: pembacaan pertama sesudah putaran yang memakai penyesuaian ini. */
+    appliedReadingId: uuid("applied_reading_id").references((): AnyPgColumn => meterReadings.id),
+    reason: text("reason").notNull(),
+    photoAttachmentId: attachmentRef("photo_attachment_id"),
+    recordedBy: userRef("recorded_by"),
+    ...timestamps(),
+    createdBy: createdBy(),
+  },
+  (t) => [
+    index("meter_adjustments_meter_date_idx").on(t.waterMeterId, t.businessDate),
+    index("meter_adjustments_source_date_idx").on(t.waterSourceId, t.businessDate),
+  ],
+);
+
+export const meterAdjustmentsRelations = relations(meterAdjustments, ({ one }) => ({
+  waterSource: one(waterSources, { fields: [meterAdjustments.waterSourceId], references: [waterSources.id] }),
+  meter: one(waterMeters, { fields: [meterAdjustments.waterMeterId], references: [waterMeters.id] }),
 }));
