@@ -23,7 +23,8 @@ export const MODULE_NAME = "Penjualan Toko & Stok" as const;
 export { storePolicy, discountExceedsLimit, STORE_SALE_APPROVAL_TYPES } from "./service/policy";
 export { evaluateStoreCredit, storeCreditExposure, uninvoicedStoreCredit } from "./service/credit";
 export type { StoreCreditCheck, StoreCreditExposure } from "./service/credit";
-export { recordStoreReturn, returnedQuantities, storeReturnSchema } from "./service/returns";
+export { recordStoreReturn, returnedQuantities, storeReturnSchema, storeSalesForReturn } from "./service/returns";
+export type { ReturnableSale } from "./service/returns";
 export { storeShiftsBlockingCashClose } from "./service/shifts";
 export type { OpenStoreShift } from "./service/shifts";
 
@@ -92,7 +93,7 @@ export {
 export type { PayableRow, SupplierAgingRow, SupplierPaymentInput, AgingBucket } from "./service/payables";
 
 // --- Tampilan kantor & laporan (US-M7-07) ----------------------------------------------------------------------------
-export { listStoreItems, getStoreItem, stockCard, productPerformance, partnerPurchases, discountReport, storeOverview, pendingStoreApprovals } from "./service/queries";
+export { listStoreItems, getStoreItem, stockCard, productPerformance, partnerPurchases, discountReport, storeOverview, pendingStoreApprovals, listStoreOutlets } from "./service/queries";
 export type { StoreItemRow, StockCardRow, ProductPerformanceRow, PartnerPurchaseRow, DiscountRow } from "./service/queries";
 export { storeOutletsOf, resolveOfficeStore, monthLabel, monthRange, balanceAt } from "./service/common";
 

@@ -8,25 +8,27 @@
  */
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { posSaleLines, posSales, shifts } from "@/db/schema";
+import { customers, posSaleLines, posSales, products, shifts } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { formatRupiah } from "@/lib/money";
+import { addDays, isBusinessDate } from "@/lib/time";
 
 import * as approvals from "@/server/core/approvals";
 import type { ApprovalRow } from "@/server/core/approvals";
 import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
+import { getDb } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { emit, queryEvents } from "@/server/core/events";
 import * as params from "@/server/core/params";
-import { authorize, runService } from "@/server/core/rbac";
+import { authorize, authorizeAny, runService } from "@/server/core/rbac";
 import { postStockMovement } from "@/server/modules/m6-pos";
 
-import { loadOutlet, loadProductsById } from "./common";
+import { loadOutlet, loadProductsById, resolveOfficeStore } from "./common";
 
 export const storeReturnSchema = z
   .object({
@@ -183,4 +185,85 @@ export async function onStoreReturnApproved(tx: Tx, request: ApprovalRow, ctx: A
   }
   await applyReturn(tx, ctx, sale, { returnId: request.objectId, lines: payload.lines, amount: payload.amount, cogs: payload.cogs, reason: payload.reason }, { approvalId: request.id, createdBy: request.requesterUserId });
   return { effect: "applied", returnId: request.objectId };
+}
+
+export type ReturnableSale = {
+  id: string;
+  number: string | null;
+  localNumber: string;
+  businessDate: string;
+  soldAt: Date;
+  customerName: string | null;
+  paymentMethod: string;
+  subtotal: number;
+  discountAmount: number;
+  total: number;
+  shiftOpen: boolean;
+  lines: { productId: string; code: string; name: string; unit: string; quantity: number; unitPrice: number; returned: number; returnable: number }[];
+};
+
+/**
+ * Transaksi toko Sah untuk layar retur kantor (Admin Keuangan): cari nomor/pelanggan dalam N hari terakhir, lengkap
+ * dengan sisa barang yang dapat diretur. Shift yang masih terbuka ditandai (retur lewat void di POS).
+ */
+export async function storeSalesForReturn(
+  ctx: ActorContext,
+  filter: { outletId?: string | null; q?: string | null; from?: string | null; to?: string | null; limit?: number } = {},
+  opts: { tx?: Tx } = {},
+): Promise<{ outletId: string | null; rows: ReturnableSale[] }> {
+  await authorizeAny(ctx, ["m7.pos_sale.correct", "m7.report.read"], { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const outlet = await resolveOfficeStore(tx, ctx, filter.outletId ?? null);
+  if (!outlet) return { outletId: null, rows: [] };
+  const today = ctxBusinessDate(ctx);
+  const from = filter.from && isBusinessDate(filter.from) ? filter.from : addDays(today, -30);
+  const to = filter.to && isBusinessDate(filter.to) ? filter.to : today;
+  const conds = [eq(posSales.outletId, outlet.id), eq(posSales.status, "valid"), eq(posSales.isReversal, false), gte(posSales.businessDate, from), lte(posSales.businessDate, to)];
+  const q = filter.q?.trim();
+  if (q) {
+    const like = `%${q.replace(/[%_]/g, "")}%`;
+    conds.push(or(sql`${posSales.number} ilike ${like}`, sql`${posSales.localNumber} ilike ${like}`, sql`${customers.name} ilike ${like}`)!);
+  }
+  const rows = await tx
+    .select({ s: posSales, customerName: customers.name, shiftStatus: shifts.status })
+    .from(posSales)
+    .leftJoin(customers, eq(customers.id, posSales.customerId))
+    .innerJoin(shifts, eq(shifts.id, posSales.shiftId))
+    .where(and(...conds))
+    .orderBy(desc(posSales.soldAt))
+    .limit(filter.limit ?? 30);
+  const ids = rows.map((r) => r.s.id);
+  const lines = ids.length
+    ? await tx
+        .select({ l: posSaleLines, code: products.code, name: products.name, unit: products.unit })
+        .from(posSaleLines)
+        .innerJoin(products, eq(products.id, posSaleLines.productId))
+        .where(inArray(posSaleLines.posSaleId, ids))
+    : [];
+  const out: ReturnableSale[] = [];
+  for (const { s, customerName, shiftStatus } of rows) {
+    const returned = await returnedQuantities(tx, s.id);
+    const byProduct = new Map<string, ReturnableSale["lines"][number]>();
+    for (const { l, code, name, unit } of lines.filter((x) => x.l.posSaleId === s.id)) {
+      const cur = byProduct.get(l.productId) ?? { productId: l.productId, code, name, unit, quantity: 0, unitPrice: l.unitPrice, returned: returned.get(l.productId) ?? 0, returnable: 0 };
+      cur.quantity += l.quantity;
+      byProduct.set(l.productId, cur);
+    }
+    const saleLines = [...byProduct.values()].map((l) => ({ ...l, returnable: Math.max(0, l.quantity - l.returned) }));
+    out.push({
+      id: s.id,
+      number: s.number,
+      localNumber: s.localNumber,
+      businessDate: s.businessDate,
+      soldAt: s.soldAt,
+      customerName: customerName ?? null,
+      paymentMethod: s.paymentMethod,
+      subtotal: s.subtotal,
+      discountAmount: s.discountAmount,
+      total: s.total,
+      shiftOpen: shiftStatus === "open",
+      lines: saleLines,
+    });
+  }
+  return { outletId: outlet.id, rows: out };
 }

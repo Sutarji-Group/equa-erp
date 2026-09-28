@@ -18,11 +18,11 @@ import { getDb } from "@/server/core/db";
 import { DomainError } from "@/server/core/errors";
 import { queryEvents } from "@/server/core/events";
 import * as params from "@/server/core/params";
-import { authorize, authorizeAny } from "@/server/core/rbac";
+import { authorize, authorizeAny, inOutletScope } from "@/server/core/rbac";
 import { priceHistory, resolveProductPrice } from "@/server/modules/m1-master";
 import { COUNTED_SALE } from "@/server/modules/m6-pos";
 
-import { balanceAt, loadStoreProduct, monthLabel, monthRange, resolveOfficeStore, storeRules } from "./common";
+import { balanceAt, loadStoreProduct, monthLabel, monthRange, resolveOfficeStore, storeOutletsOf, storeRules } from "./common";
 import { payableRows } from "./payables";
 import { lastSuppliers } from "./reorder";
 
@@ -500,4 +500,12 @@ export async function pendingStoreApprovals(ctx: ActorContext, opts: { tx?: Tx }
     .where(and(eq(approvalRequests.tenantId, ctx.tenantId), eq(approvalRequests.status, "submitted"), inArray(approvalRequests.type, ["store_product", "supplier"])))
     .orderBy(asc(approvalRequests.createdAt));
   return rows.map((r) => ({ ...r, canDecide: ctx.roles.includes("finance_admin") && r.requesterUserId !== ctx.userId }));
+}
+
+/** Toko aktif dalam lingkup pelaku kantor (pemilih toko di layar `/toko/*`). */
+export async function listStoreOutlets(ctx: ActorContext, opts: { tx?: Tx } = {}) {
+  await authorizeAny(ctx, ["m7.stock.read", "m7.supplier_payable.read", "m7.report.read", "m7.product_performance.read"], { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const stores = await storeOutletsOf(tx, ctx.tenantId);
+  return stores.filter((s) => inOutletScope(ctx, s.id, s.tenantId)).map((s) => ({ id: s.id, code: s.code, name: s.name }));
 }

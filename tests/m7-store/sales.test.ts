@@ -336,6 +336,39 @@ describe("US-M7-04 Penjualan tempo untuk mitra terdaftar", () => {
     expect(["applied", "conflict"]).toContain(late.res.status);
     expect(await saleRow(t.db, late.saleId)).toMatchObject({ creditOffline: true });
   });
+
+  it("US-M7-04 KP-5 mitra depot EQUA memakai jalur tempo yang sama dengan batas kredit & tempo dari perjanjian mitra", async () => {
+    // Mitra depot EQUA (Tahap 3): pelanggan bertanda mitra EQUA + mitra toko (manual), batas & tempo sesuai perjanjian.
+    const partnerId = newId();
+    await t.db.insert(customers).values({
+      id: partnerId,
+      tenantId: EQUA_TENANT_ID,
+      name: "Depot Mitra EQUA Sukanagara",
+      segment: "third_party_depot",
+      waPhone: "081299990001",
+      isEquaPartner: true,
+      isStorePartner: true,
+      storePartnerSource: "manual",
+      creditStatus: "credit",
+      creditLimit: 1_000_000,
+      paymentTermDays: 30,
+    });
+    const pos = await makeStore(t.db);
+    await stockUp(t.db, pos, [{ productId: SP.DISPENSER, quantity: 3, unitCost: 700_000 }]);
+    const shiftId = await openShiftVia(pos);
+    const ref = (await pos.hp.pull(pos.op, { keys: "m7.store" })).data["m7.store"] as StoreReference;
+    expect(ref.customers.find((c) => c.id === partnerId)).toMatchObject({ creditStatus: "credit", creditLimit: 1_000_000, paymentTermDays: 30 });
+    const ok = await sellVia(pos, shiftId, [{ productId: SP.DISPENSER, quantity: 1, unitPrice: PARTNER.DISPENSER }], { method: "credit", customerId: partnerId });
+    expectApplied(ok.res);
+    const [ev] = await t.db.select().from(domainEvents).where(and(eq(domainEvents.type, "pos_sale.recorded"), eq(domainEvents.objectId, ok.saleId)));
+    expect(ev!.payload).toMatchObject({ method: "credit", customerId: partnerId, paymentTermDays: 30, priceKind: "partner" });
+    // Batas perjanjian terlampaui → ditolak berangka, dengan pilihan persetujuan pemilik (jalur sama US-M7-04 KP-1/KP-2).
+    const over = await sellVia(pos, shiftId, [{ productId: SP.DISPENSER, quantity: 1, unitPrice: PARTNER.DISPENSER }], { method: "credit", customerId: partnerId });
+    expectRejected(over.res, /melampaui batas kredit/);
+    const req = await sellVia(pos, shiftId, [{ productId: SP.DISPENSER, quantity: 1, unitPrice: PARTNER.DISPENSER }], { method: "credit", customerId: partnerId, requestApproval: true });
+    expectApplied(req.res);
+    expect(await saleRow(t.db, req.saleId)).toMatchObject({ status: "pending_approval" });
+  });
 });
 
 describe("US-M7-09 Kas toko harian dan setoran", () => {

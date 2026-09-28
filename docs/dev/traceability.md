@@ -6,9 +6,9 @@
 
 ## Ringkasan
 
-- **Prioritas M:** 195/490 KP (39.8%) · story: 28 lengkap, 27 sebagian, 39 belum
-- **Semua prioritas:** 211/554 KP (38.1%) · story: 31 lengkap, 30 sebagian, 53 belum
-- Uji dipindai: 621 judul di 77 berkas; 430 judul merujuk user story.
+- **Prioritas M:** 222/490 KP (45.3%) · story: 35 lengkap, 24 sebagian, 35 belum
+- **Semua prioritas:** 243/554 KP (43.9%) · story: 40 lengkap, 26 sebagian, 48 belum
+- Uji dipindai: 678 judul di 86 berkas; 480 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
@@ -18,7 +18,7 @@
 | M4 — Kas & Setoran | 6 | 0 | 2 | 4 | 2/36 | 5.6 |
 | M5 — Piutang & Penagihan | 7 | 0 | 3 | 4 | 4/32 | 12.5 |
 | M6 — Penjualan Depot (POS) | 7 | 7 | 0 | 0 | 42/42 | 100.0 |
-| M7 — Penjualan Toko & Stok | 9 | 0 | 4 | 5 | 5/37 | 13.5 |
+| M7 — Penjualan Toko & Stok | 9 | 9 | 0 | 0 | 37/37 | 100.0 |
 | M8 — Produksi & Stok Air | 7 | 0 | 2 | 5 | 3/29 | 10.3 |
 | M9 — Laporan & Dashboard Pemilik | 7 | 0 | 2 | 5 | 6/31 | 19.4 |
 | M10 — Pengguna, Hak Akses & Jejak Audit | 7 | 7 | 0 | 0 | 41/41 | 100.0 |
@@ -121,19 +121,19 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M7 — Penjualan Toko & Stok
 
-5/37 KP (13.5%) · story: 0 lengkap, 4 sebagian, 5 belum
+37/37 KP (100.0%) · story: 9 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M7-01 | POS toko dengan harga mitra dan umum | M | 0/6 | belum | 1, 2, 3, 4, 5, 6 | 0 |
-| US-M7-02 | Penerimaan barang dari pemasok dan kartu stok | M | 2/6 | sebagian | 2, 3, 4, 5 | 2 |
-| US-M7-03 | Stok minimum dan daftar pesan ulang | M | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M7-04 | Penjualan tempo untuk mitra terdaftar | M | 1/5 | sebagian | 1, 2, 4, 5 | 1 |
-| US-M7-05 | Stok opname dan penyesuaian | M | 0/5 | belum | 1, 2, 3, 4, 5 | 0 |
-| US-M7-06 | Transfer internal bahan ke depot sendiri | M | 1/3 | sebagian | 2, 3 | 1 |
-| US-M7-07 | Laporan barang laris/mati dan margin per barang | S | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M7-08 | Utang pemasok dan jadwal pembayaran | S | 1/3 | sebagian | 1, 3 | 2 |
-| US-M7-09 | Kas toko harian dan setoran | M | 0/3 | belum | 1, 2, 3 | 0 |
+| US-M7-01 | POS toko dengan harga mitra dan umum | M | 6/6 | lengkap | — | 14 |
+| US-M7-02 | Penerimaan barang dari pemasok dan kartu stok | M | 6/6 | lengkap | — | 10 |
+| US-M7-03 | Stok minimum dan daftar pesan ulang | M | 3/3 | lengkap | — | 4 |
+| US-M7-04 | Penjualan tempo untuk mitra terdaftar | M | 5/5 | lengkap | — | 8 |
+| US-M7-05 | Stok opname dan penyesuaian | M | 5/5 | lengkap | — | 6 |
+| US-M7-06 | Transfer internal bahan ke depot sendiri | M | 3/3 | lengkap | — | 5 |
+| US-M7-07 | Laporan barang laris/mati dan margin per barang | S | 3/3 | lengkap | — | 4 |
+| US-M7-08 | Utang pemasok dan jadwal pembayaran | S | 3/3 | lengkap | — | 6 |
+| US-M7-09 | Kas toko harian dan setoran | M | 3/3 | lengkap | — | 4 |
 
 ## M8 — Produksi & Stok Air
 
@@ -157,7 +157,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 |---|---|:-:|---:|---|---|---:|
 | US-M9-01 | Dashboard H+0 | M | 0/7 | belum | 1, 2, 3, 4, 5, 6, 7 | 0 |
 | US-M9-02 | Laporan bulanan laba kotor per lini dan konsolidasi | M | 0/6 | belum | 1, 2, 3, 4, 5, 6 | 0 |
-| US-M9-03 | Ekspor Excel/PDF | M | 3/4 | sebagian | 3 | 11 |
+| US-M9-03 | Ekspor Excel/PDF | M | 3/4 | sebagian | 3 | 12 |
 | US-M9-04 | Kotak masuk pengecualian dan pengaturan notifikasi pemilik | S | 3/4 | sebagian | 2 | 9 |
 | US-M9-05 | Kinerja per sopir/truk dan per depot/operator | S | 0/4 | belum | 1, 2, 3, 4 | 0 |
 | US-M9-06 | Tren mingguan/bulanan | S | 0/3 | belum | 1, 2, 3 | 0 |
