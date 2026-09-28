@@ -142,7 +142,7 @@ export function ScheduleBoard({ board }: { board: Board }) {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <KpiTile label="Kapasitas rit hari ini" value={String(board.totals.capacity)} hint="Σ truk beroperasi (PAR-33)" />
         <KpiTile label="Terjadwal" value={`${board.totals.scheduled}`} hint={`${board.totals.customer} pelanggan · ${board.totals.internal} internal`} tone={board.totals.overCapacity ? "warning" : undefined} />
         <KpiTile label="Belum terjadwal" value={String(board.totals.unscheduled)} tone={board.totals.unscheduled ? "warning" : "success"} />
@@ -151,11 +151,11 @@ export function ScheduleBoard({ board }: { board: Board }) {
       </div>
       {board.totals.overCapacity ? <p className="text-sm text-warning-foreground">Terjadwal melebihi kapasitas harian — diperingatkan, tidak diblokir.</p> : null}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="grid gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="grid min-w-0 gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
           <section
             aria-label="Belum terjadwal"
-            className={cn("grid content-start gap-2 rounded-lg border-2 border-dashed p-3", board.unscheduled.length ? "border-warning/60 bg-warning/5" : "border-border", dragging && "ring-2 ring-ring")}
+            className={cn("grid min-w-0 content-start gap-2 rounded-lg border-2 border-dashed p-3", board.unscheduled.length ? "border-warning/60 bg-warning/5" : "border-border", dragging && "ring-2 ring-ring")}
             onDragOver={(e) => e.preventDefault()}
             onDrop={onDropUnscheduled}
           >
@@ -172,12 +172,12 @@ export function ScheduleBoard({ board }: { board: Board }) {
             ))}
           </section>
 
-          <div className="grid content-start gap-4 lg:grid-cols-2">
+          <div className="grid min-w-0 content-start gap-4 grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))]">
             {board.lanes.map((lane) => (
               <section
                 key={lane.truck.id}
                 aria-label={`Truk ${lane.truck.code}`}
-                className={cn("grid content-start gap-2 rounded-lg border bg-card p-3", !lane.canReceive && "bg-muted/40", dragging && lane.canReceive && "ring-2 ring-ring/50")}
+                className={cn("grid min-w-0 content-start gap-2 rounded-lg border bg-card p-3", !lane.canReceive && "bg-muted/40", dragging && lane.canReceive && "ring-2 ring-ring/50")}
                 onDragOver={(e) => lane.canReceive && e.preventDefault()}
                 onDrop={(e) => onDropLane(e, lane)}
               >
@@ -324,7 +324,7 @@ function TripCard({
       }}
       onDragEnd={() => onDragStart(null)}
       className={cn(
-        "grid gap-1 rounded-md border bg-background p-2 text-sm shadow-xs",
+        "grid min-w-0 gap-1 rounded-md border bg-background p-2 text-sm shadow-xs break-words",
         draggable && "cursor-grab active:cursor-grabbing",
         trip.overdue && "border-destructive/50 bg-destructive/5",
         trip.status === "completed" && "opacity-70",
@@ -345,7 +345,7 @@ function TripCard({
             {trip.addressLabel} · {trip.addressText}
           </p>
         </div>
-        <StatusBadge enumName="trip_status" value={trip.status} />
+        {showOrder || trip.status !== "assigned" ? <StatusBadge enumName="trip_status" value={trip.status} /> : <ToneBadge tone="warning">Belum ada truk</ToneBadge>}
       </div>
       <p className="text-xs text-muted-foreground">
         {trip.requestedTime ? `Jam ${trip.requestedTime.replace(":", ".")}` : trip.fixedReceiveTime ? `Jam terima ${trip.fixedReceiveTime.replace(":", ".")}` : "Tanpa jam"} · {label("payment_method", trip.paymentMethod)} · {formatRupiah(trip.price)}

@@ -234,7 +234,7 @@ export default async function PesananDetailPage({ params }: PageProps<"/pesanan/
                   <TableCell>{t.driverName ?? "—"}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      <StatusBadge enumName="trip_status" value={t.status} />
+                      {t.status !== "assigned" ? <StatusBadge enumName="trip_status" value={t.status} /> : null}
                       {t.withdrawnAt ? <ToneBadge tone="muted">Ditarik</ToneBadge> : t.status === "assigned" ? (t.truckId ? (t.publishedAt ? <ToneBadge tone="info">Terbit</ToneBadge> : <ToneBadge tone="warning">Draf</ToneBadge>) : <ToneBadge tone="warning">Belum terjadwal</ToneBadge>) : null}
                       {t.failReason ? <ToneBadge tone="danger">{label("trip_fail_reason", t.failReason)}</ToneBadge> : null}
                       {t.syncConflict && !t.syncConflictResolvedAt ? <ToneBadge tone="danger">Konflik</ToneBadge> : null}
