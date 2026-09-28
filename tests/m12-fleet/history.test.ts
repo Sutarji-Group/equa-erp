@@ -189,6 +189,14 @@ describe("M12 — riwayat perjalanan per rit & per hari (US-M12-03)", () => {
     }
   });
 
+  it("US-M12-03 KP-1 rit yang Berangkat di luar urutan rencana (M3 `actual_order`) ditandai pada riwayat per rit", async () => {
+    const g = await gpsTruck(t.db, { withDevice: false });
+    const trip = await tripOn(t.db, g, { address: NOWHERE, departed: { at: wib(DAY, "12:00"), p: SA1 }, completed: { at: wib(DAY, "12:40"), p: NOWHERE } });
+    await t.db.update(trips).set({ routeOrder: 2, actualOrder: 1 }).where(eq(trips.id, trip.id));
+    const row = (await listTripHistory(owner(), { date: DAY, truckId: g.truckId })).rows[0]!;
+    expect(row).toMatchObject({ outOfOrder: true, plannedOrder: 2, actualOrder: 1 });
+  });
+
   it("US-M12-03 KP-4 jarak dari jejak perangkat; bila hanya titik status ponsel tersedia, jarak diestimasi dari rute peta dan ditandai 'estimasi'", async () => {
     const g = await gpsTruck(t.db, { withDevice: false });
     const trip = await tripOn(t.db, g, { address: NOWHERE, departed: { at: wib(DAY, "09:00"), p: SA1 }, completed: { at: wib(DAY, "09:40"), p: NOWHERE } });

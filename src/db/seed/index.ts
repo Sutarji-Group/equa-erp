@@ -17,6 +17,7 @@ import { seedCatalog } from "./catalog";
 import { seedCustomers } from "./customers";
 import { seedDemoM1Master } from "./demo-m1-master";
 import { seedDemoM10Access } from "./demo-m10-access";
+import { seedDemoM12Fleet } from "./demo-m12-fleet";
 import { seedDemoM2Orders } from "./demo-m2-orders";
 import { seedDemoM3Driver } from "./demo-m3-driver";
 import { seedDemoM4Cash } from "./demo-m4-cash";
@@ -110,6 +111,8 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoM5Receivables(tx);
     // M4 (Kas & Setoran) memakai data demo M3/M6/M7 di atas — jalankan paling akhir.
     await seedDemoM4Cash(tx);
+    // M12 (Armada/GPS) menyelaraskan jejak dengan rit demo M2/M3 di atas.
+    await seedDemoM12Fleet(tx);
 
     const counts = await countRows(tx);
     return { parameters: paramRows.length, users: org.usersInserted, customers: cust.customers, counts };

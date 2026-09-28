@@ -426,6 +426,10 @@ export type TripHistoryRow = {
   isEstimated: boolean;
   hasGaps: boolean;
   computed: boolean;
+  /** US-M3-02 KP-2: urutan rencana Dispatcher vs urutan Berangkat aktual (M3 `actual_order`). */
+  plannedOrder: number | null;
+  actualOrder: number | null;
+  outOfOrder: boolean;
 };
 
 async function tripRowsForDate(tx: Tx, tenantId: string, date: BusinessDate, truckId?: string) {
@@ -481,6 +485,9 @@ async function tripTrackViews(tx: Tx, tenantId: string, date: BusinessDate, now:
       isEstimated: fresh ? r.track!.isEstimated : (live?.isEstimated ?? false),
       hasGaps: fresh ? r.track!.hasGaps : (live?.hasGaps ?? false),
       computed: !!fresh,
+      plannedOrder: r.t.routeOrder,
+      actualOrder: r.t.actualOrder,
+      outOfOrder: r.t.actualOrder !== null && r.t.routeOrder !== null && r.t.actualOrder !== r.t.routeOrder,
       stops,
     });
   }

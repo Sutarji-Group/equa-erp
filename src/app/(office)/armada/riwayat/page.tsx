@@ -169,6 +169,11 @@ export default async function RiwayatPage({ searchParams }: PageProps<"/armada/r
                         {r.number}
                       </Link>
                       {r.isInternal ? <span className="block text-xs text-muted-foreground">Rit internal</span> : null}
+                      {r.outOfOrder ? (
+                        <span className="block text-xs text-warning-foreground dark:text-warning">
+                          Urutan berbeda (rencana #{r.plannedOrder}, aktual #{r.actualOrder})
+                        </span>
+                      ) : null}
                     </TableCell>
                     <TableCell>{r.truckCode}</TableCell>
                     <TableCell>

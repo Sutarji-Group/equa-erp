@@ -77,6 +77,7 @@ export function registerReports(): void {
       { key: "atCustomerMin", header: "Lama di pelanggan (menit)", type: "number", width: 10, value: (r) => min(r.timeAtCustomerS as number | null) },
       { key: "isEstimated", header: "Jarak estimasi", type: "boolean", width: 8 },
       { key: "hasGaps", header: "Celah jejak", type: "boolean", width: 8 },
+      { key: "outOfOrder", header: "Urutan berbeda", type: "boolean", width: 8 },
     ],
     fetch: async (ctx, f: Range, { tx }) => {
       const r = range(f, ctxBusinessDate(ctx));
