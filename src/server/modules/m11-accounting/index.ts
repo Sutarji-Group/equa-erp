@@ -39,7 +39,7 @@ export { specForEvent, JOURNALED_EVENTS, isJournaledEvent } from "./service/auto
 export type { AutoResult, EventJournalSpec } from "./service/posting";
 export { listJournalQueue, retryJournalQueueItem, retryAllJournalQueue, retryPendingQueue, pendingQueueCount } from "./service/queue";
 export { generateRetroactiveJournals, verifyRetroactiveRun, listRetroactiveRuns } from "./service/retroactive";
-export { listJournals, getJournalDetail, journalsForSource, sourceLink } from "./service/journals";
+export { listJournals, getJournalDetail, journalsForSource, sourceLink, formOptions, openManualJournals } from "./service/journals";
 export { dailyReconciliation, dailyReconciliationTx, type DailyReconRow } from "./service/daily";
 
 // Jurnal manual (US-M11-03)

@@ -6,7 +6,7 @@ import "server-only";
 
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, type SQL } from "drizzle-orm";
 
-import { accountingPeriods, accounts, journalLines, journalPayables, journalQueue, journals, manualJournalDetails, outlets, trips } from "@/db/schema";
+import { accountingPeriods, accounts, bankAccounts, journalLines, journalPayables, journalQueue, journals, manualJournalDetails, outlets, suppliers, trips, trucks, waterSources } from "@/db/schema";
 import type { JournalKind, JournalStatus } from "@/lib/labels";
 import type { BusinessDate } from "@/lib/time";
 
@@ -173,4 +173,25 @@ export async function openManualJournals(tx: Tx, tenantId: string) {
     .from(journals)
     .where(and(eq(journals.tenantId, tenantId), inArray(journals.status, ["draft", "submitted"]), isNull(journals.reversalOfId)))
     .orderBy(desc(journals.createdAt));
+}
+
+/** Pilihan isian formulir akuntansi (outlet, truk, sumber air, pemasok, rekening bank, akun detail aktif). */
+export async function formOptions(ctx: ActorContext, opts: { tx?: Tx } = {}) {
+  await authorize(ctx, "m11.journal.read", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const outletRows = await tx
+    .select({ id: outlets.id, name: outlets.name, code: outlets.code, kind: outlets.kind })
+    .from(outlets)
+    .where(and(eq(outlets.tenantId, ctx.tenantId), eq(outlets.isActive, true)))
+    .orderBy(asc(outlets.code));
+  const truckRows = await tx.select({ id: trucks.id, code: trucks.code }).from(trucks).where(eq(trucks.tenantId, ctx.tenantId)).orderBy(asc(trucks.code));
+  const sourceRows = await tx.select({ id: waterSources.id, name: waterSources.name }).from(waterSources).where(eq(waterSources.tenantId, ctx.tenantId)).orderBy(asc(waterSources.name));
+  const supplierRows = await tx.select({ id: suppliers.id, name: suppliers.name }).from(suppliers).where(eq(suppliers.tenantId, ctx.tenantId)).orderBy(asc(suppliers.name));
+  const bankRows = await tx.select({ id: bankAccounts.id, bankName: bankAccounts.bankName, accountNumber: bankAccounts.accountNumber }).from(bankAccounts).where(eq(bankAccounts.tenantId, ctx.tenantId));
+  const accountRows = await tx
+    .select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type })
+    .from(accounts)
+    .where(and(eq(accounts.tenantId, ctx.tenantId), eq(accounts.isActive, true), eq(accounts.isPostable, true)))
+    .orderBy(asc(accounts.code));
+  return { outlets: outletRows, trucks: truckRows, waterSources: sourceRows, suppliers: supplierRows, bankAccounts: bankRows, accounts: accountRows };
 }
