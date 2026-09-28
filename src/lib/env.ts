@@ -53,6 +53,17 @@ export const serverEnvSchema = z
       .transform((v) => v === "true"),
 
     GPS_INGEST_TOKEN: z.string().min(1).default(DEV_GPS_INGEST_TOKEN),
+
+    /**
+     * Izinkan rahasia bawaan dev & rahasia TOTP `plain:` seed saat `next start` (NODE_ENV=production) — HANYA untuk E2E
+     * lokal (di-set playwright.config.ts). Tidak pernah berlaku di VERCEL_ENV=production.
+     */
+    ALLOW_DEV_SECRETS: z
+      .enum(["0", "1", "true", "false"])
+      .default("0")
+      .transform((v) => v === "1" || v === "true"),
+    /** Diisi Next.js (`phase-production-build` saat `next build`). */
+    NEXT_PHASE: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const need = (key: keyof typeof env, when: string) =>
@@ -67,18 +78,41 @@ export const serverEnvSchema = z
       need("MIDTRANS_SERVER_KEY", "PAYMENT_GATEWAY=midtrans");
     }
 
-    // Deploy produksi Vercel: tolak rahasia bawaan dev & PGlite.
-    if (env.VERCEL_ENV === "production") {
-      if (env.DB_DRIVER === "pglite") {
-        ctx.addIssue({ code: "custom", path: ["DB_DRIVER"], message: "Produksi wajib DB_DRIVER=neon atau pg." });
-      }
-      if (env.SESSION_SECRET === DEV_SESSION_SECRET) need("SESSION_SECRET", "berjalan di produksi");
-      if (env.CRON_SECRET === DEV_CRON_SECRET) need("CRON_SECRET", "berjalan di produksi");
-      if (env.GPS_INGEST_TOKEN === DEV_GPS_INGEST_TOKEN) need("GPS_INGEST_TOKEN", "berjalan di produksi");
+    // Deploy produksi Vercel: tolak PGlite.
+    if (env.VERCEL_ENV === "production" && env.DB_DRIVER === "pglite") {
+      ctx.addIssue({ code: "custom", path: ["DB_DRIVER"], message: "Produksi wajib DB_DRIVER=neon atau pg." });
+    }
+    if (env.VERCEL_ENV === "production" && env.ALLOW_DEV_SECRETS) {
+      ctx.addIssue({ code: "custom", path: ["ALLOW_DEV_SECRETS"], message: "ALLOW_DEV_SECRETS tidak boleh aktif di produksi." });
+    }
+    // Fail-closed: produksi (NODE_ENV=production saat berjalan, termasuk self-host) & deploy Vercel production/preview
+    // menolak rahasia bawaan dev yang tertulis di repo. Pengecualian eksplisit hanya ALLOW_DEV_SECRETS=1 (E2E lokal).
+    if (!devSecretsAllowed(env)) {
+      const when = "berjalan di produksi/preview (isi rahasia sendiri; E2E lokal: ALLOW_DEV_SECRETS=1)";
+      if (env.SESSION_SECRET === DEV_SESSION_SECRET) need("SESSION_SECRET", when);
+      if (env.CRON_SECRET === DEV_CRON_SECRET) need("CRON_SECRET", when);
+      if (env.GPS_INGEST_TOKEN === DEV_GPS_INGEST_TOKEN) need("GPS_INGEST_TOKEN", when);
     }
   });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
+
+type EnvFlags = Pick<ServerEnv, "NODE_ENV" | "VERCEL_ENV" | "NEXT_PHASE" | "ALLOW_DEV_SECRETS">;
+
+/**
+ * Lingkungan berperilaku produksi: deploy Vercel production/preview, atau server Node `NODE_ENV=production` yang sedang
+ * BERJALAN (bukan fase `next build`).
+ */
+export function isProductionLike(env: Omit<EnvFlags, "ALLOW_DEV_SECRETS">): boolean {
+  if (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") return true;
+  return env.NODE_ENV === "production" && env.NEXT_PHASE !== "phase-production-build";
+}
+
+/** Rahasia bawaan dev / rahasia TOTP `plain:` seed boleh dipakai (dev, uji, build, atau E2E lokal eksplisit). */
+export function devSecretsAllowed(env: EnvFlags): boolean {
+  if (!isProductionLike(env)) return true;
+  return env.ALLOW_DEV_SECRETS && env.VERCEL_ENV !== "production";
+}
 
 /** Urai env dari objek apa pun (string kosong dianggap tidak diisi). Melempar galat berbahasa Indonesia. */
 export function parseServerEnv(source: Record<string, string | undefined>): ServerEnv {

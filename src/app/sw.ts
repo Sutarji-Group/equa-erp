@@ -10,6 +10,8 @@
 import type { PrecacheEntry, RuntimeCaching, SerwistGlobalConfig } from "serwist";
 import { CacheFirst, ExpirationPlugin, NetworkFirst, NetworkOnly, Serwist, StaleWhileRevalidate } from "serwist";
 
+import { isFieldPath } from "../lib/field-routes";
+
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
     __SW_MANIFEST: (PrecacheEntry | string)[] | undefined;
@@ -18,12 +20,7 @@ declare global {
 
 declare const self: ServiceWorkerGlobalScope;
 
-const FIELD_ROUTES = /^\/(sopir|pos|produksi|aktivasi-perangkat|~offline)(\/|$)/;
-const OFFICE_M8_ROUTES = /^\/produksi\/(neraca-air|utilisasi|mutu)(\/|$)/;
-
-function isFieldPath(pathname: string): boolean {
-  return FIELD_ROUTES.test(pathname) && !OFFICE_M8_ROUTES.test(pathname);
-}
+// Rute lapangan vs subrute kantor M8: satu sumber di src/lib/field-routes.ts (diuji terhadap registri nav & proxy).
 
 const runtimeCaching: RuntimeCaching[] = [
   { matcher: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith("/api/"), handler: new NetworkOnly() },

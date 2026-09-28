@@ -72,9 +72,10 @@ describe("filterNavByPermissions", () => {
     expect(groups.find((g) => g.id === "m4")).toBeUndefined(); // grup kosong dibuang
   });
 
-  it("tanpa izin → hanya menu umum (Beranda, Notifikasi, Pengaturan notifikasi, Bantuan)", () => {
+  it("tanpa izin → hanya menu umum (Beranda, Notifikasi, Pengaturan notifikasi); Bantuan butuh izin kirim tiket", () => {
     const ids = filterNavByPermissions([]).flatMap((g) => g.items.map((i) => i.id));
-    expect(ids.sort()).toEqual(["home", "m10.help", "m10.notification_settings", "m10.notifications"].sort());
+    expect(ids.sort()).toEqual(["home", "m10.notification_settings", "m10.notifications"].sort());
+    expect(filterNavByPermissions(["m10.support_ticket.create"]).flatMap((g) => g.items.map((i) => i.id))).toContain("m10.help");
   });
 
   it("wildcard: '*' semua, 'm4.*' satu modul, 'm5.invoice.*' satu sumber daya", () => {

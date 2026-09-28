@@ -7,10 +7,16 @@
  * Konvensi payload: ID berupa UUID string; uang = integer rupiah; volume = integer liter; waktu = ISO string (UTC);
  * tanggal bisnis = 'YYYY-MM-DD' (juga tersedia di envelope `DomainEvent.businessDate`). Pusat laba (`profitCenter`)
  * diisi bila modul sumber mengetahuinya (dipakai M11 untuk aturan `from_source`).
+ *
+ * Payload WAJIB MANDIRI (PTB-47: jurnal retroaktif memutar ulang `domain_events` tanpa membaca ulang objek yang mungkin
+ * sudah berubah): sertakan semua nilai yang dibutuhkan pemilihan akun (metode, rekening bank, pusat laba, outlet).
+ * Koreksi/pembalik memakai event `*.reversed` / `*.corrected` / `invoice.written_off` / `customer_advance.refunded` /
+ * `discrepancy.reopened` di bawah (tinjauan pasca-F3c) — jangan membuat nama sendiri.
  */
 import type {
   CreditStatus,
   DepositSourceType,
+  EnumValue,
   FleetEventKind,
   InvoiceKind,
   OutletKind,
@@ -18,6 +24,12 @@ import type {
   ProfitCenter,
   TripFailReason,
 } from "@/lib/labels";
+
+type TripExpenseKind = EnumValue<"trip_expense_kind">;
+type OfficeCashKind = EnumValue<"office_cash_kind">;
+type ConsumableSource = EnumValue<"consumable_source">;
+type TransferSourceKind = EnumValue<"transfer_source_kind">;
+type DepositMethod = EnumValue<"deposit_method">;
 
 // --- M2/M3 rit -------------------------------------------------------------------------------------------------------
 export interface TripPublishedPayload {
@@ -95,19 +107,25 @@ export interface CollectionRecordedPayload {
   advanceAmount: number;
   driverUserId?: string | null;
   outletId?: string | null;
+  /** Lini piutang (PRD 7.11.4: L2 truk / L4 toko). */
+  profitCenter?: ProfitCenter | null;
+  /** Rekening bank penerima (transfer). */
+  bankAccountId?: string | null;
+  /** Transfer masuk yang dicocokkan (M4). */
+  incomingTransferId?: string | null;
 }
 export interface TripExpenseRecordedPayload {
   tripExpenseId: string;
   tripId?: string | null;
   truckId: string;
-  kind: string;
+  kind: TripExpenseKind;
   amount: number;
   fundingSource: "cash_on_hand" | "personal";
 }
 export interface ExpenseVerifiedPayload {
   tripExpenseId: string;
   truckId: string;
-  kind: string;
+  kind: TripExpenseKind;
   amount: number;
   fundingSource: "cash_on_hand" | "personal";
   accepted: boolean;
@@ -136,6 +154,12 @@ export interface DepositReceivedPayload {
   receivedBy: string;
   profitCenter?: ProfitCenter | null;
   late: boolean;
+  /** Serah fisik / setor bank dengan slip (deposits.method). */
+  method?: DepositMethod | null;
+  /** Rekening bank (setor bank dengan slip). */
+  bankAccountId?: string | null;
+  /** Diterima sebagian (setoran tertunda PTB-21). */
+  isPartial?: boolean;
 }
 export interface DepositClosedPayload {
   depositId: string;
@@ -165,14 +189,18 @@ export interface DiscrepancyDecidedPayload {
 export interface TransferMatchedPayload {
   incomingTransferId: string;
   amount: number;
-  sourceKind: string;
+  sourceKind: TransferSourceKind;
   bankAccountId?: string | null;
   matchedAt: string;
+  /** Objek yang dicocokkan (mis. `trip_payment`, `customer_payment`, `shift`, `bank_deposit`). */
+  targetType?: string | null;
+  targetId?: string | null;
+  customerId?: string | null;
 }
 export interface TransferNotFoundPayload {
   incomingTransferId: string;
   amount: number;
-  sourceKind: string;
+  sourceKind: TransferSourceKind;
   customerId?: string | null;
 }
 export interface BankDepositRecordedPayload {
@@ -186,7 +214,7 @@ export interface BankDepositRecordedPayload {
 export interface OfficeCashMovedPayload {
   movementId: string;
   direction: "in" | "out";
-  kind: string;
+  kind: OfficeCashKind;
   amount: number;
 }
 export interface PettyCashRecordedPayload {
@@ -226,6 +254,9 @@ export interface InvoiceIssuedPayload {
   dueDate: string;
   tripId?: string | null;
   posSaleId?: string | null;
+  /** Lini pendapatan/piutang. */
+  profitCenter?: ProfitCenter | null;
+  outletId?: string | null;
 }
 export interface InvoicePaidPayload {
   invoiceId: string;
@@ -312,7 +343,7 @@ export interface ConsumableUsagePostedPayload {
 export interface ConsumableReceivedPayload {
   receiptId: string;
   outletId: string;
-  source: string;
+  source: ConsumableSource;
   supplierId?: string | null;
   totalValue: number;
 }
@@ -446,6 +477,105 @@ export interface DigitalPaymentSucceededPayload {
   invoiceIds: string[];
 }
 
+// --- Koreksi / pembalik (tinjauan pasca-F3c; PRD 7.11.4, 6.7) -------------------------------------------------------
+export interface TripCorrectedPayload {
+  tripId: string;
+  orderId: string;
+  customerId: string;
+  truckId: string;
+  /** Kolom yang dikoreksi Admin Keuangan (m3.trip.correct), nilai lama → baru. */
+  changes: Record<string, { from: unknown; to: unknown }>;
+  /** Selisih harga (baru − lama) untuk jurnal koreksi pendapatan. */
+  priceDelta: number;
+  volumeDeltaL: number;
+  profitCenter?: ProfitCenter | null;
+  reason: string;
+}
+export interface TripPaymentReversedPayload {
+  tripPaymentId: string;
+  reversalId: string;
+  tripId: string;
+  customerId: string;
+  method: PaymentMethod;
+  amount: number;
+  profitCenter?: ProfitCenter | null;
+  reason: string;
+}
+export interface TripExpenseReversedPayload {
+  tripExpenseId: string;
+  reversalId: string;
+  truckId: string;
+  kind: TripExpenseKind;
+  amount: number;
+  fundingSource: "cash_on_hand" | "personal";
+  reason: string;
+}
+export interface BankDepositReversedPayload {
+  bankDepositId: string;
+  reversalId: string;
+  amount: number;
+  bankAccountId: string;
+  sourceType: "office" | "outlet" | "driver";
+  outletId?: string | null;
+  reason: string;
+}
+export interface RestitutionSettlementReversedPayload {
+  settlementId: string;
+  reversalId: string;
+  restitutionId: string;
+  employeeId: string;
+  amount: number;
+  method: "cash" | "payroll_deduction";
+  reason: string;
+}
+export interface ConsumableReceiptReversedPayload {
+  receiptId: string;
+  reversalId: string;
+  outletId: string;
+  source: ConsumableSource;
+  supplierId?: string | null;
+  totalValue: number;
+  reason: string;
+}
+export interface PurchaseReceiptCorrectedPayload {
+  purchaseReceiptId: string;
+  /** Baris pembalik/pengganti (purchase_receipts.reversal_of_id). */
+  correctionId: string;
+  supplierId: string;
+  outletId: string;
+  /** Koreksi nota, retur barang, atau pembalikan penuh (US-M7-02 KP-6). */
+  kind: "correction" | "return" | "reversal";
+  /** Selisih nilai (negatif = berkurang). */
+  amountDelta: number;
+  reason: string;
+}
+export interface InvoiceWrittenOffPayload {
+  invoiceId: string;
+  customerId: string;
+  /** Sisa piutang yang dihapusbukukan. */
+  amount: number;
+  profitCenter?: ProfitCenter | null;
+  approvalId?: string | null;
+  reason: string;
+}
+export interface CustomerAdvanceRefundedPayload {
+  customerAdvanceId: string;
+  customerId: string;
+  amount: number;
+  method: PaymentMethod;
+  bankAccountId?: string | null;
+  approvalId?: string | null;
+  reason: string;
+}
+export interface DiscrepancyReopenedPayload {
+  discrepancyId: string;
+  previousDecision: "approved" | "rejected";
+  amount: number;
+  employeeId?: string | null;
+  profitCenter?: ProfitCenter | null;
+  reason: string;
+}
+
 /** Peta tipe event → payload. */
 export interface DomainEventMap {
   "trip.published": TripPublishedPayload;
@@ -497,6 +627,16 @@ export interface DomainEventMap {
   "asset.depreciated": AssetDepreciatedPayload;
   "partner.subscription_invoiced": PartnerSubscriptionInvoicedPayload;
   "digital_payment.succeeded": DigitalPaymentSucceededPayload;
+  "trip.corrected": TripCorrectedPayload;
+  "trip_payment.reversed": TripPaymentReversedPayload;
+  "trip_expense.reversed": TripExpenseReversedPayload;
+  "bank_deposit.reversed": BankDepositReversedPayload;
+  "restitution.settlement_reversed": RestitutionSettlementReversedPayload;
+  "consumable.receipt_reversed": ConsumableReceiptReversedPayload;
+  "purchase_receipt.corrected": PurchaseReceiptCorrectedPayload;
+  "invoice.written_off": InvoiceWrittenOffPayload;
+  "customer_advance.refunded": CustomerAdvanceRefundedPayload;
+  "discrepancy.reopened": DiscrepancyReopenedPayload;
 }
 
 export type DomainEventType = keyof DomainEventMap;
@@ -552,6 +692,16 @@ export const DOMAIN_EVENT_LABELS: Record<DomainEventType, string> = {
   "asset.depreciated": "Aset disusutkan",
   "partner.subscription_invoiced": "Langganan mitra ditagih",
   "digital_payment.succeeded": "Pembayaran digital berhasil",
+  "trip.corrected": "Rit dikoreksi",
+  "trip_payment.reversed": "Pembayaran rit dibalik",
+  "trip_expense.reversed": "Pengeluaran rit dibalik",
+  "bank_deposit.reversed": "Setor ke bank dibalik",
+  "restitution.settlement_reversed": "Pelunasan ganti rugi dibalik",
+  "consumable.receipt_reversed": "Penerimaan bahan dibalik",
+  "purchase_receipt.corrected": "Nota pembelian dikoreksi/diretur",
+  "invoice.written_off": "Faktur dihapusbukukan",
+  "customer_advance.refunded": "Uang muka dikembalikan",
+  "discrepancy.reopened": "Selisih dibuka kembali",
 };
 
 export const DOMAIN_EVENT_TYPES = Object.keys(DOMAIN_EVENT_LABELS) as DomainEventType[];

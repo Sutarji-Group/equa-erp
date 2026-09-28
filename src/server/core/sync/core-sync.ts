@@ -3,18 +3,22 @@
  * - perintah `core.ping` — uji kirim data dari perangkat ("Kirim data uji"); efeknya satu baris riwayat perangkat;
  * - pull `core.me` — pengguna, peran, lingkup (truk hari itu), perangkat;
  * - pull `core.device_users` — daftar pengguna yang boleh memakai perangkat (layar pilih pengguna offline);
- * - perintah `core.support.report` — laporan kendala aplikasi dari perangkat (US-M10-07 KP-3), bekerja offline.
+ * - perintah `core.support.report` — laporan kendala aplikasi dari perangkat (US-M10-07 KP-3), bekerja offline;
+ * - sumber urutan nomor lokal perangkat `pos_sale`, `purchase_receipt`, `internal_transfer` (`deviceSeq` di pull).
  */
 import "server-only";
 
+import { eq, max } from "drizzle-orm";
 import { z } from "zod";
+
+import { internalTransfers, posSales, purchaseReceipts } from "@/db/schema";
 
 import { label } from "@/lib/labels";
 
 import { listDeviceUsers } from "../auth/field-login";
 import { createSupportTicket, supportTicketSchema } from "../support";
 import { logDeviceUsage, publicDevice } from "../auth/devices";
-import { registerPullProvider, registerSyncHandler } from "./registry";
+import { registerDeviceSeqScope, registerPullProvider, registerSyncHandler } from "./registry";
 
 let registered = false;
 
@@ -65,4 +69,18 @@ export function registerCoreSync(): void {
   }));
 
   registerPullProvider("core.device_users", async ({ device, tx, now }) => listDeviceUsers(tx, device, now));
+
+  // Batas bawah urutan nomor lokal perangkat (src/lib/local-number.ts; nextDeviceSeq di klien).
+  registerDeviceSeqScope("pos_sale", async (tx, deviceId) => {
+    const [row] = await tx.select({ v: max(posSales.deviceSeq) }).from(posSales).where(eq(posSales.deviceId, deviceId));
+    return Number(row?.v ?? 0);
+  });
+  registerDeviceSeqScope("purchase_receipt", async (tx, deviceId) => {
+    const [row] = await tx.select({ v: max(purchaseReceipts.deviceSeq) }).from(purchaseReceipts).where(eq(purchaseReceipts.deviceId, deviceId));
+    return Number(row?.v ?? 0);
+  });
+  registerDeviceSeqScope("internal_transfer", async (tx, deviceId) => {
+    const [row] = await tx.select({ v: max(internalTransfers.deviceSeq) }).from(internalTransfers).where(eq(internalTransfers.deviceId, deviceId));
+    return Number(row?.v ?? 0);
+  });
 }

@@ -1,6 +1,7 @@
 /**
  * WebCrypto di perangkat lapangan (NFR-10): kunci perangkat non-extractable, token perangkat JWT HS256, verifikasi
- * PIN offline (PBKDF2-SHA256 terhadap verifier dari server — PIN tidak pernah disimpan).
+ * PIN offline (PBKDF2-SHA256 terhadap verifier dari server — PIN tidak pernah disimpan), serta kunci perintah per
+ * pengguna (terbungkus kunci turunan PIN; `src/lib/sync-signature.ts`).
  */
 import type { PinVerifier } from "./types";
 
@@ -67,4 +68,60 @@ export async function derivePinVerifier(pin: string, salt: string, iterations: n
 export async function verifyPinOffline(pin: string, verifier: PinVerifier): Promise<boolean> {
   if (!/^\d{6}$/.test(pin) || verifier.algorithm !== "PBKDF2-SHA256") return false;
   return constantTimeEqual(await derivePinVerifier(pin, verifier.salt, verifier.iterations), verifier.verifier);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Kunci perintah per pengguna (tanda tangan outbox)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Kunci perintah terbungkus PBKDF2(PIN) → AES-GCM (disimpan di `credentials`, bukan teks biasa). */
+export type WrappedCommandKey = { v: 1; iterations: number; salt: string; iv: string; ct: string };
+
+export const COMMAND_KEY_WRAP_ITERATIONS = 150_000;
+
+function randomBytes(n: number): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(new ArrayBuffer(n));
+  globalThis.crypto.getRandomValues(out);
+  return out;
+}
+
+async function pinWrappingKey(pin: string, salt: Uint8Array<ArrayBuffer>, iterations: number): Promise<CryptoKey> {
+  const base = await subtle().importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
+  return subtle().deriveKey({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+
+/** Bungkus kunci perintah (base64url dari server) dengan kunci turunan PIN. */
+export async function wrapCommandKey(pin: string, commandKey: string, iterations = COMMAND_KEY_WRAP_ITERATIONS): Promise<WrappedCommandKey> {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const key = await pinWrappingKey(pin, salt, iterations);
+  const ct = await subtle().encrypt({ name: "AES-GCM", iv }, key, base64UrlToBytes(commandKey));
+  return { v: 1, iterations, salt: bytesToBase64Url(salt), iv: bytesToBase64Url(iv), ct: bytesToBase64Url(ct) };
+}
+
+/** Buka kunci perintah dengan PIN → CryptoKey HMAC non-extractable (null bila PIN salah / data rusak). */
+export async function unwrapCommandKey(pin: string, wrapped: WrappedCommandKey): Promise<CryptoKey | null> {
+  try {
+    const key = await pinWrappingKey(pin, base64UrlToBytes(wrapped.salt), wrapped.iterations);
+    const raw = await subtle().decrypt({ name: "AES-GCM", iv: base64UrlToBytes(wrapped.iv) }, key, base64UrlToBytes(wrapped.ct));
+    return subtle().importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  } catch {
+    return null;
+  }
+}
+
+/** Impor kunci perintah (base64url) sebagai HMAC non-extractable. */
+export async function importCommandKey(commandKey: string): Promise<CryptoKey> {
+  return subtle().importKey("raw", base64UrlToBytes(commandKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+}
+
+/** Tanda tangan HMAC-SHA256 (base64url) atas string perintah. */
+export async function signCommandString(key: CryptoKey, signing: string): Promise<string> {
+  return bytesToBase64Url(await subtle().sign("HMAC", key, enc.encode(signing)));
+}
+
+/** SHA-256 hex isi Blob (hash lampiran yang ikut ditandatangani). */
+export async function sha256HexOfBlob(blob: Blob): Promise<string> {
+  const digest = await subtle().digest("SHA-256", await blob.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }

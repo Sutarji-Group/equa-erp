@@ -5,6 +5,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireOfficeSession } from "@/server/core/auth/office";
+import { ctxBusinessDate } from "@/server/core/context";
 import { getDb } from "@/server/core/db";
 import * as notifications from "@/server/core/notifications";
 import * as params from "@/server/core/params";
@@ -17,7 +18,7 @@ export const metadata: Metadata = { title: "Pengaturan notifikasi" };
 export default async function NotificationSettingsPage() {
   const { ctx } = await requireOfficeSession();
   const prefs = await notifications.getPreferences(ctx);
-  const quietDefault = await params.get(getDb(), "PAR-56");
+  const quietDefault = await params.get(getDb(), "PAR-56", ctxBusinessDate(ctx));
   const defaultText = `${quietDefault.start.replace(":", ".")}–${quietDefault.end.replace(":", ".")}`;
 
   return (

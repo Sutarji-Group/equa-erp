@@ -233,6 +233,11 @@ export const users = pgTable(
     totpSecretEnc: text("totp_secret_enc"),
     totpEnabled: boolean("totp_enabled").notNull().default(false),
     totpConfirmedAt: tstz("totp_confirmed_at"),
+    /**
+     * Kode 2FA salah berturut (PTB-35, PAR-36). Terpisah dari `failed_login_count` dan TIDAK direset oleh login kata
+     * sandi — hanya oleh verifikasi 2FA yang berhasil — agar penguncian 2FA tidak dapat dilewati dengan login ulang.
+     */
+    totpFailedCount: integer("totp_failed_count").notNull().default(0),
     status: userStatusEnum("status").notNull().default("pending_approval"),
     failedLoginCount: integer("failed_login_count").notNull().default(0),
     lockedUntil: tstz("locked_until"),
@@ -843,16 +848,15 @@ export const documentSequences = pgTable(
     ...timestamps(),
     /**
      * Urutan per tenant (NFR-30, D-04): kode outlet hanya unik per tenant, sehingga lingkup 'D01-270926' mitra dan
-     * EQUA tidak boleh berbagi counter. MASA TRANSISI: `nextNumber` (core/numbering.ts) belum mengisi kolom ini dan
-     * masih memakai target ON CONFLICT (kind, scope_key); setelah numbering mengisi tenant_id dan memakai
-     * `document_sequences_tenant_kind_scope_uq`, kolom dijadikan NOT NULL dan indeks global lama dihapus.
+     * EQUA tidak boleh berbagi counter. `nextNumber` (core/numbering.ts) WAJIB diberi tenant dan memakai target
+     * ON CONFLICT (tenant_id, kind, scope_key). DB lama: `src/db/sql/pre-push.sql` mengisi tenant EQUA & menghapus
+     * indeks global lama.
      */
-    tenantId: uuid("tenant_id").references((): AnyPgColumn => tenants.id),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references((): AnyPgColumn => tenants.id),
   },
-  (t) => [
-    uniqueIndex("document_sequences_kind_scope_uq").on(t.kind, t.scopeKey),
-    uniqueIndex("document_sequences_tenant_kind_scope_uq").on(t.tenantId, t.kind, t.scopeKey),
-  ],
+  (t) => [uniqueIndex("document_sequences_tenant_kind_scope_uq").on(t.tenantId, t.kind, t.scopeKey)],
 );
 
 /** Perintah sinkron lapangan — PK = ID klien (UUID v7) → idempotensi (ARCHITECTURE §7). */

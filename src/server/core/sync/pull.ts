@@ -23,7 +23,7 @@ import type { DeviceAuth } from "../auth/device-auth";
 import { publicDevice, type PublicDevice } from "../auth/devices";
 import { AuthError } from "../auth/errors";
 import { buildFieldActorContext } from "../auth/field-login";
-import { listPullProviders } from "./registry";
+import { deviceSeqFloors, listPullProviders } from "./registry";
 
 export type OfflineParams = {
   /** PAR-30: antrean minimal (hari) & target sinkron (menit). */
@@ -48,6 +48,8 @@ export type PullResponse = {
   params: OfflineParams;
   data: Record<string, unknown>;
   errors: Record<string, string>;
+  /** Urutan nomor lokal terbesar yang sudah tercatat server per lingkup (batas bawah `nextDeviceSeq`). */
+  deviceSeq: Record<string, number>;
 };
 
 /** Bandingkan versi X.Y.Z (a < b → negatif). Bagian non-angka dianggap 0. */
@@ -127,5 +129,6 @@ export async function processPull(auth: DeviceAuth, query: { since?: string | nu
     params: await offlineParams(now),
     data,
     errors,
+    deviceSeq: await deviceSeqFloors(db, auth.device.id),
   };
 }

@@ -62,7 +62,7 @@ describe("Layanan notifikasi (US-M9-04)", () => {
 
   it("US-M9-04 KP-1 notifikasi per peran → pengguna aktif; memuat objek, nilai, tenggat, tautan", async () => {
     const res = await withTx((tx) =>
-      notify(tx, {
+      notify(tx, { tenantId: EQUA_TENANT_ID,
         event: "discrepancy.over_threshold",
         title: "Selisih setoran sopir T1",
         body: "Kurang Rp 75.000",
@@ -85,7 +85,7 @@ describe("Layanan notifikasi (US-M9-04)", () => {
 
   it("US-M10-01 KP-3 penerima dibatasi lingkup unit (operator depot D01 + Admin Keuangan berlingkup tenant)", async () => {
     const res = await withTx((tx) =>
-      notify(tx, { event: "outlet_cash.over_limit", title: "Kas D01 > Rp 2 juta", recipients: { roles: ["depot_operator", "finance_admin"], scope: { outletId: outletId("D01") } }, now: DAY }),
+      notify(tx, { tenantId: EQUA_TENANT_ID, event: "outlet_cash.over_limit", title: "Kas D01 > Rp 2 juta", recipients: { roles: ["depot_operator", "finance_admin"], scope: { outletId: outletId("D01") } }, now: DAY }),
     );
     expect(res.recipients).toContain(userIdByUsername("depot01"));
     expect(res.recipients).not.toContain(userIdByUsername("depot02"));
@@ -95,11 +95,11 @@ describe("Layanan notifikasi (US-M9-04)", () => {
   it("pengguna nonaktif tidak menerima; excludeUserIds dihormati; kode di luar katalog ditolak", async () => {
     await t.db.update(users).set({ status: "inactive" }).where(eq(users.id, userIdByUsername("dispatcher2")));
     const res = await withTx((tx) =>
-      notify(tx, { event: "order.duplicate", title: "Pesanan dobel", excludeUserIds: [userIdByUsername("dispatcher1")], now: DAY }),
+      notify(tx, { tenantId: EQUA_TENANT_ID, event: "order.duplicate", title: "Pesanan dobel", excludeUserIds: [userIdByUsername("dispatcher1")], now: DAY }),
     );
     expect(res.recipients).toEqual([]);
     await t.db.update(users).set({ status: "active" }).where(eq(users.id, userIdByUsername("dispatcher2")));
-    await expect(withTx((tx) => notify(tx, { event: "tidak.ada", title: "x" }))).rejects.toThrow(/tidak dikenal/);
+    await expect(withTx((tx) => notify(tx, { tenantId: EQUA_TENANT_ID, event: "tidak.ada", title: "x" }))).rejects.toThrow(/tidak dikenal/);
   });
 
   it("US-M9-04 KP-3 notifikasi kritis tidak dapat dimatikan; non-kritis dapat mati/ringkasan", async () => {
@@ -107,14 +107,14 @@ describe("Layanan notifikasi (US-M9-04)", () => {
     await expect(setPreference(keu, "discrepancy.over_threshold", "off")).rejects.toBeInstanceOf(ValidationError);
     await expect(setPreference(keu, "discrepancy.over_threshold", "daily_digest")).rejects.toThrow(/tidak dapat dimatikan/);
     await setPreference(keu, "pos.excessive_voids", "off");
-    const res = await withTx((tx) => notify(tx, { event: "pos.excessive_voids", title: "Void berlebih D03", now: DAY }));
+    const res = await withTx((tx) => notify(tx, { tenantId: EQUA_TENANT_ID, event: "pos.excessive_voids", title: "Void berlebih D03", now: DAY }));
     expect(res.skippedOff).toContain(userIdByUsername("keuangan1"));
     expect(res.recipients).toContain(userIdByUsername("keuangan2"));
     // Kritis tetap sampai walau pengguna mencoba mematikan lewat DB.
     await t.db.execute(
       sql`insert into notification_preferences (id, user_id, event, mode) values (gen_random_uuid(), ${userIdByUsername("keuangan1")}, 'transfer.not_found', 'off')`,
     );
-    const crit = await withTx((tx) => notify(tx, { event: "transfer.not_found", title: "Transfer tidak ditemukan", now: DAY }));
+    const crit = await withTx((tx) => notify(tx, { tenantId: EQUA_TENANT_ID, event: "transfer.not_found", title: "Transfer tidak ditemukan", now: DAY }));
     expect(crit.created.map((c) => c.recipientUserId)).toContain(userIdByUsername("keuangan1"));
     const prefs = await getPreferences(keu);
     expect(prefs.items.find((i) => i.event === "transfer.not_found")!.mode).toBe("immediate");
@@ -125,29 +125,29 @@ describe("Layanan notifikasi (US-M9-04)", () => {
     const owner = userIdByUsername("pemilik");
     await t.db.insert(pushSubscriptions).values({ userId: owner, endpoint: "https://push.test/owner", p256dh: "k", auth: "a" });
     pushed.length = 0;
-    await withTx((tx) => notify(tx, { event: "trip.location_deviation", title: "Penyimpangan > 1 km", now: DAY }));
+    await withTx((tx) => notify(tx, { tenantId: EQUA_TENANT_ID, event: "trip.location_deviation", title: "Penyimpangan > 1 km", now: DAY }));
     await flush();
     expect(pushed).toEqual(["https://push.test/owner"]);
 
     pushed.length = 0;
-    await withTx((tx) => notify(tx, { event: "trip.location_deviation", title: "Penyimpangan malam", now: NIGHT }));
+    await withTx((tx) => notify(tx, { tenantId: EQUA_TENANT_ID, event: "trip.location_deviation", title: "Penyimpangan malam", now: NIGHT }));
     await flush();
     expect(pushed).toEqual([]);
-    await withTx((tx) => notify(tx, { event: "discrepancy.trip_lock", title: "Selisih besar mengunci rit", now: NIGHT }));
+    await withTx((tx) => notify(tx, { tenantId: EQUA_TENANT_ID, event: "discrepancy.trip_lock", title: "Selisih besar mengunci rit", now: NIGHT }));
     await flush();
     expect(pushed).toEqual(["https://push.test/owner"]);
 
     pushed.length = 0;
     const ownerCtx = seededContext("pemilik", { now: DAY });
     await setPreference(ownerCtx, "special_price.review_due", "daily_digest");
-    const res = await withTx((tx) => notify(tx, { event: "special_price.review_due", title: "Harga khusus perlu ditinjau", now: DAY }));
+    const res = await withTx((tx) => notify(tx, { tenantId: EQUA_TENANT_ID, event: "special_price.review_due", title: "Harga khusus perlu ditinjau", now: DAY }));
     await flush();
     expect(res.created).toHaveLength(1);
     expect(pushed).toEqual([]);
 
     // Jam tenang pribadi menggantikan PAR-56.
     await setQuietHours(ownerCtx, { start: "09:00", end: "11:00" });
-    await withTx((tx) => notify(tx, { event: "trip.location_deviation", title: "Penyimpangan pagi", now: DAY }));
+    await withTx((tx) => notify(tx, { tenantId: EQUA_TENANT_ID, event: "trip.location_deviation", title: "Penyimpangan pagi", now: DAY }));
     await flush();
     expect(pushed).toEqual([]);
     await setQuietHours(ownerCtx, null);
@@ -194,5 +194,21 @@ describe("Layanan notifikasi (US-M9-04)", () => {
     expect(mail.text).toMatch(/Perlu perhatian segera/);
     const again = await sendDailyDigest(new Date("2026-09-28T15:35:00Z"));
     expect(again.notificationCount).toBe(0);
+  });
+});
+
+describe("Katalog notifikasi: tenggat 6.3 & lingkup unit (pasca-tinjauan)", () => {
+  const t = useTestDb({ seed: true });
+
+  it("6.3 tenggat 'permintaan akses ≤ 2 hari kerja' & insiden ≤ 30 menit dari katalog; kode berlingkup outlet wajib scope", async () => {
+    const { catalogDeadline, getNotificationEvent } = await import("@/server/core/notifications");
+    const fri = new Date("2026-10-02T03:00:00Z"); // Jumat 10.00 WIB
+    expect(catalogDeadline(getNotificationEvent("access.request_pending")!, fri)?.toISOString()).toBe("2026-10-06T16:59:00.000Z");
+    expect(catalogDeadline(getNotificationEvent("incident.opened")!, DAY)?.toISOString()).toBe(new Date(DAY.getTime() + 30 * 60_000).toISOString());
+    await expect(withTx((tx) => notify(tx, { tenantId: EQUA_TENANT_ID, event: "outlet_cash.over_limit", title: "Kas > batas", now: DAY }))).rejects.toThrow(
+      /recipients\.scope\.outletId/,
+    );
+    await expect(withTx((tx) => notify(tx, { tenantId: "", event: "order.duplicate", title: "x", now: DAY }))).rejects.toThrow(/tenantId wajib/);
+    expect(t.db).toBeDefined();
   });
 });

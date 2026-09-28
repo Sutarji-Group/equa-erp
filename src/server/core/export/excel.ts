@@ -132,12 +132,24 @@ export async function renderExcel(input: RenderInput, options: { fixedTimestamp?
   return Buffer.from(out as ArrayBuffer);
 }
 
-/** CSV sederhana (pemisah koma, UTF-8 BOM agar Excel membaca huruf Indonesia dengan benar). */
+/** Awalan sel yang dieksekusi spreadsheet sebagai formula (OWASP CSV Injection). */
+const FORMULA_PREFIX = /^[=+\-@\t\r]/;
+
+/**
+ * Netralkan teks yang diawali `=`, `+`, `-`, `@`, tab, atau CR dengan tanda petik tunggal agar tidak dieksekusi sebagai
+ * formula saat CSV dibuka di Excel (mis. `=HYPERLINK(...)` dari nama/catatan pelanggan). Angka tidak diubah.
+ */
+export function neutralizeCsvText(value: string): string {
+  return FORMULA_PREFIX.test(value) ? `'${value}` : value;
+}
+
+/** CSV sederhana (pemisah koma, UTF-8 BOM agar Excel membaca huruf Indonesia dengan benar; aman dari formula injection). */
 export function renderCsv(input: RenderInput): Buffer {
   const esc = (v: unknown): string => {
     if (v === null || v === undefined) return "";
-    const s = v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : String(v);
-    return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const raw = v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : String(v);
+    const s = typeof v === "number" || typeof v === "bigint" ? raw : neutralizeCsvText(raw);
+    return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [input.columns.map((c) => esc(c.header)).join(",")];
   for (const row of input.rows) {

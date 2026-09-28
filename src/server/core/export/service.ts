@@ -18,7 +18,7 @@ import { toWibParts } from "@/lib/time";
 
 import { logAccess } from "../access-log";
 import { ensureBootstrapped } from "../bootstrap";
-import type { ActorContext } from "../context";
+import { ctxBusinessDate, type ActorContext } from "../context";
 import { getDb, withTx } from "../db";
 import { DomainError, NotFoundError, parseInput } from "../errors";
 import { get as getParam } from "../params-read";
@@ -123,7 +123,7 @@ export async function exportReport(
     }),
   );
 
-  const identity = await getParam(db, "company.identity");
+  const identity = await getParam(db, "company.identity", ctxBusinessDate(ctx));
   const now = ctx.now ?? new Date();
   const input: RenderInput = {
     title: def.title,

@@ -35,3 +35,8 @@ export {
 export { enqueue, listOutbox, outboxStatusText, pendingByUser, pendingCount, OUTBOX_CHANGED_EVENT, type EnqueueAttachment, type EnqueueCommand } from "./outbox";
 export { getSyncState, startSyncWorker, syncNow, PUSH_BATCH_SIZE, SYNC_INTERVAL_MS, type SyncState, type SyncSummary } from "./sync";
 export { useOnline, useOutbox, useReference, useSyncStatus, type SyncStatus } from "./hooks";
+export { nextDeviceSeq, seedDeviceSeqFloors } from "./numbering";
+export { moduleStore, type ModuleStore } from "./module-store";
+export { registerOptimistic, withOptimistic, type OptimisticReducer } from "./optimistic";
+export { rebindOutbox } from "./signing";
+export { formatLocalNumber, deviceTagFromCode } from "@/lib/local-number";

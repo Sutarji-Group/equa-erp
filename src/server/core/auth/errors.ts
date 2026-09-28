@@ -29,7 +29,13 @@ export type AuthErrorCode =
   | "PIN_NOT_SET"
   | "PIN_ENROLLMENT_INVALID"
   | "USER_NOT_ALLOWED_ON_DEVICE"
-  | "APP_UPDATE_REQUIRED";
+  | "APP_UPDATE_REQUIRED"
+  | "LOGIN_RATE_LIMITED"
+  | "PIN_RATE_LIMITED"
+  | "PORTAL_ACCOUNT"
+  | "NO_WEB_ACCESS"
+  | "TOTP_RESET_REQUIRED"
+  | "TOTP_ATTEMPTS_EXCEEDED";
 
 const STATUS: Partial<Record<AuthErrorCode, number>> = {
   ACCOUNT_LOCKED: 423,
@@ -43,6 +49,11 @@ const STATUS: Partial<Record<AuthErrorCode, number>> = {
   DEVICE_WIPE: 410,
   ACTIVATION_RATE_LIMITED: 429,
   APP_UPDATE_REQUIRED: 426,
+  LOGIN_RATE_LIMITED: 429,
+  PIN_RATE_LIMITED: 429,
+  PORTAL_ACCOUNT: 403,
+  NO_WEB_ACCESS: 403,
+  TOTP_RESET_REQUIRED: 403,
 };
 
 export class AuthError extends DomainError {

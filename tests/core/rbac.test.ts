@@ -192,3 +192,30 @@ describe("authorize & lingkup", () => {
     expect(() => assertTenantScope(partner, partner.tenantId)).not.toThrow();
   });
 });
+
+describe("RBAC pasca-tinjauan (US-M1-06, US-M10-07 KP-3, D-07)", () => {
+  it("US-M1-06 KP-1/KP-6 impor data keuangan (pelanggan+harga, Tempo) terpisah & bukan untuk admin sistem (SOD-07)", async () => {
+    const { can } = await import("@/server/core/rbac");
+    const { testContext } = await import("../helpers/context");
+    expect(can(testContext({ role: "system_admin" }), "m1.import.commit")).toBe(true);
+    expect(can(testContext({ role: "system_admin" }), "m1.import.commit_pricing")).toBe(false);
+    expect(can(testContext({ role: "dispatcher" }), "m1.import.commit_pricing")).toBe(true);
+  });
+
+  it("US-M10-07 KP-3 menu Bantuan hanya untuk peran yang boleh mengirim tiket (akuntan baca-saja tidak melihatnya)", async () => {
+    const { filterNavByPermissions } = await import("@/components/shared/nav/registry");
+    const { permissionsForRoles } = await import("@/server/core/rbac");
+    const hrefs = (roles: Parameters<typeof permissionsForRoles>[0]) =>
+      filterNavByPermissions(permissionsForRoles(roles)).flatMap((g) => g.items.map((i) => i.href));
+    expect(hrefs(["accountant"])).not.toContain("/bantuan");
+    expect(hrefs(["dispatcher"])).toContain("/bantuan");
+  });
+
+  it("D-07 Kasir toko hanya antarmuka POS; pemilik mitra hanya portal", async () => {
+    const { ROLE_CATALOG, rolesAllowInterface } = await import("@/server/core/rbac");
+    expect(ROLE_CATALOG.store_cashier.interfaces).toEqual(["pos"]);
+    expect(rolesAllowInterface(["store_cashier"], "web")).toBe(false);
+    expect(rolesAllowInterface(["partner_owner"], "web")).toBe(false);
+    expect(rolesAllowInterface(["owner"], "web")).toBe(true);
+  });
+});

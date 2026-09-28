@@ -2,9 +2,10 @@
  * Registrasi sekali per proses: job & laporan inti, lalu handler event / persetujuan / sinkron / job / laporan
  * setiap modul (`src/server/modules/register.ts`).
  *
- * Dipanggil otomatis oleh `emit`, `approvals.*`, `runDueJobs`, `exportReport`, dan resolver aktor. Aman dipanggil
- * berkali-kali. Modul TIDAK boleh mendaftarkan handler di top-level berkas (hanya di fungsi `register*`) agar
- * impor melingkar core ↔ modul tetap aman.
+ * Dipanggil otomatis oleh `emit`, `approvals.*`, `runDueJobs`, `exportReport`, resolver aktor, `getOfficeSession`, dan
+ * setiap pembaca registri (`listReports`, `getReport`, `listJobs`, `listSyncHandlerTypes`, `listPullProviders`,
+ * `queryForActor`, `describeAudit`), serta dipanaskan `src/instrumentation.ts`. Aman dipanggil berkali-kali. Modul TIDAK
+ * boleh mendaftarkan handler di top-level berkas (hanya di fungsi `register*`) agar impor melingkar core ↔ modul aman.
  */
 import "server-only";
 

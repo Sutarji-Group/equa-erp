@@ -5,6 +5,7 @@
  */
 import { fieldDb, wipeLocalData, type DeviceItem } from "./db";
 import { importDeviceKey, signDeviceJwt } from "./crypto";
+import { seedDeviceSeqFloors } from "./numbering";
 import type { ActivationResponse, ApiErrorBody } from "./types";
 
 /** Versi aplikasi lapangan (NFR-32; dibandingkan dengan `app.min_supported_version`). */
@@ -193,5 +194,7 @@ export async function activateWithCode(code: string): Promise<DeviceItem> {
   if (!res.ok || !data.ok || !data.deviceSecret) {
     throw new FieldApiError(data.message ?? "Aktivasi gagal. Coba lagi.", { code: data.code ?? "ERROR", status: res.status });
   }
-  return saveActivation(data as ActivationResponse);
+  const saved = await saveActivation(data as ActivationResponse);
+  await seedDeviceSeqFloors((data as ActivationResponse).deviceSeq);
+  return saved;
 }

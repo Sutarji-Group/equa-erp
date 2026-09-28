@@ -8,11 +8,15 @@
  * export function registerSync(): void {
  *   registerSyncHandler("<modul>.<objek>.<aksi>", {
  *     permission: "<modul>.<sumberdaya>.<aksi>",        // atau null (semua pengguna lapangan)
+ *     // Izin bersyarat (kernet pengganti US-M2-11) — WAJIB untuk izin m3.* yang ada di CONDITIONAL_GRANTS:
+ *     conditions: async (ctx, payload, { tx }) => substituteDriverConditions(tx, ctx, truckIdDari(payload), ctxBusinessDate(ctx)),
  *     schema: z.object({ … }),                           // payload divalidasi (pesan Indonesia)
- *     handle: async (ctx, payload, { tx, command, clockSkewFlagged, attachments }) => {
- *       // tulis dengan tx; fieldMeta: deviceId: ctx.deviceId, deviceTime: ctx.deviceTime, syncedAt: ctx.now,
- *       // syncCommandId: command.id, clockSkewFlagged
- *       return { objectType: "…", objectId: "…" };       // atau { status: "conflict", message: "…" }
+ *     handle: async (ctx, payload, meta) => {
+ *       // tulis dengan meta.tx; kolom fieldMeta(): { ...fieldMetaValues(meta) } (device_id, device_time, synced_at,
+ *       // sync_command_id, late_sync, clock_skew_flagged); lampiran = meta.attachments (sudah diverifikasi pemiliknya).
+ *       // DomainError = ditolak FINAL (disimpan); galat lain = retry. Nomor resmi dokumen perangkat:
+ *       // assignOfficialNumber(meta.tx, "pos_sale", { tenantId: meta.device.tenantId, businessDate: meta.command.businessDate, outletCode }).
+ *       return { objectType: "…", objectId: "…" };       // atau { status: "conflict", message: "…" } (tabrakan kantor)
  *     },
  *   });
  *   registerPullProvider("<modul>.<nama>", async ({ ctx, tx, since, device }) => ({ … }));

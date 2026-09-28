@@ -11,6 +11,9 @@
  *   });
  * }
  * ```
+ * PERHATIAN: `ctx` handler = pelaku KEPUTUSAN (pemilik/penyetuju), bukan pemohon. Jangan memanggil layanan modul yang
+ * `authorize` izin harian (pemilik ditolak SOD-08). Tulis langsung dengan `tx` + `audit.record(tx, { ctx, … })`, atau
+ * panggil fungsi internal modul tanpa `authorize` (atau `systemContext({ tenantId: request.tenantId })` + `rule: "6.2a"`).
  */
 import "server-only";
 

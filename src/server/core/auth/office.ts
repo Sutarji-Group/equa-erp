@@ -26,14 +26,15 @@ import { serverEnv } from "@/lib/env";
 import { label, type RoleCode } from "@/lib/labels";
 
 import { buildActorContext } from "../actor";
+import { ensureBootstrapped } from "../bootstrap";
 import type { ActorContext } from "../context";
 import { getDb } from "../db";
 import { can, recordDenial, permissionDenied } from "../rbac/authorize";
 import { permissionsForRoles } from "../rbac/matrix";
-import { ROLE_CATALOG } from "../rbac/roles";
 import { requestIp } from "./device-auth";
 import { isPending2fa } from "./resolver";
 import { SESSION_COOKIE, validateSession, type SessionInvalidReason, type SessionRow } from "./session";
+import { rolesAllowInterface } from "../rbac/roles";
 import type { RequestMeta } from "./web-login";
 import { loginUrl, reasonParam } from "./login-urls";
 
@@ -59,7 +60,10 @@ export type ActiveOfficeSession = {
 export type OfficeSessionState =
   | ActiveOfficeSession
   | { state: "totp" | "totp_enroll"; session: SessionRow; user: OfficeUser }
-  | { state: "none"; reason: SessionInvalidReason };
+  | { state: "none"; reason: OfficeSessionInvalidReason };
+
+/** Alasan tanpa sesi kantor: sesi tidak berlaku, atau peran tanpa antarmuka `web` (Kasir → POS, mitra → portal). */
+export type OfficeSessionInvalidReason = SessionInvalidReason | "no_web_access";
 
 async function officeUser(userId: string, roles: RoleCode[]): Promise<OfficeUser> {
   const rows = await getDb()
@@ -79,6 +83,8 @@ async function officeUser(userId: string, roles: RoleCode[]): Promise<OfficeUser
 
 /** Status sesi web kantor untuk permintaan ini (di-cache per permintaan). */
 export const getOfficeSession = cache(async (): Promise<OfficeSessionState> => {
+  // Registri modul (laporan, handler sinkron, label/objek keuangan audit) harus terisi sebelum halaman kantor membacanya.
+  ensureBootstrapped();
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   const db = getDb();
   const v = await validateSession(db, token, { kind: "web" });
@@ -94,7 +100,10 @@ export const getOfficeSession = cache(async (): Promise<OfficeSessionState> => {
     const rows = await db.select({ totpEnabled: users.totpEnabled }).from(users).where(eq(users.id, v.user.id)).limit(1);
     return { state: rows[0]?.totpEnabled ? "totp" : "totp_enroll", session: v.session, user };
   }
-  if (ctx.roles.length === 0 || ctx.roles.every((r) => ROLE_CATALOG[r]?.isFieldRole)) return { state: "none", reason: "user_inactive" };
+  if (ctx.roles.length === 0) return { state: "none", reason: "user_inactive" };
+  // Hanya peran berantarmuka web kantor (ROLE_CATALOG.interfaces; keputusan D-07): Kasir/lapangan → POS/aplikasi
+  // lapangan, pemilik mitra → portal.
+  if (!rolesAllowInterface(ctx.roles, "web")) return { state: "none", reason: "no_web_access" };
   return { state: "active", ctx, session: v.session, user, permissions: permissionsForRoles(ctx.roles) };
 });
 

@@ -19,16 +19,18 @@ import {
   knownUsers,
   listOutbox,
   loadDevice,
+  lockScreen,
   loginWithPin,
   pendingCount,
   refreshDeviceUsers,
   switchUser,
   syncNow,
+  unlockScreen,
   verifyPinOffline,
 } from "@/client/offline";
 import { setFetchForTests } from "@/client/offline/api";
 import { setFieldDbNameForTests } from "@/client/offline/db";
-import { attachments, deviceUsageLogs, syncCommands } from "@/db/schema";
+import { attachments, deviceUsageLogs, sessions, syncCommands } from "@/db/schema";
 import { deviceId, SEED_DEMO_PIN, userIdByUsername } from "@/db/seed";
 import { issueActivationCode, requestWipe } from "@/server/core/auth";
 import { setStorageDriverForTests, type StorageDriver } from "@/server/core/storage";
@@ -181,6 +183,79 @@ describe("Klien offline lapangan (Dexie + worker sinkron)", () => {
     const on = await syncNow({ force: true });
     expect(on.sent).toBe(1);
     expect(await pendingCount()).toBe(0);
+  });
+
+  it("US-M2-11 / Bab 6.5 kunci perintah per pengguna: terbungkus PIN, dilepas saat kunci layar; tidak bisa mencatat atas nama orang lain", async () => {
+    const cred = await fieldDb().credentials.get(KERNET);
+    expect(cred?.commandKeyWrap?.ct).toBeTruthy();
+    // Pengguna aktif = kernet → mencatat atas nama sopir ditolak di perangkat.
+    await expect(enqueue({ type: "core.ping", payload: {} }, [], { userId: SOPIR })).rejects.toMatchObject({ code: "PIN_REQUIRED" });
+    const { id } = await enqueue({ type: "core.ping", payload: { note: "ttd" } });
+    const item = await fieldDb().outbox.get(id);
+    expect(item).toMatchObject({ userId: KERNET, sessionId: cred!.sessionId });
+    expect(item?.sig).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+    await lockScreen();
+    await expect(enqueue({ type: "core.ping", payload: {} })).rejects.toMatchObject({ code: "PIN_REQUIRED" });
+    // Buka kunci OFFLINE dengan PIN → kunci perintah dibuka dari bungkusan PIN.
+    networkUp = false;
+    await unlockScreen(SEED_DEMO_PIN, { online: false });
+    networkUp = true;
+    await enqueue({ type: "core.ping", payload: {} });
+    const summary = await syncNow({ force: true });
+    expect(summary.rejected).toBe(0);
+    expect(await pendingCount()).toBe(0);
+  });
+
+  it("US-M10-02 KP-3 sesi dicabut (reset PIN) → antrean menunggu login; login ulang mengikat ulang antrean ke sesi baru lalu terkirim", async () => {
+    await enqueue({ type: "core.ping", payload: { note: "sebelum reset" } });
+    await t.db.update(sessions).set({ revokedAt: new Date(), revokeReason: "admin" }).where(eq(sessions.userId, KERNET));
+    await syncNow({ force: true });
+    const waiting = (await fieldDb().outbox.where("userId").equals(KERNET).toArray()).filter((i) => i.status === "needs_login");
+    expect(waiting).toHaveLength(1);
+    await loginWithPin(KERNET, SEED_DEMO_PIN, { online: true });
+    const rebound = await fieldDb().outbox.get(waiting[0]!.id);
+    expect(rebound?.reboundFrom).toBe(waiting[0]!.sessionId);
+    expect(rebound?.sessionId).not.toBe(waiting[0]!.sessionId);
+    await syncNow({ force: true });
+    expect((await fieldDb().outbox.get(waiting[0]!.id))?.status).toBe("sent");
+  });
+
+  it("US-M6-06 KP-2 urutan nomor lokal PER PERANGKAT: atomik, disemai server (aktivasi ulang tidak mengulang nomor)", async () => {
+    const { nextDeviceSeq, seedDeviceSeqFloors, formatLocalNumber } = await import("@/client/offline");
+    expect(await nextDeviceSeq("pos_sale")).toBe(1);
+    await seedDeviceSeqFloors({ pos_sale: 41 });
+    const [a, b] = await Promise.all([nextDeviceSeq("pos_sale"), nextDeviceSeq("pos_sale")]);
+    expect([a, b].sort()).toEqual([42, 43]);
+    await seedDeviceSeqFloors({ pos_sale: 10 }); // batas lebih rendah tidak menurunkan
+    expect(await nextDeviceSeq("pos_sale")).toBe(44);
+    expect(await nextDeviceSeq("purchase_receipt")).toBe(1);
+    expect(formatLocalNumber({ prefix: "D01", businessDate: "2026-09-27", deviceTag: "POS-D01", seq: 7 })).toBe("D01-260927-POSD01-0007");
+  });
+
+  it("penyimpanan lokal modul (moduleStore v2) & pembaruan optimistis diterapkan ulang di atas hasil pull", async () => {
+    const { moduleStore, registerOptimistic, withOptimistic } = await import("@/client/offline");
+    const cart = moduleStore<{ lines: number }>("m6-pos");
+    await cart.put("cart", { lines: 2 }, { userId: KERNET });
+    expect(await cart.get("cart")).toEqual({ lines: 2 });
+    expect((await cart.list({ userId: KERNET })).map((r) => r.key)).toEqual(["cart"]);
+    await cart.remove("cart");
+    expect(await cart.get("cart")).toBeUndefined();
+
+    const off = registerOptimistic<{ trips: { id: string; status: string }[] }, { tripId: string }>("m3.trip.depart", {
+      refKey: "m3.trips_today",
+      apply: (data, payload) => ({ trips: data.trips.map((t) => (t.id === payload.tripId ? { ...t, status: "departed" } : t)) }),
+    });
+    try {
+      const pulled = { trips: [{ id: "r1", status: "assigned" }, { id: "r2", status: "assigned" }] };
+      const base = { userId: KERNET, deviceTime: "", businessDate: "2026-09-28", attachmentIds: [], attempts: 0 };
+      const items = [
+        { ...base, id: "a", type: "m3.trip.depart", payload: { tripId: "r1" }, status: "queued" as const, createdAt: 1 },
+        { ...base, id: "b", type: "m3.trip.depart", payload: { tripId: "r2" }, status: "sent" as const, createdAt: 2 },
+      ];
+      expect(withOptimistic("m3.trips_today", pulled, items)?.trips.map((t) => t.status)).toEqual(["departed", "assigned"]);
+    } finally {
+      off();
+    }
   });
 
   it("US-M10-02 KP-6 perintah hapus jarak jauh menghapus seluruh IndexedDB pada kontak berikutnya", async () => {

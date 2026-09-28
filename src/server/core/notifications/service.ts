@@ -14,9 +14,9 @@ import { and, count, desc, eq, gt, inArray, isNull, lt, lte, or, sql, type SQL }
 
 import { notificationPreferences, notifications, pushSubscriptions, userRoles, users, userScopes } from "@/db/schema";
 import type { NotificationSeverity, RoleCode } from "@/lib/labels";
-import { isWithinWindow, toBusinessDate } from "@/lib/time";
+import { addBusinessDays, isWithinWindow, toBusinessDate, wibToUtc } from "@/lib/time";
 
-import { EQUA_TENANT_ID, type ActorContext } from "../context";
+import type { ActorContext } from "../context";
 import { getDb, onAfterCommit, type Tx } from "../db";
 import { DomainError, NotFoundError, ValidationError } from "../errors";
 import { get as getParam } from "../params-read";
@@ -43,7 +43,8 @@ export type NotifyRecipients = {
 
 export type NotifyInput = {
   event: string;
-  tenantId?: string | null;
+  /** WAJIB (NFR-30): penerima dicari di tenant ini — tanpa bawaan EQUA. */
+  tenantId: string;
   /** Bawaan: `defaultRoles` katalog. */
   recipients?: NotifyRecipients;
   excludeUserIds?: readonly string[];
@@ -140,16 +141,30 @@ async function loadPrefs(tx: Tx, userIds: string[], event: string): Promise<Map<
   return out;
 }
 
+/** Tenggat bawaan dari katalog (6.3): hari kerja / menit / jam. */
+export function catalogDeadline(def: NotificationEventDef, now: Date): Date | null {
+  if (def.deadlineRule?.kind === "business_days") return wibToUtc(addBusinessDays(toBusinessDate(now), def.deadlineRule.days), "23:59");
+  if (def.deadlineRule?.kind === "minutes") return new Date(now.getTime() + def.deadlineRule.minutes * 60_000);
+  return def.deadlineHours ? new Date(now.getTime() + def.deadlineHours * 3_600_000) : null;
+}
+
 /** Buat notifikasi untuk penerima; push dikirim setelah commit (kecuali ringkasan harian / jam tenang). */
 export async function notify(tx: Tx, input: NotifyInput): Promise<NotifyResult> {
   const def = requireEvent(input.event);
   const now = input.now ?? new Date();
   const today = toBusinessDate(now);
-  const tenantId = input.tenantId ?? EQUA_TENANT_ID;
+  if (!input.tenantId) throw new Error(`notify(${input.event}): tenantId wajib diisi (NFR-30).`);
+  const tenantId = input.tenantId;
   const severity = input.severity ?? def.severity;
   const critical = severity === "critical";
 
   const recipientsSpec = input.recipients ?? { roles: def.defaultRoles };
+  if (def.defaultScope && (recipientsSpec.roles?.length ?? 0) > 0) {
+    const key = def.defaultScope === "outlet" ? "outletId" : def.defaultScope === "truck" ? "truckId" : "sourceId";
+    if (!recipientsSpec.scope?.[key]) {
+      throw new Error(`notify(${input.event}): kode berlingkup ${def.defaultScope} — isi recipients.scope.${key} agar unit lain tidak ikut menerima.`);
+    }
+  }
   let ids = await usersWithRoles(tx, tenantId, recipientsSpec.roles ?? [], today);
   if (recipientsSpec.scope && (recipientsSpec.scope.truckId || recipientsSpec.scope.outletId || recipientsSpec.scope.sourceId)) {
     ids = await filterByScope(tx, ids, tenantId, recipientsSpec.scope);
@@ -161,8 +176,7 @@ export async function notify(tx: Tx, input: NotifyInput): Promise<NotifyResult> 
 
   const prefs = await loadPrefs(tx, ids, input.event);
   const quiet = await getParam(tx, "PAR-56", today);
-  const deadlineAt =
-    input.deadlineAt !== undefined ? input.deadlineAt : def.deadlineHours ? new Date(now.getTime() + def.deadlineHours * 3_600_000) : null;
+  const deadlineAt = input.deadlineAt !== undefined ? input.deadlineAt : catalogDeadline(def, now);
 
   const skippedOff: string[] = [];
   const toPush: string[] = [];

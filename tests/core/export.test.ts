@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { GET as exportRoute } from "@/app/api/export/[report]/route";
+import { GET as exportRoute, POST as exportPostRoute } from "@/app/api/export/[report]/route";
 import { accessLogs, exportLogs } from "@/db/schema";
 import { userIdByUsername } from "@/db/seed";
 import { setActorResolver } from "@/server/core/actor";
@@ -120,6 +120,8 @@ describe("Ekspor laporan (US-M9-03, BR-39)", () => {
   });
 
   it("route /api/export: 401 tanpa sesi; unduhan berkas dengan resolver pelaku (TODO auth F3c)", async () => {
+    const { ensureBootstrapped } = await import("@/server/core/bootstrap");
+    ensureBootstrapped();
     const ctx = { params: Promise.resolve({ report: "core.rbac_matrix" }) };
     const unauth = await exportRoute(new Request("http://x/api/export/core.rbac_matrix?format=xlsx"), ctx);
     expect(unauth.status).toBe(401);
@@ -133,5 +135,66 @@ describe("Ekspor laporan (US-M9-03, BR-39)", () => {
     );
     expect(bad.status).toBe(400);
     expect(((await bad.json()) as { message: string }).message).toMatch(/Tujuan ekspor/);
+  });
+
+  it("BR-39 CSRF: ekspor dari situs lain (navigasi lintas situs) ditolak dan tidak tercatat; same-origin & POST formulir diterima", async () => {
+    setActorResolver(async () => seededContext("pemilik"));
+    const params = { params: Promise.resolve({ report: "uji.customers" }) };
+    const before = (await t.db.select().from(exportLogs)).length;
+    const cross = await exportRoute(
+      new Request("http://x/api/export/uji.customers?format=csv&purpose=Tujuan+karangan+penyerang", { headers: { "sec-fetch-site": "cross-site" } }),
+      params,
+    );
+    expect(cross.status).toBe(403);
+    const refererCross = await exportRoute(
+      new Request("http://x/api/export/uji.customers?format=csv&purpose=Tujuan+karangan+penyerang", { headers: { referer: "https://jahat.example/x" } }),
+      params,
+    );
+    expect(refererCross.status).toBe(403);
+    expect((await t.db.select().from(exportLogs)).length).toBe(before);
+    const same = await exportRoute(
+      new Request("http://x/api/export/uji.customers?format=csv&purpose=Kirim+ke+akuntan+untuk+konfirmasi", { headers: { "sec-fetch-site": "same-origin" } }),
+      params,
+    );
+    expect(same.status).toBe(200);
+    const form = new FormData();
+    form.set("format", "csv");
+    form.set("purpose", "Konfirmasi saldo ke akuntan");
+    const post = await exportPostRoute(
+      new Request("http://x/api/export/uji.customers", { method: "POST", body: form, headers: { "sec-fetch-site": "same-origin" } }),
+      params,
+    );
+    expect(post.status).toBe(200);
+    setActorResolver(null);
+  });
+
+  it("OWASP CSV injection: sel teks berawalan = + - @ dinetralkan dengan petik tunggal", async () => {
+    const { renderCsv, neutralizeCsvText } = await import("@/server/core/export/excel");
+    expect(neutralizeCsvText("=HYPERLINK(\"http://jahat\")")).toBe("'=HYPERLINK(\"http://jahat\")");
+    expect(neutralizeCsvText("Hotel Puncak")).toBe("Hotel Puncak");
+    const buf = renderCsv({
+      title: "Uji",
+      company: { name: "EQUA", legalName: null, address: null, phone: null },
+      generatedAt: new Date(),
+      generatedBy: "Uji",
+      filters: [],
+      status: undefined,
+      columns: [
+        { key: "name", header: "Nama", type: "text" },
+        { key: "saldo", header: "Saldo", type: "rupiah" },
+      ],
+      rows: [
+        ["=cmd|' /C calc'!A0", -5000],
+        ["@SUM(A1)", 100],
+        ["+62 812", 0],
+      ],
+      summary: [],
+      orientation: "portrait",
+      notes: [],
+    } as unknown as Parameters<typeof renderCsv>[0]);
+    const text = buf.toString("utf8");
+    expect(text).toContain("'=cmd|' /C calc'!A0,-5000");
+    expect(text).toContain("'@SUM(A1),100");
+    expect(text).toContain("'+62 812,0");
   });
 });

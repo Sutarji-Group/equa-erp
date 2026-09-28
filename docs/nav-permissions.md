@@ -57,6 +57,7 @@ m10.device.read
 m10.parameter.read
 m10.personal_data.read
 m10.role.read
+m10.support_ticket.create
 m10.sync_health.read
 m10.user.read
 m11.account.read
@@ -197,6 +198,6 @@ p3.support_request.read
 | Akses & pengaturan | `/audit` | Jejak audit | `m10.audit_log.read` |  |
 | Akses & pengaturan | `/pengaturan/parameter` | Parameter | `m10.parameter.read` |  |
 | Akses & pengaturan | `/pengaturan/notifikasi` | Pengaturan notifikasi | _(semua pengguna web kantor)_ |  |
-| Akses & pengaturan | `/bantuan` | Bantuan | _(semua pengguna web kantor)_ |  |
+| Akses & pengaturan | `/bantuan` | Bantuan | `m10.support_ticket.create` |  |
 
 <!-- END:AUTO nav-permissions -->

@@ -14,6 +14,7 @@
 import { activeSession, clearAuthEvents, SYNC_REQUEST_EVENT, takeAuthEvents } from "./auth";
 import { APP_VERSION, deviceFetch, FieldApiError, isOnline, loadDevice, OFFLINE_MESSAGE } from "./api";
 import { fieldDb, getMeta, PENDING_STATUSES, setMeta, type OutboxItem } from "./db";
+import { seedDeviceSeqFloors } from "./numbering";
 import { OUTBOX_CHANGED_EVENT, pendingByUser } from "./outbox";
 import type { PullResponse, PushResult } from "./types";
 
@@ -156,9 +157,13 @@ async function pushQueue(force: boolean): Promise<Pick<SyncSummary, "sent" | "re
             type: i.type,
             payload: i.payload,
             userId: i.userId,
+            sessionId: i.sessionId ?? null,
+            sig: i.sig ?? null,
+            reboundFrom: i.reboundFrom ?? null,
             deviceTime: i.deviceTime,
             businessDate: i.businessDate,
             attachmentIds: i.attachmentIds,
+            attachmentHashes: i.attachmentHashes ?? [],
           })),
           sentAt: new Date().toISOString(),
           ...(health ? { health: health.report } : {}),
@@ -210,6 +215,7 @@ async function pullReferences(): Promise<boolean> {
     await db.device.update("device", { device: res.device, params: res.params, minVersion: res.minVersion, updateRequired: res.updateRequired });
     await db.meta.put({ key: cursorKey, value: res.cursor });
   });
+  await seedDeviceSeqFloors(res.deviceSeq);
   return true;
 }
 

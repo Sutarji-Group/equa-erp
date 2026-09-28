@@ -6,15 +6,22 @@
  *   pemicu untuk tindakan sistem (KP-5). Integritas: **rantai hash** `hash = sha256(prev_hash + "\n" + JSON kanonik)`;
  *   penulisan diserialkan `pg_advisory_xact_lock` sehingga urutan `seq` = urutan rantai. Trigger DB menolak UPDATE /
  *   DELETE (`src/db/sql/hardening.sql`).
- * - `verifyAuditChain(db)` — hitung ulang rantai; melaporkan baris pertama yang rusak (KP-2 "integritas dapat
- *   diverifikasi").
+ *   PENULISAN DITUNDA ke akhir transaksi terkelola (`onBeforeCommit`): baris ditampung per transaksi lalu ditulis
+ *   berantai tepat sebelum COMMIT, sehingga kunci rantai diambil TERAKHIR & singkat — tidak menyerialkan seluruh
+ *   transaksi tulis dan tidak berlawanan urutan dengan kunci baris lain (mis. `document_sequences` dari `nextNumber`,
+ *   penyebab deadlock 40P01 di Postgres multi-koneksi). Objek yang dikembalikan `record` terisi `seq`/`prevHash`/`hash`
+ *   setelah transaksi selesai. Di luar transaksi terkelola (db langsung / `db.transaction` modul) ditulis seketika.
+ * - `verifyAuditChain(db, { anchors })` — hitung ulang rantai; melaporkan baris pertama yang rusak (KP-2 "integritas
+ *   dapat diverifikasi") dan mencocokkan titik jangkar (seq, hash) yang diterbitkan ke LUAR DB
+ *   (`publishAuditCheckpoint`, job harian e-mail pemilik) — pemilik DB yang menghitung ulang seluruh rantai tetap
+ *   ketahuan bila hash kepala lama tidak lagi cocok.
  * - `describeAudit(row)` — kalimat bahasa lapangan: "harga rit diubah dari Rp 200.000 menjadi Rp 210.000 oleh
  *   Pemilik, alasan: …" (KP-3).
  * - `query(tx, filter)` / `queryForActor(ctx, filter)` — pencarian per objek, pengguna, rentang waktu, jenis tindakan.
  */
 import "server-only";
 
-import { createHash } from "node:crypto";
+import { createHash, createHmac, hkdfSync } from "node:crypto";
 
 import { and, asc, desc, eq, gt, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
 
@@ -22,10 +29,14 @@ import { auditLogs } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { label, type RoleCode } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
-import { formatTanggal, formatTanggalJam, isBusinessDate } from "@/lib/time";
+import { serverEnv } from "@/lib/env";
+import { formatTanggal, formatTanggalJam, isBusinessDate, toBusinessDate } from "@/lib/time";
 
+import { ensureBootstrapped } from "./bootstrap";
 import { ctxBusinessDate, type ActorContext } from "./context";
-import { getDb, type Tx } from "./db";
+import { getDb, isTransaction, onBeforeCommit, txQueue, withTx, type Tx } from "./db";
+import { sendEmail } from "./notifications/channels/email";
+import { get as getParam } from "./params-read";
 import { authorize } from "./rbac/authorize";
 
 /** Kunci advisory lock tetap untuk menyerialkan rantai audit (konstanta 64-bit, dibagi semua proses). */
@@ -134,15 +145,15 @@ export function computeAuditHash(prevHash: string | null, payload: string): stri
   return createHash("sha256").update(`${prevHash ?? "GENESIS"}\n${payload}`).digest("hex");
 }
 
-/** Catat satu entri jejak audit (di dalam transaksi pemanggil). */
-export async function record(tx: Tx, input: AuditInput): Promise<AuditRow> {
-  const { ctx } = input;
-  await tx.execute(AUDIT_CHAIN_LOCK_SQL);
-  const last = await tx.select({ hash: auditLogs.hash }).from(auditLogs).orderBy(desc(auditLogs.seq)).limit(1);
-  const prevHash = last[0]?.hash ?? null;
+/** Kunci antrean audit tertunda per transaksi terkelola. */
+const AUDIT_QUEUE = Symbol("equa.audit.pending");
 
+type PendingAudit = { row: HashableRow; target: AuditRow };
+
+function buildRow(input: AuditInput): HashableRow {
+  const { ctx } = input;
   const businessDate = input.businessDate ?? ctxBusinessDate(ctx);
-  const row: HashableRow = {
+  return {
     id: newId(),
     tenantId: ctx.tenantId ?? null,
     serverTime: new Date(),
@@ -161,12 +172,48 @@ export async function record(tx: Tx, input: AuditInput): Promise<AuditRow> {
     rule: input.rule ?? null,
     businessDate: isBusinessDate(businessDate) ? businessDate : null,
   };
-  const hash = computeAuditHash(prevHash, auditHashPayload(row));
-  const [inserted] = await tx
-    .insert(auditLogs)
-    .values({ ...row, prevHash, hash })
-    .returning();
-  return inserted!;
+}
+
+/** Tulis baris berantai (ambil kunci rantai → baca hash terakhir → sisipkan berurutan). */
+async function writeChained(tx: Tx, items: PendingAudit[]): Promise<void> {
+  if (items.length === 0) return;
+  await tx.execute(AUDIT_CHAIN_LOCK_SQL);
+  const last = await tx.select({ hash: auditLogs.hash }).from(auditLogs).orderBy(desc(auditLogs.seq)).limit(1);
+  let prevHash = last[0]?.hash ?? null;
+  for (const item of items) {
+    const hash = computeAuditHash(prevHash, auditHashPayload(item.row));
+    const [inserted] = await tx
+      .insert(auditLogs)
+      .values({ ...item.row, prevHash, hash })
+      .returning();
+    Object.assign(item.target, inserted);
+    prevHash = hash;
+  }
+}
+
+/**
+ * Catat satu entri jejak audit di transaksi pemanggil. Di transaksi terkelola baris ditulis tepat sebelum COMMIT
+ * (lihat keterangan berkas); objek yang dikembalikan terisi lengkap (`seq`, `prevHash`, `hash`) setelah itu.
+ */
+export async function record(tx: Tx, input: AuditInput): Promise<AuditRow> {
+  const row = buildRow(input);
+  const target = { ...row, seq: 0, prevHash: null, hash: "", actorCustomerAccountId: null } as unknown as AuditRow;
+  const queue = txQueue<PendingAudit>(tx, AUDIT_QUEUE);
+  if (queue) {
+    if (queue.length === 0) {
+      onBeforeCommit(tx, async (root) => {
+        const pending = txQueue<PendingAudit>(root, AUDIT_QUEUE) ?? [];
+        const items = pending.splice(0, pending.length);
+        await writeChained(root, items);
+      });
+    }
+    queue.push({ row, target });
+    return target;
+  }
+  // Transaksi tidak terkelola: tulis seketika (tanpa transaksi → buka transaksi agar kunci rantai berlaku).
+  if (isTransaction(tx)) await writeChained(tx, [{ row, target }]);
+  else await withTx((t) => writeChained(t, [{ row, target }]));
+  return target;
 }
 
 export type AuditChainResult = {
@@ -177,9 +224,17 @@ export type AuditChainResult = {
   reason?: string;
 };
 
-/** Verifikasi integritas seluruh rantai (urut `seq`, per batch). */
-export async function verifyAuditChain(db: Tx = getDb(), options: { batchSize?: number } = {}): Promise<AuditChainResult> {
+/** Titik jangkar rantai yang diterbitkan ke luar DB (e-mail pemilik / arsip WORM). */
+export type AuditAnchor = { seq: number; hash: string };
+
+/**
+ * Verifikasi integritas seluruh rantai (urut `seq`, per batch). `anchors` = titik jangkar yang pernah diterbitkan ke
+ * luar DB (`publishAuditCheckpoint`): hash baris `seq` itu harus tetap sama dan barisnya masih ada — penulisan ulang
+ * rantai oleh pemegang akses DB (trigger dimatikan lalu seluruh hash dihitung ulang) atau pemotongan ekor ketahuan.
+ */
+export async function verifyAuditChain(db: Tx = getDb(), options: { batchSize?: number; anchors?: readonly AuditAnchor[] } = {}): Promise<AuditChainResult> {
   const batchSize = options.batchSize ?? 1000;
+  const anchors = new Map((options.anchors ?? []).map((a) => [a.seq, a.hash]));
   let prevHash: string | null = null;
   let lastSeq = 0;
   let checked = 0;
@@ -199,12 +254,65 @@ export async function verifyAuditChain(db: Tx = getDb(), options: { batchSize?: 
       if (expected !== row.hash) {
         return { ok: false, checked, brokenAtSeq: row.seq, reason: "Isi baris tidak cocok dengan hash-nya (data diubah)." };
       }
+      const anchored = anchors.get(row.seq);
+      if (anchored !== undefined && anchored !== row.hash) {
+        return { ok: false, checked, brokenAtSeq: row.seq, reason: "Hash tidak cocok dengan titik jangkar yang diterbitkan (rantai ditulis ulang)." };
+      }
       prevHash = row.hash;
       lastSeq = row.seq;
       checked++;
     }
   }
+  const missing = [...anchors.keys()].filter((seq) => seq > lastSeq).sort((a, b) => a - b)[0];
+  if (missing !== undefined) {
+    return { ok: false, checked, brokenAtSeq: missing, reason: "Baris yang pernah dijangkarkan hilang (ekor jejak audit dipotong)." };
+  }
   return { ok: true, checked };
+}
+
+/** Kepala rantai saat ini (null bila kosong). */
+export async function auditChainHead(db: Tx = getDb()): Promise<AuditAnchor | null> {
+  const rows = await db.select({ seq: auditLogs.seq, hash: auditLogs.hash }).from(auditLogs).orderBy(desc(auditLogs.seq)).limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Tag HMAC titik jangkar dengan kunci dari ENV (`SESSION_SECRET` → HKDF "audit-anchor"), bukan dari DB: penerima
+ * e-mail dapat memastikan titik jangkar diterbitkan server, dan pemegang DB saja tidak dapat memalsukannya.
+ */
+export function auditAnchorTag(anchor: AuditAnchor): string {
+  const key = hkdfSync("sha256", serverEnv().SESSION_SECRET, "equa-erp", "equa:audit-anchor:v1", 32);
+  return createHmac("sha256", Buffer.from(key)).update(`${anchor.seq}:${anchor.hash}`).digest("hex");
+}
+
+export type AuditCheckpoint = AuditAnchor & { tag: string; at: string; recipients: string[] };
+
+/**
+ * Terbitkan titik jangkar (seq, hash kepala, tag HMAC) ke LUAR DB — e-mail ke penerima ringkasan pemilik
+ * (`notifications.digest_recipients`). Dijalankan job harian `core.audit.checkpoint`. Simpan e-mail ini sebagai arsip;
+ * saat verifikasi, berikan titik-titik jangkar ke `verifyAuditChain(db, { anchors })`.
+ */
+export async function publishAuditCheckpoint(now: Date = new Date(), db: Tx = getDb()): Promise<AuditCheckpoint | null> {
+  const head = await auditChainHead(db);
+  if (!head) return null;
+  const { emails } = await getParam(db, "notifications.digest_recipients", toBusinessDate(now));
+  const tag = auditAnchorTag(head);
+  const checkpoint: AuditCheckpoint = { ...head, tag, at: now.toISOString(), recipients: [...emails] };
+  if (emails.length) {
+    await sendEmail({
+      to: [...emails],
+      subject: `EQUA — titik jangkar jejak audit ${formatTanggal(toBusinessDate(now), { weekday: false })}`,
+      text: [
+        "Simpan e-mail ini. Isinya dipakai untuk membuktikan jejak audit tidak diubah (US-M10-05 KP-2, NFR-11).",
+        "",
+        `Urutan (seq): ${head.seq}`,
+        `Hash kepala: ${head.hash}`,
+        `Tag server: ${tag}`,
+        `Waktu: ${formatTanggalJam(now)}`,
+      ].join("\n"),
+    });
+  }
+  return checkpoint;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -347,6 +455,7 @@ export function describeAudit(
   row: Pick<AuditRow, "objectType" | "objectId" | "action" | "before" | "after" | "reason" | "rule" | "source" | "actorRoles">,
   options: { actorName?: string | null; objectLabel?: string } = {},
 ): string {
+  ensureBootstrapped(); // label objek & kolom modul didaftarkan saat registrasi
   const objectText = options.objectLabel ?? OBJECT_LABELS.get(row.objectType) ?? row.objectType;
   const actor = actorText(row, options.actorName);
   const reason = row.reason ? `, alasan: ${row.reason}` : "";
@@ -443,6 +552,7 @@ export function registerFinancialObjectType(objectType: string): void {
  * keuangan; admin sistem melihat semua tetapi nilai lama/baru objek keuangan disembunyikan.
  */
 export async function queryForActor(ctx: ActorContext, filter: AuditQuery = {}, opts: { tx?: Tx } = {}): Promise<AuditRow[]> {
+  ensureBootstrapped(); // objek keuangan modul (registerFinancialObjectType) harus terdaftar sebelum menyaring
   await authorize(ctx, "m10.audit_log.read", { tx: opts.tx });
   const tx = opts.tx ?? getDb();
   const scoped: AuditQuery = { ...filter, tenantId: filter.tenantId ?? ctx.tenantId };

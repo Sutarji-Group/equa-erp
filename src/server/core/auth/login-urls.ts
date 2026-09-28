@@ -11,10 +11,14 @@ export const LOGIN_REASON_MESSAGES: Record<string, string> = {
   "akun-nonaktif": "Akun Anda tidak aktif. Hubungi admin sistem.",
   keluar: "Anda sudah keluar. Sampai jumpa.",
   "perlu-masuk": "Silakan masuk untuk melanjutkan.",
+  "bukan-web-kantor":
+    "Akun Anda tidak memakai web kantor. Kasir & petugas lapangan memakai aplikasi POS/lapangan di perangkat terdaftar; pemilik mitra memakai portal mitra.",
 };
 
-export function reasonParam(reason: SessionInvalidReason): string | null {
+export function reasonParam(reason: SessionInvalidReason | "no_web_access"): string | null {
   switch (reason) {
+    case "no_web_access":
+      return "bukan-web-kantor";
     case "expired_idle":
       return "sesi-habis";
     case "expired_max":

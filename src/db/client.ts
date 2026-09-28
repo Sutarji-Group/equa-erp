@@ -19,6 +19,7 @@ import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
 import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import type { PgDatabase, PgQueryResultHKT, PgTransaction } from "drizzle-orm/pg-core";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync } from "node:fs";
 import pg from "pg";
 import ws from "ws";
@@ -93,8 +94,39 @@ function createHandle(driver: DbDriver): DbHandle {
   }
 }
 
+/**
+ * Penanda "sedang di dalam transaksi terkelola" (`withTx` di src/server/core/db.ts). Di dev/uji, `getDb()` di dalamnya
+ * adalah bug: PGlite hanya SATU koneksi, jadi kueri lewat `getDb()` menunggu transaksi itu sendiri (deadlock, uji
+ * menggantung sampai timeout). Penjaga ini mengubahnya menjadi galat yang jelas.
+ */
+const txScope = new AsyncLocalStorage<{ label: string }>();
+
+/** Jalankan `fn` sebagai lingkup transaksi terkelola (dipanggil `withTx`). */
+export function runInTransactionScope<T>(fn: () => T): T {
+  return txScope.run({ label: "withTx" }, fn);
+}
+
+/** Jalankan `fn` DI LUAR lingkup transaksi (mis. callback setelah commit yang dimulai dari dalam transaksi). */
+export function runOutsideTransactionScope<T>(fn: () => T): T {
+  return txScope.exit(fn);
+}
+
+/** Benar bila kode berjalan di dalam `withTx` (lingkup async yang sama). */
+export function inTransactionScope(): boolean {
+  return txScope.getStore() !== undefined;
+}
+
+function guardEnabled(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
 /** Instans Drizzle tunggal untuk proses ini. */
 export function getDb(): Db {
+  if (guardEnabled() && txScope.getStore()) {
+    throw new Error(
+      "getDb() dipanggil di dalam transaksi — teruskan `tx` (opts.tx) ke fungsi core. Di PGlite (satu koneksi) ini deadlock.",
+    );
+  }
   if (!globalForDb.__equaDb) {
     globalForDb.__equaDb = createHandle(resolveDriver(process.env.DB_DRIVER));
   }

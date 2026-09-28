@@ -8,12 +8,21 @@
  * - `credentials`  — per pengguna: verifier PIN offline (PBKDF2, bukan PIN), sesi lapangan, hitungan salah/kunci.
  * - `device`       — satu baris `key = "device"`: ID perangkat + kunci HMAC non-extractable (WebCrypto) atau, bila
  *                    peramban tidak dapat menyimpan CryptoKey, secret mentah (ditandai `secretRaw`).
- * - `meta`         — pengguna aktif, status kunci layar, status sinkron, kursor pull, dll.
+ * - `meta`         — pengguna aktif, status kunci layar, status sinkron, kursor pull, urutan nomor perangkat
+ *                    (`deviceSeq:<scope>`), kunci perintah pengguna aktif (`commandKey`), dll.
+ * - `moduleStore`  — (v2) penyimpanan lokal GENERIK untuk modul (keranjang POS, shift, stok, status rit optimistis…):
+ *                    `[module+key]`. Modul TIDAK menambah tabel/versi Dexie sendiri — hanya core yang menaikkan versi
+ *                    (registri versi di bawah), agar upgrade IndexedDB tidak rusak oleh dua agen.
  *
  * Hanya peramban. Perintah hapus jarak jauh → `wipeLocalData()` menghapus seluruh basis data.
+ *
+ * REGISTRI VERSI (hanya core yang menambah; jangan ubah versi lama):
+ * - v1: outbox, attachments, refs, credentials, device, meta (F3c)
+ * - v2: moduleStore (tinjauan pasca-F3c)
  */
 import Dexie, { type Table } from "dexie";
 
+import type { WrappedCommandKey } from "./crypto";
 import type { OfflineParams, PinPolicy, PinVerifier, PublicDevice } from "./types";
 
 export type OutboxStatus = "queued" | "sending" | "needs_login" | "sent" | "rejected" | "conflict";
@@ -29,9 +38,17 @@ export type OutboxItem = {
   payload: unknown;
   /** Waktu perangkat (ISO) saat dicatat. */
   deviceTime: string;
-  /** Tanggal bisnis WIB saat dicatat (Bab 5.3). */
+  /** Tanggal bisnis WIB saat dicatat (Bab 5.3) — server menolak bila ≠ tanggal WIB `deviceTime`. */
   businessDate: string;
   attachmentIds: string[];
+  /** SHA-256 hex isi lampiran (sejajar `attachmentIds`), ikut ditandatangani. */
+  attachmentHashes?: string[];
+  /** Sesi PIN pemilik saat perintah dicatat / diikat ulang (`src/lib/sync-signature.ts`). */
+  sessionId?: string | null;
+  /** Sesi asal bila diikat ulang ke sesi baru setelah login ulang. */
+  reboundFrom?: string | null;
+  /** Tanda tangan HMAC kunci perintah sesi. */
+  sig?: string | null;
   /** Label tampilan antrean, mis. "Selesai rit P-26-000123". */
   label?: string | null;
   status: OutboxStatus;
@@ -74,6 +91,8 @@ export type CredentialItem = {
   verifier: PinVerifier;
   sessionId: string;
   sessionExpiresAt: string;
+  /** Kunci perintah sesi, terbungkus kunci turunan PIN (dibuka saat login PIN daring/offline). */
+  commandKeyWrap?: WrappedCommandKey | null;
   policy: PinPolicy;
   failedCount: number;
   lockedUntil: number | null;
@@ -98,6 +117,9 @@ export type DeviceItem = {
 
 export type MetaItem = { key: string; value: unknown };
 
+/** Baris penyimpanan lokal modul (v2). `userId` diisi untuk data per pengguna (antrean/keranjang pengguna itu). */
+export type ModuleStoreItem = { module: string; key: string; userId?: string | null; data: unknown; updatedAt: number };
+
 export class FieldDb extends Dexie {
   outbox!: Table<OutboxItem, string>;
   attachments!: Table<AttachmentItem, string>;
@@ -105,6 +127,7 @@ export class FieldDb extends Dexie {
   credentials!: Table<CredentialItem, string>;
   device!: Table<DeviceItem, string>;
   meta!: Table<MetaItem, string>;
+  moduleStore!: Table<ModuleStoreItem, [string, string]>;
 
   constructor(name: string) {
     super(name);
@@ -115,6 +138,9 @@ export class FieldDb extends Dexie {
       credentials: "userId",
       device: "key",
       meta: "key",
+    });
+    this.version(2).stores({
+      moduleStore: "[module+key], module, [module+userId]",
     });
   }
 }

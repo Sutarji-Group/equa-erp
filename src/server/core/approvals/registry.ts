@@ -53,6 +53,11 @@ export type ApprovalTypeDef = {
   /** Jenis objek utama yang dirujuk. */
   objectType: string;
   ref: string;
+  /**
+   * Peran lain yang DIBERI TAHU (bukan memutuskan) saat diajukan, dengan kode notifikasi katalog — mis. void POS:
+   * "Pemilik (Admin Keuangan menerima notifikasi)" (6.2a).
+   */
+  notifyAlso?: { roles: readonly RoleCode[]; event: string };
 };
 
 const T = (def: ApprovalTypeDef): ApprovalTypeDef => def;
@@ -180,6 +185,7 @@ export const APPROVAL_TYPES: readonly ApprovalTypeDef[] = [
     severity: "high",
     objectType: "pos_sale",
     ref: "BR-13",
+    notifyAlso: { roles: ["finance_admin"], event: "pos.void_requested" },
   }),
   T({
     type: "stock_adjustment",

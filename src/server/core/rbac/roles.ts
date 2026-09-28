@@ -97,7 +97,7 @@ export const ROLE_CATALOG: Record<RoleCode, RoleDef> = {
     requires2fa: false,
     isFieldRole: true,
     isReadOnly: false,
-    interfaces: ["pos", "web"],
+    interfaces: ["pos"],
     scopeKind: "outlet",
     phase: 1,
     description: "POS toko: penjualan, penerimaan barang, opname, pesan ulang, usulan barang/harga.",
@@ -174,4 +174,12 @@ export function roleLabel(code: RoleCode): string {
 /** Benar bila salah satu peran wajib 2FA. */
 export function requires2fa(roles: readonly RoleCode[]): boolean {
   return roles.some((r) => ROLE_CATALOG[r]?.requires2fa);
+}
+
+/**
+ * Benar bila salah satu peran boleh memakai antarmuka ini (`interfaces`; keputusan D-07 — Kasir toko hanya `pos`,
+ * pemilik mitra hanya `portal`). Ditegakkan di login web kantor & `getOfficeSession`.
+ */
+export function rolesAllowInterface(roles: readonly RoleCode[], iface: RoleDef["interfaces"][number]): boolean {
+  return roles.some((r) => (ROLE_CATALOG[r]?.interfaces as readonly string[] | undefined)?.includes(iface));
 }

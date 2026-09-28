@@ -14,7 +14,7 @@
  */
 import "server-only";
 
-import { and, eq, gt, isNull, lte, ne, type SQL } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, ne, or, type SQL } from "drizzle-orm";
 
 import { employees, sessions, users } from "@/db/schema";
 import { toBusinessDate } from "@/lib/time";
@@ -33,6 +33,12 @@ export const PENDING_2FA_MINUTES = 10;
  * bisnis Lampiran B.)
  */
 export const FIELD_SESSION_MAX_HOURS = 72;
+/**
+ * Perintah outbox yang dibuat selama masa berlaku sesi lapangan tetap diterima sampai sekian hari SETELAH sesi habis
+ * (antrean offline, PAR-30); setelah itu sesi dicabut job `core.auth.session_hygiene` dan perintahnya wajib diikat
+ * ulang lewat login PIN pemiliknya (klien `rebindOutbox`).
+ */
+export const FIELD_SESSION_SYNC_GRACE_DAYS = 7;
 /** Interval minimum pembaruan `last_active_at`. */
 export const SESSION_TOUCH_INTERVAL_MS = 60_000;
 
@@ -50,6 +56,8 @@ export type RevokeReason =
   | "pin_reset"
   | "admin"
   | "totp_locked"
+  | "totp_attempts"
+  | "totp_reset"
   | "replaced";
 
 export type SessionPolicy = { idleMinutes: number; maxHours: number };
@@ -280,10 +288,39 @@ export async function revokeDeviceSessions(tx: Tx, deviceId: string, reason: Rev
   return rows.length;
 }
 
+/** Baris sesi menurut ID (null bila tidak ada / bukan UUID). */
+export async function loadSessionById(tx: Tx, sessionId: string | null | undefined): Promise<SessionRow | null> {
+  if (!sessionId || !/^[0-9a-f-]{36}$/i.test(sessionId)) return null;
+  const rows = await tx.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+  return rows[0] ?? null;
+}
+
 /**
- * Sesi lapangan (belum dicabut) pengguna di perangkat ini yang masih berlaku pada waktu `at` — dipakai sinkron untuk
- * menerima perintah offline: `at` = min(waktu perangkat, waktu server). Tidak ada batas bawah (jam perangkat bisa
- * menyimpang); perangkat diblokir/hapus jarak jauh mencabut semua sesinya sehingga perintahnya ditolak.
+ * Pengguna pernah masuk PIN di perangkat ini dan sesinya belum dicabut serta belum lewat masa tenggang sinkron
+ * (`FIELD_SESSION_SYNC_GRACE_DAYS`). Dipakai unggah lampiran — keaslian lampiran dijamin tanda tangan perintah yang
+ * merujuknya (hash SHA-256 lampiran ikut ditandatangani, `src/lib/sync-signature.ts`).
+ */
+export async function hasFieldSessionOnDevice(tx: Tx, userId: string, deviceId: string, now: Date): Promise<boolean> {
+  const rows = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.userId, userId),
+        eq(sessions.deviceId, deviceId),
+        eq(sessions.kind, "device"),
+        isNull(sessions.revokedAt),
+        gt(sessions.expiresAt, new Date(now.getTime() - FIELD_SESSION_SYNC_GRACE_DAYS * 86_400_000)),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * @deprecated Sejak tinjauan pasca-F3c perintah sinkron diikat ke sesinya sendiri (`sessionId` + tanda tangan);
+ * fungsi ini hanya dipertahankan untuk kompatibilitas. Sesi lapangan (belum dicabut) pengguna di perangkat ini yang
+ * masih berlaku pada waktu `at`.
  */
 export async function findFieldSessionCovering(tx: Tx, userId: string, deviceId: string, at: Date): Promise<SessionRow | null> {
   const rows = await tx
@@ -296,10 +333,37 @@ export async function findFieldSessionCovering(tx: Tx, userId: string, deviceId:
         eq(sessions.kind, "device"),
         isNull(sessions.revokedAt),
         gt(sessions.expiresAt, at),
+        lte(sessions.createdAt, at),
       ),
     )
     .limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Kebersihan sesi (job harian `core.auth.session_hygiene`, BR-37):
+ * - sesi karyawan yang tanggal keluarnya sudah tiba / akun nonaktif → dicabut (`exit_date` / `user_inactive`);
+ * - sesi lapangan yang habis lebih dari `FIELD_SESSION_SYNC_GRACE_DAYS` hari → dicabut (`max_age`).
+ */
+export async function sessionHygiene(now: Date = new Date(), db: Tx = getDb()): Promise<{ exited: number; expired: number }> {
+  const today = toBusinessDate(now);
+  const candidates = await db
+    .selectDistinct({ userId: sessions.userId, status: users.status, exitDate: employees.exitDate })
+    .from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .innerJoin(employees, eq(employees.id, users.employeeId))
+    .where(and(isNull(sessions.revokedAt), or(ne(users.status, "active"), lte(employees.exitDate, today))));
+  let exited = 0;
+  for (const c of candidates) {
+    exited += await revokeAllSessions(c.userId, c.status === "active" ? "exit_date" : "user_inactive", { tx: db, now });
+  }
+  const cutoff = new Date(now.getTime() - FIELD_SESSION_SYNC_GRACE_DAYS * 86_400_000);
+  const expired = await db
+    .update(sessions)
+    .set({ revokedAt: now, revokeReason: "max_age" })
+    .where(and(eq(sessions.kind, "device"), isNull(sessions.revokedAt), lte(sessions.expiresAt, cutoff)))
+    .returning({ id: sessions.id });
+  return { exited, expired: expired.length };
 }
 
 /** Hapus baris sesi lama (tabel teknis) — dipakai job harian. */

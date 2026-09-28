@@ -14,6 +14,13 @@ export type NotificationEventDef = {
   defaultRoles: readonly RoleCode[];
   /** Tenggat tindak lanjut (jam) untuk `deadline_at`; kosong = tanpa tenggat. */
   deadlineHours?: number;
+  /** Tenggat 6.3 selain jam: hari kerja (lewati Sabtu/Minggu, berakhir 23.59 WIB) atau menit. Mengalahkan `deadlineHours`. */
+  deadlineRule?: { kind: "business_days"; days: number } | { kind: "minutes"; minutes: number };
+  /**
+   * Kode berlingkup unit: `notify()` tanpa `recipients.scope` untuk unit ini DITOLAK (galat program) agar operator
+   * outlet lain tidak ikut menerima.
+   */
+  defaultScope?: "outlet" | "truck" | "source";
   /** Tindak lanjut (Bab 6.3 kolom "Tindak lanjut & tenggat"). */
   followUp: string;
   ref: string;
@@ -89,7 +96,22 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("stock_count.overdue", "Opname belum dilakukan", "normal", ["finance_admin"], "Lakukan opname", "US-M6-04 KP-4, US-M7-05 KP-4"),
   e("receivable.weekly_aging", "Ringkasan umur piutang mingguan", "info", ["owner"], "Baca ringkasan", "US-M5-04, PAR-40"),
   e("incident.opened", "Insiden baru", "critical", ["system_admin"], "Tanggapi ≤ 30 menit", "NFR-31"),
+
+  // --- Tambahan tinjauan pasca-F3c ---
+  e("auth.totp_unreadable", "Rahasia 2FA pengguna tidak terbaca", "high", ["owner", "system_admin"], "Reset 2FA lewat Akses > Pengguna (berjejak)", "PTB-35"),
+  e("user.totp_reset", "2FA pengguna direset", "info", ["owner"], "Informasi", "PTB-35, 7.10.6"),
+  e("pos.void_requested", "Permintaan void POS", "info", ["finance_admin"], "Pantau; keputusan oleh pemilik", "6.2a, BR-13"),
 ];
+
+/** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */
+const EXTRA: Record<string, Pick<NotificationEventDef, "deadlineRule" | "defaultScope">> = {
+  "access.request_pending": { deadlineRule: { kind: "business_days", days: 2 } },
+  "sync.mass_failure": { deadlineRule: { kind: "minutes", minutes: 30 } },
+  "incident.opened": { deadlineRule: { kind: "minutes", minutes: 30 } },
+  "outlet_cash.over_limit": { defaultScope: "outlet" },
+  "store.stock_minimum": { defaultScope: "outlet" },
+};
+for (const ev of NOTIFICATION_EVENTS) Object.assign(ev, EXTRA[ev.code] ?? {});
 
 const BY_CODE = new Map(NOTIFICATION_EVENTS.map((ev) => [ev.code, ev]));
 

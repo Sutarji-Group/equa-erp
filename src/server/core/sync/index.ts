@@ -10,7 +10,7 @@
 import "server-only";
 
 export * from "./registry";
-export { processPush, MAX_PUSH_BATCH, computeClockSkewMs, type PushResult, type PushResponse, type PushResultStatus } from "./push";
+export { processPush, MAX_PUSH_BATCH, allowedBusinessDates, computeClockSkewMs, type PushResult, type PushResponse, type PushResultStatus } from "./push";
 export { processPull, compareVersions, offlineParams, minSupportedVersion, type PullResponse, type OfflineParams } from "./pull";
 export { processUpload, MAX_FIELD_UPLOAD_BYTES, FIELD_UPLOAD_TYPES, type UploadResult } from "./upload";
 export { recordHealth, healthReportSchema, type HealthReport } from "./health";

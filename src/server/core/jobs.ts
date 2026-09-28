@@ -78,10 +78,12 @@ export function unregisterJob(key: string): void {
 }
 
 export function listJobs(): JobDef[] {
+  ensureBootstrapped();
   return Array.from(registry.values());
 }
 
 export function getJob(key: string): JobDef | undefined {
+  ensureBootstrapped();
   return registry.get(key);
 }
 

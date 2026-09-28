@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { isHardeningViolation, SQLSTATE_APPEND_ONLY } from "@/db/hardening";
@@ -157,5 +157,65 @@ describe("Jejak audit (US-M10-05)", () => {
     expect(dep.after).toBeNull();
     expect(admin.find((r) => r.objectType === "order")?.after).not.toBeNull();
     await expect(queryForActor(seededContext("sopir1"))).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("Jejak audit: penulisan tertunda & titik jangkar (NFR-11, US-M10-05 KP-2)", () => {
+  const t = useTestDb({ seed: true });
+
+  it("US-M10-05 KP-2 audit ditulis di akhir transaksi (kunci rantai diambil terakhir); savepoint gagal tidak meninggalkan baris", async () => {
+    const { withSavepoint } = await import("@/server/core/db");
+    const owner = seededContext("pemilik");
+    const before = (await t.db.select().from(auditLogs)).length;
+    const row = await withTx(async (tx) => {
+      const r = await record(tx, { ctx: owner, objectType: "order", objectId: "tunda-1", action: "create" });
+      // Belum ditulis selama transaksi masih berjalan.
+      expect(r.hash).toBe("");
+      await withSavepoint(tx, async (sp) => {
+        await record(sp, { ctx: owner, objectType: "order", objectId: "tunda-sp-ok", action: "create" });
+      });
+      await withSavepoint(tx, async (sp) => {
+        await record(sp, { ctx: owner, objectType: "order", objectId: "tunda-sp-gagal", action: "create" });
+        throw new Error("gagal di savepoint");
+      }).catch(() => undefined);
+      return r;
+    });
+    expect(row.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(row.seq).toBeGreaterThan(0);
+    const rows = await t.db.select().from(auditLogs);
+    expect(rows.length).toBe(before + 2);
+    expect(rows.some((r) => r.objectId === "tunda-sp-gagal")).toBe(false);
+    expect((await verifyAuditChain(t.db)).ok).toBe(true);
+  });
+
+  it("NFR-11 titik jangkar ke luar DB (e-mail) + verifikasi mendeteksi rantai yang ditulis ulang pemegang DB", async () => {
+    const { publishAuditCheckpoint } = await import("@/server/core/audit");
+    const { sentEmailsForTests } = await import("@/server/core/notifications");
+    await withTx((tx) => record(tx, { ctx: seededContext("pemilik"), objectType: "order", objectId: "jangkar-1", action: "create" }));
+    const cp = await publishAuditCheckpoint(new Date());
+    expect(cp?.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(cp?.tag).toMatch(/^[0-9a-f]{64}$/);
+    if (cp!.recipients.length) expect(sentEmailsForTests().some((m) => m.text.includes(cp!.hash))).toBe(true);
+    const anchors = [{ seq: cp!.seq, hash: cp!.hash }];
+    expect((await verifyAuditChain(t.db, { anchors })).ok).toBe(true);
+    // Pemegang DB mematikan trigger, mengubah baris terakhir lalu menghitung ulang hash-nya → rantai "utuh" tanpa jangkar,
+    // tetapi jangkar yang diterbitkan tidak cocok lagi.
+    const { computeAuditHash, auditHashPayload } = await import("@/server/core/audit");
+    const last = (await t.db.select().from(auditLogs).orderBy(desc(auditLogs.seq)).limit(1))[0]!;
+    const forged = { ...last, reason: "diubah diam-diam" };
+    await t.db.execute(sql`alter table audit_logs disable trigger equa_append_only`);
+    try {
+      await t.db.update(auditLogs).set({ reason: forged.reason, hash: computeAuditHash(last.prevHash, auditHashPayload(forged)) }).where(eq(auditLogs.id, last.id));
+      expect((await verifyAuditChain(t.db)).ok).toBe(true);
+      const res = await verifyAuditChain(t.db, { anchors });
+      expect(res.ok).toBe(false);
+      expect(res.reason).toMatch(/jangkar/);
+    } finally {
+      await t.db.update(auditLogs).set({ reason: last.reason, hash: last.hash }).where(eq(auditLogs.id, last.id));
+      await t.db.execute(sql`alter table audit_logs enable trigger equa_append_only`);
+    }
+    // Ekor dipotong → baris berjangkar hilang.
+    const missing = await verifyAuditChain(t.db, { anchors: [{ seq: cp!.seq + 1000, hash: "x" }] });
+    expect(missing.reason).toMatch(/hilang/);
   });
 });

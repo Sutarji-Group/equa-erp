@@ -113,3 +113,18 @@ Tanggal baseline: 27 September 2026.
 4. Mutasi melewati lapisan layanan: otorisasi peran + lingkup, pemisahan tugas, jejak audit, event domain.
 5. Ambang/angka aturan diambil dari parameter (Lampiran B), tidak ditanam di kode.
 6. Teks UI Bahasa Indonesia, pesan kesalahan berisi tindakan (bukan kode teknis).
+
+## D-07 Kasir toko hanya lewat POS (tinjauan arsitektur pasca-F3c)
+- Peran `store_cashier` hanya berantarmuka `pos` (`ROLE_CATALOG.interfaces`), sesuai PRD 7.7.2 ("semua fitur Kasir di
+  POS tablet") dan PRD 4.1 (Kasir bukan pengguna web kantor). Login web kantor & `getOfficeSession` MENOLAK peran tanpa
+  antarmuka `web` dengan pesan yang benar (Kasir/lapangan → aplikasi POS/lapangan; pemilik mitra → portal), bukan
+  "akun tidak aktif".
+- Semua aksi Kasir M7 (penerimaan barang/nota pembelian, opname, daftar pesan ulang, usulan barang/harga, pemasok baru)
+  dibangun sebagai HANDLER SINKRON POS + penyedia pull. Halaman `/toko/*` untuk pemilik, Admin Keuangan, akuntan.
+- Portal pemilik mitra (RL-7) memakai `loginWithPassword(..., { interface: "portal" })`.
+
+## D-08 Perilaku lewat tenggat permintaan akses (SEMENTARA — menunggu konfirmasi PM)
+- `account_create`, `role_grant`, `scope_extension` tetap `escalate` (tetap terbuka, ditandai terlambat, pengingat ke
+  pemilik; akun/peran TIDAK aktif selama belum disetujui — kolom PRD "Akun/peran tidak aktif" terpenuhi karena
+  permintaan tidak pernah memberi akses tanpa keputusan). Alternatif `expire` (permintaan gugur, harus diajukan ulang)
+  dapat diganti di `approvals/registry.ts` tanpa perubahan skema bila PM memilihnya.

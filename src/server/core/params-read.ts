@@ -8,7 +8,7 @@ import { and, desc, eq, lte, sql, type SQL } from "drizzle-orm";
 import type { z } from "zod";
 
 import { parameters } from "@/db/schema";
-import { isBusinessDate, toBusinessDate, type BusinessDate } from "@/lib/time";
+import { isBusinessDate, type BusinessDate } from "@/lib/time";
 
 import type { Tx } from "./db";
 import { DomainError } from "./errors";
@@ -60,15 +60,19 @@ function parseStored<K extends ParamKey>(key: K, value: unknown): ParamValue<K> 
   return result.data as ParamValue<K>;
 }
 
-/** Nilai + asal nilai yang berlaku pada tanggal bisnis (bawaan: hari ini WIB). */
+/**
+ * Nilai + asal nilai yang berlaku pada tanggal bisnis. Tanggal WAJIB (tinjauan pasca-F3c): pakai
+ * `ctxBusinessDate(ctx)` — bukan jam dinding — agar transaksi offline memakai parameter hari transaksinya dan uji
+ * yang mengendalikan waktu lewat `ctx.now` deterministik.
+ */
 export async function resolve<K extends ParamKey>(
   tx: Tx,
   key: K,
-  businessDate?: BusinessDate,
+  businessDate: BusinessDate,
   scope: ParamScopeRef = {},
 ): Promise<ParamResolution<K>> {
   if (!isParamKey(key)) throw new DomainError("PARAM_UNKNOWN", `Parameter tidak dikenal: ${String(key)}.`);
-  const date = businessDate ?? toBusinessDate(new Date());
+  const date = businessDate;
   if (!isBusinessDate(date)) throw new DomainError("INVALID_DATE", `Tanggal tidak valid: ${date}.`);
 
   const specificity = sql<number>`case when ${parameters.outletId} is not null then 3 when ${parameters.tenantId} is not null then 2 else 1 end`;
@@ -117,7 +121,7 @@ export async function resolve<K extends ParamKey>(
 export async function get<K extends ParamKey>(
   tx: Tx,
   key: K,
-  businessDate?: BusinessDate,
+  businessDate: BusinessDate,
   scope: ParamScopeRef = {},
 ): Promise<ParamValue<K>> {
   return (await resolve(tx, key, businessDate, scope)).value;
@@ -139,7 +143,7 @@ export async function history(tx: Tx, key: ParamKey, scope?: ParamScopeRef): Pro
 export type CurrentParam = ParamMeta & { value: unknown; source: "db" | "default"; effectiveFrom: string | null };
 
 /** Semua parameter terdaftar beserta nilai yang berlaku (untuk halaman Pengaturan > Parameter). */
-export async function listCurrent(tx: Tx, businessDate?: BusinessDate, scope: ParamScopeRef = {}): Promise<CurrentParam[]> {
+export async function listCurrent(tx: Tx, businessDate: BusinessDate, scope: ParamScopeRef = {}): Promise<CurrentParam[]> {
   const out: CurrentParam[] = [];
   for (const key of PARAM_KEYS) {
     const meta = paramMeta(key);

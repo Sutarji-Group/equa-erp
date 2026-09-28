@@ -218,3 +218,130 @@ describe("Sesi web (PAR-46, NFR-09, BR-37)", () => {
     expect(logs.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("Pengerasan login pasca-tinjauan (PTB-35, PAR-36, NFR-09, D-07)", () => {
+  it("PTB-35 PAR-36 kode 2FA salah tetap mengunci akun walau login kata sandi diulang (hitungan 2FA tidak direset)", async () => {
+    const u = await userWithPassword("finance_admin");
+    const first = await loginWithPassword({ username: u.username, password: u.password });
+    const enrollment = await startTotpEnrollment(first.token);
+    await confirmTotpEnrollment(first.token, await generate({ secret: enrollment.secret }));
+
+    let lockedAt = -1;
+    let attempts = 0;
+    for (let round = 0; round < 4 && lockedAt < 0; round++) {
+      const res = await loginWithPassword({ username: u.username, password: u.password }).catch((e: unknown) => e);
+      if (res instanceof AuthError) {
+        expect(res.code).toBe("ACCOUNT_LOCKED");
+        lockedAt = attempts;
+        break;
+      }
+      const { token } = res as { token: string };
+      for (let i = 0; i < 4; i++) {
+        const err = await verifyTotpLogin(token, "000001").catch((e: unknown) => e as AuthError);
+        attempts++;
+        if ((err as AuthError).code === "ACCOUNT_LOCKED") {
+          lockedAt = attempts;
+          break;
+        }
+        // Satu sesi menunggu 2FA hanya boleh 3 kode salah.
+        if ((err as AuthError).code === "TOTP_ATTEMPTS_EXCEEDED" || (err as AuthError).code === "SESSION_EXPIRED") break;
+      }
+    }
+    // PAR-36 = 5 kode salah (akumulasi lintas sesi) → terkunci.
+    expect(lockedAt).toBeGreaterThan(0);
+    expect(lockedAt).toBeLessThanOrEqual(5);
+    const [row] = await t.db.select({ lockedUntil: users.lockedUntil }).from(users).where(eq(users.id, u.userId));
+    expect(row!.lockedUntil).not.toBeNull();
+    // Kata sandi benar pun ditolak selama terkunci.
+    await expectAuthError(loginWithPassword({ username: u.username, password: u.password }), "ACCOUNT_LOCKED");
+  });
+
+  it("PTB-35 sesi menunggu 2FA dicabut setelah 3 kode salah (wajib kata sandi lagi)", async () => {
+    const res = await loginWithPassword({ username: "keuangan1", password: SEED_DEMO_PASSWORD });
+    await expectAuthError(verifyTotpLogin(res.token, "000001"), "TOTP_INVALID");
+    await expectAuthError(verifyTotpLogin(res.token, "000002"), "TOTP_INVALID");
+    await expectAuthError(verifyTotpLogin(res.token, "000003"), "TOTP_ATTEMPTS_EXCEEDED");
+    const [s] = await t.db.select().from(sessions).where(eq(sessions.id, res.sessionId));
+    expect(s!.revokeReason).toBe("totp_attempts");
+    // Kode benar pun tidak berlaku di sesi yang sudah dicabut.
+    await expectAuthError(verifyTotpLogin(res.token, await generate({ secret: SEED_TOTP_SECRETS.keuangan1 })), "SESSION_EXPIRED");
+    // Kode benar di sesi baru mereset hitungan 2FA.
+    const again = await loginWithPassword({ username: "keuangan1", password: SEED_DEMO_PASSWORD });
+    await verifyTotpLogin(again.token, await generate({ secret: SEED_TOTP_SECRETS.keuangan1, epoch: Math.floor(Date.now() / 1000) + 30 }));
+    const [u] = await t.db.select({ c: users.totpFailedCount }).from(users).where(eq(users.id, userIdByUsername("keuangan1")));
+    expect(u!.c).toBe(0);
+  });
+
+  it("PTB-35 rahasia 2FA terdaftar tak terbaca → login ditolak (bukan daftar ulang); reset admin sistem berjejak → daftar ulang", async () => {
+    const adminId = userIdByUsername("admin2");
+    await t.db
+      .update(users)
+      .set({ totpSecretEnc: "v1:AAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAA:AAAA", totpEnabled: true })
+      .where(eq(users.id, adminId));
+    await expectAuthError(loginWithPassword({ username: "admin2", password: SEED_DEMO_PASSWORD }), "TOTP_RESET_REQUIRED");
+    const denied = await t.db.select().from(accessLogs).where(and(eq(accessLogs.userId, adminId), eq(accessLogs.event, "login_failed")));
+    expect(denied.some((l) => /tidak terbaca/.test(l.reason ?? ""))).toBe(true);
+
+    // Reset oleh admin sistem lain: sesi dicabut, jejak audit + log akses.
+    const { resetTotp } = await import("@/server/core/auth");
+    await resetTotp(seededContext("admin1"), adminId, "Kunci server dirotasi");
+    const reset = await t.db.select().from(accessLogs).where(and(eq(accessLogs.userId, adminId), eq(accessLogs.event, "totp_reset")));
+    expect(reset).toHaveLength(1);
+    await expect(resetTotp(seededContext("dispatcher1"), adminId, "tidak berhak")).rejects.toMatchObject({ status: 403 });
+
+    const res = await loginWithPassword({ username: "admin2", password: SEED_DEMO_PASSWORD });
+    expect(res.next).toBe("totp_enroll");
+    const enrollment = await startTotpEnrollment(res.token);
+    await confirmTotpEnrollment(res.token, await generate({ secret: enrollment.secret }));
+    expect((await webActorFromToken(res.token))?.roles).toEqual(["system_admin"]);
+  });
+
+  it("PAR-36 5 kata sandi salah yang dikirim PARALEL tetap mengunci akun (hitungan dinaikkan atomik)", async () => {
+    const u = await userWithPassword("dispatcher");
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => loginWithPassword({ username: u.username, password: "salah-paralel-1" }).catch((e: unknown) => e as AuthError)),
+    );
+    expect(results.every((r) => r instanceof AuthError)).toBe(true);
+    await expectAuthError(loginWithPassword({ username: u.username, password: u.password }), "ACCOUNT_LOCKED");
+  });
+
+  it("NFR-09 nama pengguna tak dikenal juga 'terkunci' setelah PAR-36 percobaan (tanpa enumerasi nama pengguna)", async () => {
+    const real = await userWithPassword("dispatcher");
+    const ghost = `hantu-${real.username}`;
+    const realCodes: string[] = [];
+    const ghostCodes: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      realCodes.push(((await loginWithPassword({ username: real.username, password: "salah-sekali-1" }).catch((e: unknown) => e)) as AuthError).code);
+      ghostCodes.push(((await loginWithPassword({ username: ghost, password: "salah-sekali-1" }).catch((e: unknown) => e)) as AuthError).code);
+    }
+    expect(ghostCodes).toEqual(realCodes);
+    expect(realCodes.slice(4)).toEqual(["ACCOUNT_LOCKED", "ACCOUNT_LOCKED"]);
+  });
+
+  it("NFR-09 percobaan gagal per IP dibatasi (tebakan massal lintas akun)", async () => {
+    const { WEB_LOGIN_MAX_FAILURES_PER_IP_15_MIN } = await import("@/server/core/auth");
+    const ip = "203.0.113.77";
+    const now = new Date(Date.now() + 3 * 3_600_000);
+    await t.db.insert(accessLogs).values(
+      Array.from({ length: WEB_LOGIN_MAX_FAILURES_PER_IP_15_MIN }, (_, i) => ({
+        event: "login_failed" as const,
+        success: false,
+        ip,
+        usernameAttempted: `acak-${i}`,
+        occurredAt: new Date(now.getTime() - 60_000),
+      })),
+    );
+    await expectAuthError(loginWithPassword({ username: "dispatcher1", password: SEED_DEMO_PASSWORD }, { ip, now }), "LOGIN_RATE_LIMITED");
+    // IP lain tidak terpengaruh.
+    expect((await loginWithPassword({ username: "dispatcher1", password: SEED_DEMO_PASSWORD }, { ip: "203.0.113.78", now })).next).toBe("done");
+  });
+
+  it("D-07 Kasir toko hanya POS: ditolak di web kantor; pemilik mitra diarahkan ke portal", async () => {
+    const cashier = await userWithPassword("store_cashier");
+    const e1 = await expectAuthError(loginWithPassword({ username: cashier.username, password: cashier.password }), "FIELD_ACCOUNT");
+    expect(e1.message).toMatch(/POS/);
+    const partner = await userWithPassword("partner_owner");
+    await expectAuthError(loginWithPassword({ username: partner.username, password: partner.password }), "PORTAL_ACCOUNT");
+    expect((await loginWithPassword({ username: partner.username, password: partner.password }, {}, { interface: "portal" })).next).toBe("done");
+  });
+});

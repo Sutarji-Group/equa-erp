@@ -11,12 +11,20 @@
  * );
  * ```
  * Lampiran mendapat ID sendiri (dikirim sebagai `attachmentIds`); handler server membacanya di `meta.attachments`.
+ * Setiap perintah diikat ke sesi PIN pemiliknya dan ditandatangani kunci perintahnya (termasuk hash SHA-256 lampiran;
+ * `src/lib/sync-signature.ts`) — hanya pengguna AKTIF dengan layar tidak terkunci yang dapat mencatat.
+ *
+ * `businessDate` HARUS tanggal WIB saat dicatat (bawaan); server menolak tanggal lain (Bab 5.3, toleransi ±PAR-42 di
+ * tengah malam). Jangan memakai tanggal shift/rit sebagai tanggal bisnis perintah.
  */
 import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
 
-import { getActiveUserId } from "./auth";
+import { FieldApiError } from "./api";
+import { getActiveUserId, lockScreen } from "./auth";
+import { sha256HexOfBlob } from "./crypto";
 import { fieldDb, PENDING_STATUSES, type AttachmentItem, type OutboxItem } from "./db";
+import { getActiveCommandKey, signOutboxItem } from "./signing";
 
 export type EnqueueCommand = {
   /** Jenis perintah terdaftar di server (`registerSyncHandler`), mis. `m3.trip.depart`. */
@@ -24,7 +32,9 @@ export type EnqueueCommand = {
   payload: unknown;
   /** Label untuk daftar antrean ("tersimpan di ponsel"/"terkirim"). */
   label?: string;
-  /** Tanggal bisnis bila berbeda dari hari ini (bawaan: tanggal WIB perangkat saat ini). */
+  /**
+   * @deprecated Tanggal bisnis = tanggal WIB perangkat saat dicatat (bawaan) — server menolak nilai lain (Bab 5.3).
+   */
   businessDate?: string;
 };
 
@@ -51,9 +61,16 @@ export async function enqueue(
   attachments: readonly EnqueueAttachment[] = [],
   opts: EnqueueOptions = {},
 ): Promise<{ id: string; attachmentIds: string[] }> {
-  const userId = opts.userId ?? (await getActiveUserId());
+  const activeUserId = await getActiveUserId();
+  const userId = opts.userId ?? activeUserId;
   if (!userId) throw new Error("Masuk dengan PIN terlebih dahulu.");
   if (!command.type) throw new Error("Jenis data wajib diisi.");
+  const signer = await getActiveCommandKey(userId);
+  if (!signer) {
+    // Kunci perintah hanya ada selama pengguna itu aktif & layar terbuka → minta PIN (kunci layar pengguna aktif).
+    if (userId === activeUserId) await lockScreen();
+    throw new FieldApiError("Masukkan PIN Anda lagi untuk mencatat data.", { code: "PIN_REQUIRED" });
+  }
   const now = opts.now ?? new Date();
   const id = newId();
   const attachmentRows: AttachmentItem[] = attachments.map((a) => ({
@@ -69,6 +86,7 @@ export async function enqueue(
     status: "pending",
     attempts: 0,
   }));
+  const attachmentHashes = await Promise.all(attachmentRows.map((a) => sha256HexOfBlob(a.blob)));
   const item: OutboxItem = {
     id,
     userId,
@@ -77,11 +95,16 @@ export async function enqueue(
     deviceTime: now.toISOString(),
     businessDate: command.businessDate ?? toBusinessDate(now),
     attachmentIds: attachmentRows.map((a) => a.id),
+    attachmentHashes,
+    sessionId: signer.sessionId,
+    reboundFrom: null,
+    sig: null,
     label: command.label ?? null,
     status: "queued",
     createdAt: now.getTime(),
     attempts: 0,
   };
+  item.sig = await signOutboxItem(item, signer.sessionId, signer.key);
   const db = fieldDb();
   await db.transaction("rw", db.outbox, db.attachments, async () => {
     if (attachmentRows.length) await db.attachments.bulkAdd(attachmentRows);

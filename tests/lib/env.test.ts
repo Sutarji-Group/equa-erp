@@ -41,3 +41,33 @@ describe("lib/env — validasi env server", () => {
     expect(() => parseServerEnv({ DB_DRIVER: "mysql" })).toThrow(/DB_DRIVER/);
   });
 });
+
+describe("lib/env — rahasia bawaan dev fail-closed (tinjauan pasca-F3c)", () => {
+  it("NFR-09 self-host NODE_ENV=production tanpa VERCEL_ENV menolak rahasia bawaan dev", () => {
+    expect(() => parseServerEnv({ NODE_ENV: "production", DB_DRIVER: "pg", DATABASE_URL: "postgres://u:p@h/db" })).toThrow(/SESSION_SECRET/);
+    expect(() => parseServerEnv({ NODE_ENV: "production" })).toThrow(/CRON_SECRET/);
+  });
+
+  it("NFR-09 deploy preview Vercel juga menolak rahasia bawaan dev", () => {
+    expect(() => parseServerEnv({ VERCEL_ENV: "preview", DB_DRIVER: "neon", DATABASE_URL: "postgres://u:p@h/db" })).toThrow(/SESSION_SECRET/);
+  });
+
+  it("NFR-09 fase next build & E2E lokal eksplisit (ALLOW_DEV_SECRETS=1) boleh; tidak pernah di produksi Vercel", async () => {
+    const { devSecretsAllowed } = await import("@/lib/env");
+    expect(parseServerEnv({ NODE_ENV: "production", NEXT_PHASE: "phase-production-build" }).DB_DRIVER).toBe("pglite");
+    const e2e = parseServerEnv({ NODE_ENV: "production", ALLOW_DEV_SECRETS: "1" });
+    expect(devSecretsAllowed(e2e)).toBe(true);
+    expect(devSecretsAllowed(parseServerEnv({ NODE_ENV: "production", SESSION_SECRET: "y".repeat(40), CRON_SECRET: "c", GPS_INGEST_TOKEN: "g" }))).toBe(false);
+    expect(() =>
+      parseServerEnv({
+        VERCEL_ENV: "production",
+        ALLOW_DEV_SECRETS: "1",
+        DB_DRIVER: "neon",
+        DATABASE_URL: "postgres://u:p@h/db",
+        SESSION_SECRET: "x".repeat(48),
+        CRON_SECRET: "c",
+        GPS_INGEST_TOKEN: "g",
+      }),
+    ).toThrow(/ALLOW_DEV_SECRETS/);
+  });
+});

@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { formatTanggalJam } from "@/lib/time";
-import { requireOfficeSession } from "@/server/core/auth/office";
+import { requirePermission } from "@/server/core/auth/office";
 import { listMySupportTickets } from "@/server/core/support";
 
 import { TicketForm } from "./ticket-form";
@@ -21,7 +21,7 @@ const GUIDE = [
 
 /** Bantuan: panduan singkat + formulir laporan kendala (US-M10-07 KP-3, NFR-33) dengan status terlihat pelapor. */
 export default async function BantuanPage() {
-  const { ctx } = await requireOfficeSession();
+  const { ctx } = await requirePermission("m10.support_ticket.create");
   const tickets = await listMySupportTickets(ctx);
   return (
     <>

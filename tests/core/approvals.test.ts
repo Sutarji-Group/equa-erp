@@ -286,3 +286,64 @@ describe("Alur persetujuan (US-M10-04)", () => {
     expect(rows[0]!.status).toBe("submitted");
   });
 });
+
+describe("Persetujuan: perbaikan pasca-tinjauan (6.2a, BR-32, PTB-32)", () => {
+  const t = useTestDb({ seed: true });
+
+  it("PTB-32 job lewat tenggat tidak memilih ulang escalate yang sudah ditandai — > 500 escalate lama tidak menutup jenis expire", async () => {
+    const past = new Date(T0.getTime() - 72 * 3_600_000);
+    const requester = userIdByUsername("keuangan1");
+    await t.db.insert(approvalRequests).values(
+      Array.from({ length: 501 }, (_, i) => ({
+        tenantId: seededContext("keuangan1").tenantId,
+        number: `A-26-9${String(i).padStart(5, "0")}`,
+        type: "cash_discrepancy",
+        status: "submitted" as const,
+        requesterUserId: requester,
+        requesterRole: "finance_admin" as const,
+        approverRole: "owner" as const,
+        objectType: "discrepancy",
+        objectId: newId(),
+        reason: "Selisih lama belum diputuskan",
+        payload: {},
+        deadlineAt: past,
+        overdueAt: past,
+      })),
+    );
+    const disp = seededContext("dispatcher1", { now: new Date(T0.getTime() - 2 * 3_600_000) });
+    const credit = await approvals.submit(disp, {
+      type: "credit_order",
+      objectId: newId(),
+      reason: "Pesanan tempo hotel di luar batas",
+      deadlineAt: new Date(T0.getTime() - 3_600_000),
+    });
+    const res = await approvals.expireDue(T0);
+    expect(res.expired).toBeGreaterThanOrEqual(1);
+    const [row] = await t.db.select().from(approvalRequests).where(eq(approvalRequests.id, credit.id));
+    expect(row!.status).toBe("expired");
+  });
+
+  it("BR-32 tenggat tutup buku dihitung dari periode yang diajukan (periode Sep diajukan 3 Okt → 10 Okt); tanpa tanggal periode ditolak", async () => {
+    const keu = seededContext("keuangan1", { now: new Date("2026-10-03T03:00:00Z") });
+    await expect(approvals.submit(keu, { type: "period_lock", objectId: newId(), reason: "Kunci periode September" })).rejects.toMatchObject({
+      code: "DEADLINE_REQUIRED",
+    });
+    const req = await approvals.submit(keu, { type: "period_lock", objectId: newId(), reason: "Kunci periode September", businessDate: "2026-09-30" });
+    expect(req.deadlineAt?.toISOString()).toBe("2026-10-10T16:59:00.000Z");
+  });
+
+  it("6.2a void POS: pemilik memutuskan, Admin Keuangan menerima notifikasi saat diajukan", async () => {
+    const op = seededContext("depot01", { now: T0 });
+    const req = await approvals.submit(op, {
+      type: "pos_void",
+      objectId: newId(),
+      amount: 150_000,
+      reason: "Salah input produk",
+      deadlineAt: new Date(T0.getTime() + 4 * 3_600_000),
+    });
+    const fa = await notificationsFor(t.db, "keuangan1", "pos.void_requested");
+    expect(fa.some((n) => n.objectId === req.id)).toBe(true);
+    const owner = await notificationsFor(t.db, "pemilik", "approval.requested");
+    expect(owner.some((n) => n.objectId === req.id)).toBe(true);
+  });
+});

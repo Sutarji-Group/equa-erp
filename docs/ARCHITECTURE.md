@@ -234,6 +234,13 @@ Kode memakai bahasa Inggris; UI memakai istilah PRD lewat `src/lib/labels.ts`.
 `restitution.recorded` · `restitution.settled` · `approval.decided` · `fleet_event.detected` · `period.closed` ·
 `period.locked` · `asset.depreciated` · `partner.subscription_invoiced` · `digital_payment.succeeded`
 
+Koreksi/pembalik (tambahan tinjauan pasca-F3c — WAJIB dipakai, jangan membuat nama lain): `trip.corrected` ·
+`trip_payment.reversed` · `trip_expense.reversed` · `bank_deposit.reversed` · `restitution.settlement_reversed` ·
+`consumable.receipt_reversed` · `purchase_receipt.corrected` · `invoice.written_off` · `customer_advance.refunded` ·
+`discrepancy.reopened`. Handler event berjalan terisolasi di savepoint secara bawaan (`on(..., { isolate })`, lihat
+`src/server/core/events.ts`): galat pelanggan (mis. jurnal M11) tidak menggagalkan transaksi sumber, melainkan dicatat
+sebagai insiden.
+
 Payload tiap event diketik di `src/server/core/events.types.ts`. Modul menambah event baru hanya dengan menambah entri
 di berkas itu (tambahan, tidak mengubah yang ada). M11 berlangganan event keuangan untuk jurnal otomatis (PRD 7.11.4);
 M9 membaca data, tidak berlangganan.
@@ -262,7 +269,9 @@ Navigasi dirender dari registri `src/components/shared/nav/registry.ts` (sudah m
 
 - `tests/helpers/db.ts`: PGlite in-memory per berkas uji, skema didorong dari `src/db/schema` (drizzle-kit `pushSchema`
   atau migrasi hasil generate), seed minimal. **Tidak ada layanan eksternal**.
-- `tests/helpers/factories.ts`: pembuat data (pelanggan, truk, pesanan, rit, pengguna per peran…).
+- `tests/helpers/factories.ts`: pengguna per peran (`createTestUser`); `tests/helpers/fixtures.ts`: pelanggan, truk + kru,
+  pesanan, rit terjadwal, shift, setoran; `tests/helpers/field.ts`: perangkat + login PIN + perintah sinkron bertanda
+  tangan (`fieldDevice`, `signedCommand`); `tests/helpers/bootstrap.ts`: `bootstrapForTests()`.
 - Judul uji memuat ID: `it('US-M2-05 KP-2 menolak tempo bila eksposur > batas', …)`. `tools/trace-check.ts` menghitung
   cakupan KP per user story dari judul uji.
 - E2E Playwright (`e2e/`) untuk skenario P-01..P-07 dan offline (mode pesawat via `context.setOffline(true)`).

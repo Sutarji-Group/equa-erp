@@ -79,3 +79,25 @@ BEGIN
   END IF;
 END;
 $$;
+
+--> statement-breakpoint
+
+-- Tinjauan pasca-F3c (NFR-30, D-04): urutan nomor dokumen per tenant. Baris lama (sebelum nextNumber mengisi tenant)
+-- milik tenant EQUA (tenant pemilik); kolom dijadikan NOT NULL dan indeks unik global lama dihapus.
+DO $$
+BEGIN
+  IF to_regclass('public.document_sequences') IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'document_sequences' AND column_name = 'tenant_id' AND is_nullable = 'YES'
+     ) THEN
+    UPDATE public.document_sequences
+       SET tenant_id = (SELECT id FROM public.tenants WHERE code = 'EQUA' ORDER BY created_at LIMIT 1)
+     WHERE tenant_id IS NULL;
+    ALTER TABLE public.document_sequences ALTER COLUMN tenant_id SET NOT NULL;
+  END IF;
+  IF to_regclass('public.document_sequences_kind_scope_uq') IS NOT NULL THEN
+    DROP INDEX public.document_sequences_kind_scope_uq;
+  END IF;
+END;
+$$;

@@ -36,7 +36,7 @@ import { nextNumber } from "../numbering";
 import { get as getParam } from "../params-read";
 import { authorize, recordDenial, runService } from "../rbac/authorize";
 import * as sod from "../rbac/sod";
-import { getApprovalType, type ApprovalTypeDef, type DeadlineRule } from "./registry";
+import { APPROVAL_TYPES, getApprovalType, type ApprovalTypeDef, type DeadlineRule } from "./registry";
 
 export type ApprovalRow = typeof approvalRequests.$inferSelect;
 export type ApprovalDecision = "approved" | "rejected" | "expired" | "cancelled";
@@ -100,7 +100,15 @@ export async function computeDeadline(
     case "business_days":
       return wibToUtc(addBusinessDays(today, rule.days), "23:59");
     case "param_day_of_next_month": {
-      const base = input.businessDate && isBusinessDate(input.businessDate) ? input.businessDate : today;
+      // BR-32: tenggat "tanggal N bulan berikutnya" dihitung dari PERIODE yang diajukan (kirim tanggal terakhir periode
+      // sebagai `businessDate`), bukan dari tanggal pengajuan — pengajuan 3 Okt untuk periode September → 10 Okt.
+      if (!input.businessDate || !isBusinessDate(input.businessDate)) {
+        throw new DomainError(
+          "DEADLINE_REQUIRED",
+          "Tanggal periode wajib dikirim (businessDate = tanggal terakhir periode) untuk menghitung tenggat tutup buku.",
+        );
+      }
+      const base = input.businessDate;
       const value = (await getParam(tx, rule.param, today)) as Record<string, unknown>;
       const day = Number(value[rule.field]);
       const p = toWibParts(wibToUtc(base));
@@ -186,7 +194,7 @@ export async function submit(ctx: ActorContext, input: SubmitApprovalInput, opts
       deadlineAt: parsed.deadlineAt ?? null,
       businessDate: parsed.businessDate ?? null,
     });
-    const number = await nextNumber(tx, "approval", ctx.now);
+    const number = await nextNumber(tx, "approval", ctxBusinessDate(ctx), { tenantId: ctx.tenantId });
     const [row] = await tx
       .insert(approvalRequests)
       .values({
@@ -232,6 +240,21 @@ export async function submit(ctx: ActorContext, input: SubmitApprovalInput, opts
       link: `/persetujuan?id=${row!.id}`,
       now: ctx.now,
     });
+    if (def.notifyAlso) {
+      await notify(tx, {
+        event: def.notifyAlso.event,
+        tenantId: ctx.tenantId,
+        recipients: { roles: def.notifyAlso.roles },
+        excludeUserIds: [ctx.userId!],
+        title: `${def.label} diajukan`,
+        body: `${number} oleh ${label("role", requesterRole)}${valueText ? ` — ${valueText}` : ""}. Keputusan oleh ${label("role", def.approverRole)}. Alasan: ${parsed.reason}`,
+        objectType: "approval_request",
+        objectId: row!.id,
+        valueAmount: parsed.amount ?? null,
+        link: `/persetujuan?id=${row!.id}`,
+        now: ctx.now,
+      });
+    }
     return row!;
   });
 }
@@ -534,10 +557,20 @@ export type ExpireResult = { expired: number; escalated: number; errors: { id: s
 export async function expireDue(now: Date = new Date(), opts: { db?: Tx } = {}): Promise<ExpireResult> {
   ensureBootstrapped();
   const db = opts.db ?? getDb();
+  // Hanya yang masih perlu diproses: jenis ber-perilaku lewat tenggat (bukan `none`) dan belum ditandai terlambat
+  // (escalate ditandai sekali) — permintaan escalate lama yang menumpuk tidak menutup antrean jenis `expire`.
+  const actionable = APPROVAL_TYPES.filter((d) => d.onExpire !== "none").map((d) => d.type);
   const due = await db
     .select({ id: approvalRequests.id })
     .from(approvalRequests)
-    .where(and(eq(approvalRequests.status, "submitted"), lte(approvalRequests.deadlineAt, now)))
+    .where(
+      and(
+        eq(approvalRequests.status, "submitted"),
+        lte(approvalRequests.deadlineAt, now),
+        isNull(approvalRequests.overdueAt),
+        inArray(approvalRequests.type, actionable),
+      ),
+    )
     .orderBy(asc(approvalRequests.deadlineAt))
     .limit(500);
   const result: ExpireResult = { expired: 0, escalated: 0, errors: [] };

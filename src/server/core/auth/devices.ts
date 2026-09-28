@@ -304,6 +304,8 @@ export type ActivationResult = {
   deviceSecret: string;
   device: PublicDevice;
   serverTime: string;
+  /** Batas bawah urutan nomor lokal perangkat per lingkup (aktivasi ulang melanjutkan, tidak mengulang). */
+  deviceSeq: Record<string, number>;
 };
 
 async function recentActivationFailures(tx: Tx, ip: string | null | undefined, now: Date): Promise<number> {
@@ -333,6 +335,12 @@ export async function activateDevice(rawCode: string, meta: ActivationMeta = {})
       : [];
   const device = rows[0];
   const invalid = !device || !device.activationExpiresAt || device.activationExpiresAt.getTime() <= now.getTime() || device.kind === "gps";
+  // Perintah hapus data yang belum dijalankan / sudah dijalankan tidak boleh "hilang" karena kode lama yang beredar:
+  // admin sistem wajib menerbitkan kode baru secara sadar (issueActivationCode) setelah hapus data dijalankan.
+  if (!invalid && (device.status === "wipe_pending" || device.status === "wiped")) {
+    await logAccess(db, { ...logBase, event: "device_rejected", success: false, tenantId: device.tenantId, deviceId: device.id, reason: `Kode lama ditolak (status ${device.status})` });
+    throw new AuthError("ACTIVATION_INVALID", "Kode aktivasi ini tidak berlaku lagi. Minta kode baru ke admin sistem.");
+  }
   if (invalid || device.status === "blocked") {
     await logAccess(db, {
       ...logBase,
@@ -378,7 +386,14 @@ export async function activateDevice(rawCode: string, meta: ActivationMeta = {})
       after: { status: "active" },
       reason: "Aktivasi perangkat dengan kode admin sistem",
     });
-    return { deviceId: device.id, deviceSecret: secret, device: await publicDevice(tx, updated!), serverTime: now.toISOString() };
+    const { deviceSeqFloors } = await import("../sync/registry");
+    return {
+      deviceId: device.id,
+      deviceSecret: secret,
+      device: await publicDevice(tx, updated!),
+      serverTime: now.toISOString(),
+      deviceSeq: await deviceSeqFloors(tx, device.id),
+    };
   });
 }
 
@@ -392,7 +407,16 @@ export async function blockDevice(ctx: ActorContext, deviceId: string, reason: s
     const device = await requireDevice(tx, ctx, deviceId);
     const [updated] = await tx
       .update(devices)
-      .set({ status: "blocked", blockedAt: ctx.now, blockedBy: ctx.userId, blockedReason: why, updatedAt: ctx.now })
+      .set({
+        status: "blocked",
+        blockedAt: ctx.now,
+        blockedBy: ctx.userId,
+        blockedReason: why,
+        // Kode aktivasi yang masih beredar ikut gugur.
+        activationCodeHash: null,
+        activationExpiresAt: null,
+        updatedAt: ctx.now,
+      })
       .where(eq(devices.id, device.id))
       .returning();
     const revoked = await revokeDeviceSessions(tx, device.id, "device_blocked", ctx.now);
@@ -423,7 +447,15 @@ export async function requestWipe(ctx: ActorContext, deviceId: string, reason: s
     const device = await requireDevice(tx, ctx, deviceId);
     const [updated] = await tx
       .update(devices)
-      .set({ status: "wipe_pending", wipeRequestedAt: ctx.now, blockedReason: why, updatedAt: ctx.now })
+      .set({
+        status: "wipe_pending",
+        wipeRequestedAt: ctx.now,
+        blockedReason: why,
+        // Kode aktivasi lama gugur agar perintah hapus tidak tertimpa aktivasi ulang (US-M10-02 KP-6).
+        activationCodeHash: null,
+        activationExpiresAt: null,
+        updatedAt: ctx.now,
+      })
       .where(eq(devices.id, device.id))
       .returning();
     await revokeDeviceSessions(tx, device.id, "device_wipe", ctx.now);

@@ -2,7 +2,8 @@
  * Membangun `ActorContext` dari pengguna di DB dan menyelesaikan pelaku untuk route handler / Server Action.
  *
  * - `buildActorContext(tx, userId, { source, deviceId?, … })` — memuat peran & lingkup AKTIF (masa berlaku mencakup
- *   hari ini). Dipakai lapisan autentikasi (F3c) setelah sesi/token perangkat diverifikasi.
+ *   hari ini); menolak akun nonaktif ATAU lewat tanggal keluar (BR-37). Dipakai lapisan autentikasi (F3c) setelah
+ *   sesi/token perangkat diverifikasi.
  * - `getActorContext(request?)` — pelaku permintaan saat ini lewat resolver yang dapat diganti. F3c memasang
  *   resolver (`src/server/core/auth/resolver.ts`, lewat `ensureBootstrapped` → `registerCoreAuth`): cookie
  *   `equa_session` (web kantor, 2FA wajib terverifikasi) atau `Authorization: Bearer <JWT perangkat>` (lapangan).
@@ -11,7 +12,7 @@ import "server-only";
 
 import { and, eq, gte, isNull, lte, or } from "drizzle-orm";
 
-import { userRoles, users, userScopes } from "@/db/schema";
+import { employees, userRoles, users, userScopes } from "@/db/schema";
 import type { ActorSource, RoleCode } from "@/lib/labels";
 import { toBusinessDate } from "@/lib/time";
 
@@ -33,14 +34,23 @@ export async function buildActorContext(tx: Tx, userId: string, options: BuildAc
   const now = options.now ?? new Date();
   const today = toBusinessDate(now);
   const rows = await tx
-    .select({ id: users.id, tenantId: users.tenantId, employeeId: users.employeeId, status: users.status })
+    .select({ id: users.id, tenantId: users.tenantId, employeeId: users.employeeId, status: users.status, exitDate: employees.exitDate })
     .from(users)
+    .innerJoin(employees, eq(employees.id, users.employeeId))
     .where(eq(users.id, userId))
     .limit(1);
   const user = rows[0];
   if (!user) throw new NotFoundError("Pengguna tidak ditemukan.");
   if (user.status !== "active") {
     throw new ForbiddenError("Akun Anda tidak aktif. Hubungi admin sistem.", { rule: "BR-37", objectType: "user", objectId: userId });
+  }
+  // BR-37: tanggal keluar tiba → akun tidak dapat bertindak dari sumber mana pun (web, lapangan, POS, sinkron).
+  if (user.exitDate && user.exitDate <= today) {
+    throw new ForbiddenError("Akun Anda sudah dinonaktifkan (tanggal keluar). Hubungi admin sistem bila ini keliru.", {
+      rule: "BR-37",
+      objectType: "user",
+      objectId: userId,
+    });
   }
 
   const roleRows = await tx

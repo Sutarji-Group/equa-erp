@@ -103,16 +103,18 @@ export function FieldGate({ home, children }: { home: FieldHome; children: React
     else if (snap.device.device.home !== home) router.replace(snap.device.device.home);
   }, [snap, home, router]);
 
-  // Worker sinkron + perintah hapus jarak jauh.
+  // Worker sinkron + perintah hapus jarak jauh. Bergantung pada ID perangkat (bukan objek baris): setiap pull
+  // memperbarui baris `device` di IndexedDB → objek baru dari liveQuery → worker dimulai ulang → sinkron lagi (loop).
+  const activeDeviceId = device?.deviceId ?? null;
   useEffect(() => {
-    if (!device) return;
+    if (!activeDeviceId) return;
     setWipeHandler(() => window.location.replace("/aktivasi-perangkat?dihapus=1"));
     const stop = startSyncWorker();
     return () => {
       stop();
       setWipeHandler(null);
     };
-  }, [device]);
+  }, [activeDeviceId]);
 
   // Daftar pengguna di layar PIN (daftar tersimpan + perbarui saat daring).
   const needLogin = !!device && !snap?.activeUserId;

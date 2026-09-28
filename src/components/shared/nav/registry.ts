@@ -562,7 +562,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: BellDot,
         permission: null,
       },
-      { id: "m10.help", href: "/bantuan", label: "Bantuan", icon: LifeBuoy, permission: null },
+      // Hanya peran yang boleh mengirim tiket (akuntan baca-saja & pemilik mitra/portal tidak; tinjauan pasca-F3c).
+      { id: "m10.help", href: "/bantuan", label: "Bantuan", icon: LifeBuoy, permission: "m10.support_ticket.create" },
     ],
   },
 ];

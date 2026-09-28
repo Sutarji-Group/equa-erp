@@ -27,7 +27,7 @@ import { notify } from "../notifications/service";
 import { get as getParam } from "../params-read";
 import { authorize, runService } from "../rbac/authorize";
 import { ROLE_CATALOG } from "../rbac/roles";
-import { computePinVerifier, formatCode, hashCode, normalizeCode, randomCode, type PinVerifier } from "./crypto";
+import { computePinVerifier, fieldCommandKey, formatCode, hashCode, normalizeCode, randomCode, type PinVerifier } from "./crypto";
 import type { DeviceAuth } from "./device-auth";
 import { deviceSource, logDeviceUsage, type DeviceRow } from "./devices";
 import { AuthError } from "./errors";
@@ -39,6 +39,11 @@ import { createSession, isUserUsable, revokeAllSessions } from "./session";
 export const PIN_ENROLLMENT_TTL_HOURS = 24;
 /** Batas percobaan kode aktivasi akun gagal per perangkat per 15 menit. */
 export const PIN_ENROLLMENT_MAX_FAILURES_PER_15_MIN = 10;
+/**
+ * Batas PIN salah daring per perangkat per 15 menit (semua pengguna) — menahan tebakan bergilir antar-akun, terutama
+ * di perangkat cadangan yang boleh dipakai semua pengguna lapangan tenant (PAR-36 berlaku per akun).
+ */
+export const PIN_LOGIN_MAX_FAILURES_PER_DEVICE_15_MIN = 20;
 
 export const FIELD_ROLES: readonly RoleCode[] = ["driver", "helper", "depot_operator", "store_cashier", "production_operator"];
 
@@ -58,6 +63,11 @@ export type FieldLoginResult = {
   expiresAt: string;
   user: FieldUserInfo;
   verifier: PinVerifier;
+  /**
+   * Kunci perintah sesi (base64url 32 byte) untuk menandatangani perintah outbox pengguna ini
+   * (`src/lib/sync-signature.ts`). Perangkat menyimpannya TERBUNGKUS kunci turunan PIN — bukan teks biasa.
+   */
+  commandKey: string;
   /** Kebijakan kunci untuk klien (PAR-36 & PAR-37) — dipakai juga saat offline. */
   policy: { maxAttempts: number; lockMinutes: number; idleMinutes: number };
   serverTime: string;
@@ -255,15 +265,38 @@ async function completeFieldLogin(
       roleLabel: fieldRoleLabel(found.roles),
     },
     verifier: await computePinVerifier(pin),
+    commandKey: fieldCommandKey(session.id),
     policy: await pinPolicy(tx, now),
     serverTime: now.toISOString(),
   };
 }
 
-/** Login PIN daring di perangkat terdaftar. Hitungan salah & kunci di-commit walau login gagal. */
+async function recentDevicePinFailures(tx: Tx, deviceId: string, now: Date): Promise<number> {
+  const rows = await tx
+    .select({ n: count() })
+    .from(accessLogs)
+    .where(
+      and(
+        eq(accessLogs.deviceId, deviceId),
+        inArray(accessLogs.event, ["pin_failed", "pin_locked"]),
+        isNull(accessLogs.objectType),
+        gte(accessLogs.occurredAt, new Date(now.getTime() - 15 * 60_000)),
+        lte(accessLogs.occurredAt, now),
+      ),
+    );
+  return Number(rows[0]?.n ?? 0);
+}
+
+/**
+ * Login PIN daring di perangkat terdaftar. Hitungan salah & kunci di-commit walau login gagal. Hitungan dinaikkan
+ * ATOMIK (`pin_failed_count = pin_failed_count + 1 RETURNING`) sehingga tebakan paralel tidak melewati PAR-36.
+ */
 export async function pinLogin(auth: DeviceAuth, input: { userId: string; pin: string }): Promise<FieldLoginResult> {
   const { device, now } = auth;
   const outcome = await withTx(async (tx) => {
+    if ((await recentDevicePinFailures(tx, device.id, now)) >= PIN_LOGIN_MAX_FAILURES_PER_DEVICE_15_MIN) {
+      throw new AuthError("PIN_RATE_LIMITED", "Terlalu banyak PIN salah di perangkat ini. Tunggu 15 menit atau hubungi admin sistem.");
+    }
     const userRows = await tx.select().from(users).where(eq(users.id, String(input.userId ?? ""))).limit(1);
     const user = userRows[0];
     if (!user || user.tenantId !== device.tenantId) throw new AuthError("PIN_INVALID", "Pengguna tidak dikenal di perangkat ini.");
@@ -275,12 +308,16 @@ export async function pinLogin(auth: DeviceAuth, input: { userId: string; pin: s
     const ok = isPinFormat(input.pin) && (await verifySecretHash(user.pinHash, input.pin));
     if (!ok) {
       const policy = await pinPolicy(tx, now);
-      const failed = user.pinFailedCount + 1;
-      const lockedUntil = failed >= policy.maxAttempts ? new Date(now.getTime() + policy.lockMinutes * 60_000) : null;
-      await tx
+      const [counted] = await tx
         .update(users)
-        .set({ pinFailedCount: lockedUntil ? 0 : failed, pinLockedUntil: lockedUntil, updatedAt: now })
-        .where(eq(users.id, user.id));
+        .set({ pinFailedCount: sql`${users.pinFailedCount} + 1`, updatedAt: now })
+        .where(eq(users.id, user.id))
+        .returning({ failed: users.pinFailedCount });
+      const failed = Number(counted?.failed ?? 0);
+      const lockedUntil = failed >= policy.maxAttempts ? new Date(now.getTime() + policy.lockMinutes * 60_000) : null;
+      if (lockedUntil) {
+        await tx.update(users).set({ pinFailedCount: 0, pinLockedUntil: lockedUntil, updatedAt: now }).where(eq(users.id, user.id));
+      }
       await logAccess(tx, {
         event: lockedUntil ? "pin_locked" : "pin_failed",
         success: false,
@@ -306,7 +343,7 @@ export async function pinLogin(auth: DeviceAuth, input: { userId: string; pin: s
         });
         return { error: new AuthError("PIN_LOCKED", pinLockedMessage(lockedUntil), { lockedUntil: lockedUntil.toISOString() }) };
       }
-      const left = policy.maxAttempts - failed;
+      const left = Math.max(0, policy.maxAttempts - failed);
       return { error: new AuthError("PIN_INVALID", `PIN salah. Sisa ${left} kali percobaan sebelum terkunci.`, { attemptsLeft: left }) };
     }
     return { result: await completeFieldLogin(tx, auth, found, input.pin, "pin") };

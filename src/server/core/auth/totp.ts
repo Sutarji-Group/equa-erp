@@ -1,8 +1,9 @@
 /**
  * TOTP 2FA web kantor (PTB-35; US-M10-02 KP-4) memakai otplib v13 (API fungsional).
  *
- * Rahasia disimpan terenkripsi (`v1:…`, lihat `./crypto.ts`). Seed demo memakai awalan `plain:` — diterima HANYA di
- * luar produksi (`VERCEL_ENV !== "production"`) dan dienkripsi ulang saat dipakai (`readTotpSecret` → `reencrypted`).
+ * Rahasia disimpan terenkripsi (`v1:…`, lihat `./crypto.ts`). Seed demo memakai awalan `plain:` — diterima HANYA bila
+ * rahasia dev diizinkan (`devSecretsAllowed`: dev/uji, atau E2E lokal dengan ALLOW_DEV_SECRETS=1; TIDAK pernah di
+ * produksi/preview) dan dienkripsi ulang saat dipakai (`readTotpSecret` → `reencrypted`).
  * Toleransi ±30 detik (satu langkah). Pemakaian ulang kode dicegah dengan `afterTimeStep` (langkah terakhir yang
  * berhasil, disimpan di `access_logs.details.totpTimeStep`).
  */
@@ -11,7 +12,7 @@ import "server-only";
 import { generateSecret, generateURI, verify } from "otplib";
 
 import { PLAIN_SECRET_PREFIX } from "@/db/seed/constants";
-import { serverEnv } from "@/lib/env";
+import { devSecretsAllowed, serverEnv } from "@/lib/env";
 
 import { decryptSecret, encryptSecret, ENCRYPTED_SECRET_PREFIX } from "./crypto";
 
@@ -67,9 +68,8 @@ export function readTotpSecret(stored: string | null | undefined): StoredTotpSec
     }
   }
   if (stored.startsWith(PLAIN_SECRET_PREFIX)) {
-    // "Produksi" = deploy produksi Vercel (sama dengan aturan rahasia bawaan di src/lib/env.ts); `next start` lokal/E2E
-    // tetap boleh memakai data demo.
-    if (serverEnv().VERCEL_ENV === "production") return null;
+    // Sama dengan aturan rahasia bawaan di src/lib/env.ts: produksi/preview menolak `plain:`; E2E lokal eksplisit boleh.
+    if (!devSecretsAllowed(serverEnv())) return null;
     const secret = stored.slice(PLAIN_SECRET_PREFIX.length);
     return secret ? { secret, reencrypted: encryptSecret(secret) } : null;
   }

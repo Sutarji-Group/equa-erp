@@ -4,13 +4,15 @@
  * Hook React aplikasi lapangan (hanya peramban):
  * - `useSyncStatus(userId?)` → jumlah antrean belum terkirim (pengguna aktif), ditolak, perlu login, status daring,
  *   sedang mengirim, terakhir sinkron, `syncNow()` ("Kirim sekarang").
- * - `useReference<T>(key)` → data referensi offline hasil pull untuk pengguna aktif (mis. `"m3.trips_today"`).
+ * - `useReference<T>(key)` → data referensi offline hasil pull untuk pengguna aktif (mis. `"m3.trips_today"`), dengan
+ *   perintah yang masih di antrean diterapkan ulang secara optimistis (`registerOptimistic`, ./optimistic.ts).
  * - `useOutbox(userId)` → daftar item antrean dengan status per item (NFR-08).
  */
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useSyncExternalStore } from "react";
 
 import { fieldDb, PENDING_STATUSES, type MetaItem, type OutboxItem } from "./db";
+import { hasOptimisticFor, withOptimistic } from "./optimistic";
 import { syncNow, type SyncState } from "./sync";
 
 function subscribeOnline(callback: () => void): () => void {
@@ -81,7 +83,12 @@ export function useReference<T>(key: string, userId: string | null | undefined):
   return useLiveQuery(
     async () => {
       if (!userId) return undefined;
-      return (await fieldDb().refs.get([userId, key]))?.data as T | undefined;
+      const db = fieldDb();
+      const data = (await db.refs.get([userId, key]))?.data as T | undefined;
+      if (!hasOptimisticFor(key)) return data;
+      // Perintah pengguna yang belum terkirim diterapkan ulang di atas hasil pull terakhir.
+      const pending = await db.outbox.where("userId").equals(userId).toArray();
+      return withOptimistic(key, data, pending);
     },
     [key, userId],
     undefined,

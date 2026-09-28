@@ -148,6 +148,20 @@ describe("Perangkat terdaftar (US-M10-02 KP-1/KP-6/KP-7)", () => {
     expect(act.device.source).toBe("pos");
   });
 
+  it("US-M10-02 KP-6 kode aktivasi lama gugur saat hapus jarak jauh/blokir (perintah hapus tidak hilang)", async () => {
+    const admin = seededContext("admin1");
+    const issued = await issueActivationCode(admin, deviceId("HP-CAD-2"));
+    await requestWipe(admin, deviceId("HP-CAD-2"), "Ponsel hilang di jalan");
+    await expectAuthError(activateDevice(issued.code), "ACTIVATION_INVALID");
+    const [row] = await t.db.select().from(devices).where(eq(devices.id, deviceId("HP-CAD-2")));
+    expect(row!.status).toBe("wipe_pending");
+    expect(row!.activationCodeHash).toBeNull();
+
+    const issued2 = await issueActivationCode(admin, deviceId("POS-CAD-1"));
+    await blockDevice(admin, deviceId("POS-CAD-1"), "Tablet rusak dikirim servis");
+    await expectAuthError(activateDevice(issued2.code), "ACTIVATION_INVALID");
+  });
+
   it("US-M10-02 KP-7 riwayat pemakaian perangkat: aktivasi, login, PIN salah", async () => {
     const dev = await activateSeedDevice("HP-T5");
     await expectAuthError(pinLogin(await dev.auth(), { userId: userIdByUsername("sopir5"), pin: "999999" }), "PIN_INVALID");
@@ -182,6 +196,22 @@ describe("PIN lapangan (US-M10-02 KP-2/KP-3/KP-5, US-M3-10 KP-1, NFR-10)", () =>
     const ok = await pinLogin(await dev.auth({}, later), { userId, pin: SEED_DEMO_PIN });
     expect(ok.user.id).toBe(userId);
     expect(ok.policy).toEqual({ maxAttempts: 5, lockMinutes: 15, idleMinutes: 10 });
+  });
+
+  it("PAR-36 PIN salah dibatasi per perangkat (tebakan bergilir antar-akun di perangkat cadangan)", async () => {
+    const { PIN_LOGIN_MAX_FAILURES_PER_DEVICE_15_MIN } = await import("@/server/core/auth/field-login");
+    const dev = await activateSeedDevice("HP-CAD-1");
+    const now = new Date(Date.now() + 2 * 3_600_000);
+    await t.db.insert(accessLogs).values(
+      Array.from({ length: PIN_LOGIN_MAX_FAILURES_PER_DEVICE_15_MIN }, () => ({
+        event: "pin_failed" as const,
+        success: false,
+        tenantId: EQUA_TENANT_ID,
+        deviceId: dev.deviceId,
+        occurredAt: new Date(now.getTime() - 60_000),
+      })),
+    );
+    await expectAuthError(pinLogin(await dev.auth({}, now), { userId: userIdByUsername("sopir8"), pin: SEED_DEMO_PIN }), "PIN_RATE_LIMITED");
   });
 
   it("NFR-10 verifier PIN offline (PBKDF2-SHA256 ≥ 100.000 iterasi + salt) tidak membocorkan PIN", async () => {

@@ -23,7 +23,7 @@ import type { JournalKind, ProfitCenter } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { isBusinessDate, lastDayOfMonth, monthOf, type BusinessDate } from "@/lib/time";
 
-import { EQUA_TENANT_ID, type ActorContext } from "./context";
+import type { ActorContext } from "./context";
 import type { Tx } from "./db";
 import { DomainError } from "./errors";
 import { isEnabled } from "./flags";
@@ -47,7 +47,8 @@ export type JournalLineInput = {
 };
 
 export type PostJournalInput = {
-  tenantId?: string;
+  /** WAJIB (NFR-30): tanpa bawaan EQUA — handler event mengisinya dari `event.tenantId`. */
+  tenantId: string;
   /** Tanggal bisnis peristiwa (Bab 5.3). */
   date: BusinessDate;
   /** Modul/peristiwa sumber, mis. `trip.completed`. */
@@ -150,7 +151,8 @@ export async function resolvePostingPeriod(
 }
 
 export type QueueJournalInput = {
-  tenantId?: string;
+  /** WAJIB (NFR-30). */
+  tenantId: string;
   eventKey: string;
   domainEventId?: string | null;
   sourceObject?: { type: string; id: string } | null;
@@ -161,9 +163,17 @@ export type QueueJournalInput = {
   now?: Date;
 };
 
+/**
+ * Tenant jurnal WAJIB (NFR-30): penjualan POS mitra RL-7 tidak boleh terbukukan ke buku EQUA karena tenant lupa diisi.
+ */
+function requireTenant(tenantId: string | null | undefined, fn: string): string {
+  if (!tenantId) throw new Error(`${fn}: tenantId wajib diisi (isi dari event.tenantId / ctx.tenantId).`);
+  return tenantId;
+}
+
 /** Masukkan ke antrean jurnal + beri tahu Admin Keuangan (US-M11-02 KP-3). */
 export async function queueJournal(tx: Tx, input: QueueJournalInput): Promise<string> {
-  const tenantId = input.tenantId ?? EQUA_TENANT_ID;
+  const tenantId = requireTenant(input.tenantId, "queueJournal");
   const [row] = await tx
     .insert(journalQueue)
     .values({
@@ -196,7 +206,7 @@ export async function queueJournal(tx: Tx, input: QueueJournalInput): Promise<st
 export async function postJournal(tx: Tx, input: PostJournalInput): Promise<PostJournalResult> {
   if (!isBusinessDate(input.date)) throw new DomainError("INVALID_DATE", `Tanggal jurnal tidak valid: ${input.date}.`);
   const totals = assertLines(input.lines);
-  const tenantId = input.tenantId ?? input.ctx?.tenantId ?? EQUA_TENANT_ID;
+  const tenantId = requireTenant(input.tenantId, "postJournal");
   const kind: JournalKind = input.kind ?? "auto";
   const now = input.ctx?.now ?? new Date();
   const queuePayload = { ...(input.payload ?? {}), description: input.description, ref: input.ref ?? null, lines: input.lines };
@@ -260,7 +270,7 @@ export async function postJournal(tx: Tx, input: PostJournalInput): Promise<Post
   }
 
   const posting = await resolvePostingPeriod(tx, tenantId, input.date);
-  const number = await nextNumber(tx, "journal", posting.startDate);
+  const number = await nextNumber(tx, "journal", posting.startDate, { tenantId });
   const description = input.ref ? `${input.description} (${input.ref})` : input.description;
   const [journal] = await tx
     .insert(journals)
@@ -321,7 +331,8 @@ export async function resolveMapping(
   eventKey: string,
   entryKey: string,
   date: BusinessDate,
-  tenantId: string = EQUA_TENANT_ID,
+  /** WAJIB (NFR-30). */
+  tenantId: string,
 ): Promise<ResolvedMapping | null> {
   const rows = await tx
     .select()
@@ -382,7 +393,7 @@ async function outletProfitCenter(tx: Tx, outletId: string): Promise<ProfitCente
 /** Bangun jurnal otomatis dari pemetaan akun; pemetaan hilang → antrean. */
 export async function postFromMapping(tx: Tx, input: PostFromMappingInput): Promise<PostJournalResult> {
   const eventType = input.eventType ?? input.source;
-  const tenantId = input.tenantId ?? input.ctx?.tenantId ?? EQUA_TENANT_ID;
+  const tenantId = requireTenant(input.tenantId, "postFromMapping");
   const lines: JournalLineInput[] = [];
   for (const entry of input.entries) {
     if (!Number.isSafeInteger(entry.amount)) throw new DomainError("JOURNAL_AMOUNT", "Nilai jurnal harus rupiah bulat.");

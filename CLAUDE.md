@@ -74,3 +74,18 @@ Lihat `docs/DECISIONS.md` D-06. `pnpm typecheck && pnpm lint && pnpm test` harus
 - Uji: `tests/helpers/context.ts` (`testContext`, `seededContext("pemilik")`), `tests/helpers/factories.ts`
   (`createTestUser(db, { roles, scope })`). Aktor route handler: `getActorContext(request)` — resolver dipasang F3c lewat
   `setActorResolver` (sampai itu `null` → 401).
+
+## Catatan teknis F3c & perubahan pasca-tinjauan
+- Rincian API: `docs/dev/sprint0-notes.md` bagian "F3c" dan "Perubahan pasca-tinjauan". KOREKSI catatan F3a di atas:
+  resolver pelaku SUDAH dipasang F3c (`getActorContext(request)` → cookie web kantor / token perangkat).
+- Halaman modul kantor WAJIB `requirePermission("<izin nav>")` (layout hanya memeriksa sesi). Kasir toko hanya POS (D-07).
+- `nextNumber(tx, type, ctxBusinessDate(ctx), { tenantId })`, `params.get(tx, key, ctxBusinessDate(ctx))`, `notify(tx, { tenantId, … })`,
+  `postJournal/postFromMapping(tx, { tenantId, … })` — tenant & tanggal bisnis WAJIB.
+- Handler event terisolasi savepoint secara bawaan (`on(type, fn, { name: "<modul>:<tujuan>", isolate })`); handler
+  sinkron: `DomainError` = ditolak final, galat lain = retry, `{ status: "conflict" }` untuk tabrakan kantor; izin
+  bersyarat kernet lewat `conditions`. Kolom lapangan: `{ ...fieldMetaValues(meta) }`.
+- `getDb()` di dalam `withTx` melempar galat di dev/uji — selalu teruskan `tx`. Savepoint: `withSavepoint(tx, fn)`.
+- Perintah sinkron terikat sesi PIN + ditandatangani (klien `enqueue` otomatis). Uji modul lapangan: `tests/helpers/field.ts`
+  (`fieldDevice`, `signedCommand`), data: `tests/helpers/fixtures.ts`, registrasi: `bootstrapForTests()`.
+- Lampiran: daftarkan akses baca per objek (`registerAttachmentAccess`) di `src/server/modules/<modul>/audit.ts`.
+- Rute lapangan/kantor: `src/lib/field-routes.ts`. E2E `next start` memakai `ALLOW_DEV_SECRETS=1` (rahasia dev ditolak di produksi).

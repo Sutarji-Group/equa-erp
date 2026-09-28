@@ -2,10 +2,16 @@
  * Event domain (docs/ARCHITECTURE.md §5, §8).
  *
  * - `emit(tx, type, payload, meta?)` — simpan ke `domain_events` (append-only) lalu jalankan handler terdaftar
- *   SECARA SINKRON DI TRANSAKSI YANG SAMA. Handler gagal → galat diteruskan → seluruh transaksi rollback (tidak ada
- *   event "setengah jadi").
- * - `on(type, handler)` — daftarkan handler (dipanggil dari `registerEvents()` modul, BUKAN di top-level berkas).
- *   Mengembalikan fungsi pelepas (berguna di uji). `onAny(handler)` untuk semua tipe.
+ *   SECARA SINKRON DI TRANSAKSI YANG SAMA.
+ * - `on(type, handler, { name, isolate })` — daftarkan handler (dipanggil dari `registerEvents()` modul, BUKAN di
+ *   top-level berkas). Mengembalikan fungsi pelepas (berguna di uji). `onAny(handler)` untuk semua tipe.
+ *   - `isolate: true` (BAWAAN; Bab 6.4 butir 3, R04, PTB-47): handler berjalan di SAVEPOINT (`withSavepoint`). Galat di
+ *     dalamnya hanya membatalkan perubahan handler itu; pemancar TETAP commit, kegagalan dicatat sebagai `incidents`
+ *     (+ notifikasi `incident.opened`) untuk ditindaklanjuti/diputar ulang (`queryEvents`, PTB-47). Contoh: bug jurnal
+ *     M11 tidak boleh membuat transaksi lapangan tertolak final.
+ *   - `isolate: false`: efek yang WAJIB atomik dengan sumbernya (jarang) — galat diteruskan → seluruh transaksi rollback.
+ *   - `name` (dianjurkan `<modul>:<tujuan>`): registrasi ulang dengan nama sama MENGGANTI yang lama (uji yang memanggil
+ *     `registerEvents()` + bootstrap tidak menggandakan handler).
  *
  * Contoh (modul M11):
  * ```ts
@@ -23,10 +29,13 @@ import { domainEvents } from "@/db/schema";
 import type { ActorSource } from "@/lib/labels";
 import { isBusinessDate } from "@/lib/time";
 
+import { incidents } from "@/db/schema";
+
 import { ensureBootstrapped } from "./bootstrap";
 import { ctxBusinessDate, type ActorContext } from "./context";
-import type { Tx } from "./db";
-import { DomainError } from "./errors";
+import { withSavepoint, type Tx } from "./db";
+import { DomainError, toUserMessage } from "./errors";
+import { notify } from "./notifications/service";
 import { DOMAIN_EVENT_LABELS, isDomainEventType, type DomainEventMap, type DomainEventType } from "./events.types";
 
 export * from "./events.types";
@@ -58,7 +67,14 @@ export type EventMeta = {
 export type EventHandler<T extends DomainEventType> = (event: DomainEvent<T>, tx: Tx) => Promise<void> | void;
 type AnyHandler = (event: DomainEvent, tx: Tx) => Promise<void> | void;
 
-type Registration = { name: string; handler: AnyHandler };
+type Registration = { name: string; handler: AnyHandler; isolate: boolean; named: boolean };
+
+export type OnOptions = {
+  /** Nama unik handler (dianjurkan `<modul>:<tujuan>`); nama sama → registrasi lama diganti. */
+  name?: string;
+  /** Jalankan di savepoint; galat tidak menggagalkan pemancar (bawaan true). */
+  isolate?: boolean;
+};
 
 const handlers = new Map<DomainEventType, Registration[]>();
 const anyHandlers: Registration[] = [];
@@ -68,11 +84,19 @@ const depthByTx = new WeakMap<object, number>();
 const MAX_EVENT_DEPTH = 16;
 
 /** Daftarkan handler untuk satu tipe event. Mengembalikan fungsi pelepas. */
-export function on<T extends DomainEventType>(type: T, handler: EventHandler<T>, opts: { name?: string } = {}): () => void {
+export function on<T extends DomainEventType>(type: T, handler: EventHandler<T>, opts: OnOptions = {}): () => void {
   if (!isDomainEventType(type)) throw new Error(`Tipe event tidak dikenal: ${type}. Tambahkan di events.types.ts.`);
   const list = handlers.get(type) ?? [];
-  const reg: Registration = { name: opts.name ?? handler.name ?? "anonim", handler: handler as unknown as AnyHandler };
-  list.push(reg);
+  const reg: Registration = {
+    name: opts.name ?? (handler.name || "anonim"),
+    handler: handler as unknown as AnyHandler,
+    isolate: opts.isolate ?? true,
+    named: !!opts.name,
+  };
+  // Registrasi ulang bernama sama → ganti (mencegah handler ganda saat registerEvents() dipanggil dua kali).
+  const existing = reg.named ? list.findIndex((r) => r.named && r.name === reg.name) : -1;
+  if (existing >= 0) list.splice(existing, 1, reg);
+  else list.push(reg);
   handlers.set(type, list);
   return () => {
     const current = handlers.get(type);
@@ -83,8 +107,10 @@ export function on<T extends DomainEventType>(type: T, handler: EventHandler<T>,
 }
 
 /** Daftarkan handler untuk semua tipe event (mis. pemantauan). Mengembalikan fungsi pelepas. */
-export function onAny(handler: AnyHandler, opts: { name?: string } = {}): () => void {
-  const reg: Registration = { name: opts.name ?? handler.name ?? "anonim", handler };
+export function onAny(handler: AnyHandler, opts: OnOptions = {}): () => void {
+  const reg: Registration = { name: opts.name ?? (handler.name || "anonim"), handler, isolate: opts.isolate ?? true, named: !!opts.name };
+  const existing = reg.named ? anyHandlers.findIndex((r) => r.named && r.name === reg.name) : -1;
+  if (existing >= 0) anyHandlers.splice(existing, 1);
   anyHandlers.push(reg);
   return () => {
     const idx = anyHandlers.indexOf(reg);
@@ -115,7 +141,8 @@ export async function emit<T extends DomainEventType>(
       tenantId: meta.tenantId ?? ctx?.tenantId ?? null,
       type,
       payload: payload as unknown as Record<string, unknown>,
-      occurredAt: meta.occurredAt ?? new Date(),
+      // Waktu kejadian mengikuti waktu pelaku (ctx.now) agar uji deterministik & konsisten dengan audit.
+      occurredAt: meta.occurredAt ?? ctx?.now ?? new Date(),
       businessDate: businessDate && isBusinessDate(businessDate) ? businessDate : null,
       actorUserId: ctx?.userId ?? null,
       source: ctx?.source ?? null,
@@ -145,13 +172,63 @@ export async function emit<T extends DomainEventType>(
   depthByTx.set(tx, depth);
   try {
     for (const reg of [...(handlers.get(type) ?? []), ...anyHandlers]) {
-      await reg.handler(event as unknown as DomainEvent, tx);
+      if (!reg.isolate) {
+        await reg.handler(event as unknown as DomainEvent, tx);
+        continue;
+      }
+      try {
+        await withSavepoint(tx, async (sp) => {
+          depthByTx.set(sp, depth);
+          try {
+            await reg.handler(event as unknown as DomainEvent, sp);
+          } finally {
+            depthByTx.delete(sp);
+          }
+        });
+      } catch (error) {
+        await recordHandlerFailure(tx, event as unknown as DomainEvent, reg.name, error);
+      }
     }
   } finally {
     if (depth === 1) depthByTx.delete(tx);
     else depthByTx.set(tx, depth - 1);
   }
   return event;
+}
+
+/**
+ * Handler terisolasi gagal: pemancar tetap commit; kegagalan dicatat sebagai insiden (+ notifikasi admin sistem) agar
+ * dapat diperbaiki lalu diputar ulang dari `domain_events` (PTB-47).
+ */
+async function recordHandlerFailure(tx: Tx, event: DomainEvent, handlerName: string, error: unknown): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[equa] handler event ${event.type} (${handlerName}) gagal — pemancar tetap commit:`, error);
+  const [row] = await tx
+    .insert(incidents)
+    .values({
+      tenantId: event.tenantId,
+      kind: "other",
+      severity: "major",
+      title: `Pemrosesan lanjutan "${DOMAIN_EVENT_LABELS[event.type]}" gagal (${handlerName})`,
+      description: `Transaksi sumber tetap tersimpan. Perbaiki penyebabnya lalu proses ulang event #${event.seq}. Galat: ${
+        error instanceof DomainError ? toUserMessage(error) : message
+      }`.slice(0, 2000),
+      objectType: "domain_event",
+      objectId: event.id,
+      detectedAt: event.occurredAt,
+    })
+    .returning({ id: incidents.id });
+  if (!event.tenantId) return;
+  await notify(tx, {
+    event: "incident.opened",
+    tenantId: event.tenantId,
+    title: `Pemrosesan lanjutan gagal: ${DOMAIN_EVENT_LABELS[event.type]}`,
+    body: `Handler ${handlerName} gagal; transaksi sumber tetap tersimpan. Tindak lanjuti insiden.`,
+    objectType: "incident",
+    objectId: row!.id,
+    link: "/akses/sinkron",
+    groupKey: `event_handler:${handlerName}`,
+  });
 }
 
 export type EventQuery = {

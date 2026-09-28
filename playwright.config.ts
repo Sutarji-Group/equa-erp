@@ -58,6 +58,8 @@ export default defineConfig({
         reuseExistingServer: !process.env.CI,
         timeout: 300_000,
         env: {
+          // `next start` = NODE_ENV production → rahasia bawaan dev & TOTP seed `plain:` hanya dengan izin eksplisit.
+          ALLOW_DEV_SECRETS: "1",
           DB_DRIVER: process.env.DB_DRIVER ?? "pglite",
           PGLITE_DATA_DIR: process.env.PGLITE_DATA_DIR ?? "./.data/pglite-e2e",
         },

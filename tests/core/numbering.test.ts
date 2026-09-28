@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
+import { EQUA_TENANT_ID } from "@/db/seed";
 import { withTx } from "@/server/core/db";
-import { formatDocNumber, nextNumber, sequenceScopeKey, tripNumber } from "@/server/core/numbering";
+import { assignOfficialNumber, formatDocNumber, nextNumber, sequenceScopeKey, tripNumber } from "@/server/core/numbering";
 
 import { useTestDb } from "../helpers/db";
+import { ensureTenant } from "../helpers/factories";
+
+const E = { tenantId: EQUA_TENANT_ID };
 
 describe("D-04 format nomor dokumen (murni)", () => {
   it("D-04 memformat semua jenis nomor dengan tahun WIB 2 digit", () => {
@@ -15,7 +19,7 @@ describe("D-04 format nomor dokumen (murni)", () => {
     expect(formatDocNumber("purchase_receipt", 3, "2026-09-28")).toBe("NB-26-000003");
     expect(formatDocNumber("internal_transfer", 12, "2026-09-28")).toBe("TI-26-00012");
     expect(formatDocNumber("journal", 5, "2026-09-28")).toBe("J-2609-00005");
-    expect(formatDocNumber("pos_sale", 42, "2026-09-28", { outletCode: "D01" })).toBe("D01-260928-0042");
+    expect(formatDocNumber("pos_sale", 42, "2026-09-28", { ...E, outletCode: "D01" })).toBe("D01-260928-0042");
   });
 
   it("US-M2-02 KP-1 nomor rit = nomor pesanan + urutan tangki", () => {
@@ -37,27 +41,30 @@ describe("D-04 format nomor dokumen (murni)", () => {
 
 describe("nextNumber (PGlite)", () => {
   const t = useTestDb();
+  beforeAll(async () => {
+    await ensureTenant(t.db);
+  });
 
   it("US-M2-02 KP-1 berurutan per tahun dan mulai ulang di tahun baru", async () => {
-    const a = await withTx((tx) => nextNumber(tx, "order", "2026-05-01"));
-    const b = await withTx((tx) => nextNumber(tx, "order", "2026-12-31"));
-    const c = await withTx((tx) => nextNumber(tx, "order", "2027-01-01"));
+    const a = await withTx((tx) => nextNumber(tx, "order", "2026-05-01", E));
+    const b = await withTx((tx) => nextNumber(tx, "order", "2026-12-31", E));
+    const c = await withTx((tx) => nextNumber(tx, "order", "2027-01-01", E));
     expect([a, b, c]).toEqual(["P-26-000001", "P-26-000002", "P-27-000001"]);
     expect(t.db).toBeDefined();
   });
 
   it("D-04 lingkup terpisah per jenis dan per outlet+tanggal", async () => {
-    const inv = await withTx((tx) => nextNumber(tx, "invoice", "2026-05-01"));
-    const pos1 = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-05-01", { outletCode: "D01" }));
-    const pos2 = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-05-01", { outletCode: "D02" }));
-    const pos3 = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-05-01", { outletCode: "D01" }));
+    const inv = await withTx((tx) => nextNumber(tx, "invoice", "2026-05-01", E));
+    const pos1 = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-05-01", { ...E, outletCode: "D01" }));
+    const pos2 = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-05-01", { ...E, outletCode: "D02" }));
+    const pos3 = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-05-01", { ...E, outletCode: "D01" }));
     expect(inv).toBe("F-26-000001");
     expect([pos1, pos2, pos3]).toEqual(["D01-260501-0001", "D02-260501-0001", "D01-260501-0002"]);
   });
 
   it("D-04 aman konkuren: 25 transaksi paralel mendapat nomor unik tanpa lubang", async () => {
     const results = await Promise.all(
-      Array.from({ length: 25 }, () => withTx((tx) => nextNumber(tx, "deposit", "2026-06-15"))),
+      Array.from({ length: 25 }, () => withTx((tx) => nextNumber(tx, "deposit", "2026-06-15", E))),
     );
     expect(new Set(results).size).toBe(25);
     const seqs = results.map((n) => Number(n.split("-")[2])).sort((x, y) => x - y);
@@ -67,11 +74,25 @@ describe("nextNumber (PGlite)", () => {
   it("D-04 nomor dari transaksi yang rollback dipakai ulang (tidak ada lubang)", async () => {
     await expect(
       withTx(async (tx) => {
-        await nextNumber(tx, "credit_note", "2026-07-01");
+        await nextNumber(tx, "credit_note", "2026-07-01", E);
         throw new Error("batal");
       }),
     ).rejects.toThrow("batal");
-    const n = await withTx((tx) => nextNumber(tx, "credit_note", "2026-07-01"));
+    const n = await withTx((tx) => nextNumber(tx, "credit_note", "2026-07-01", E));
     expect(n).toBe("NK-26-000001");
+  });
+
+  it("NFR-30 D-04 urutan per tenant: outlet mitra berkode sama (D01) tidak berbagi penghitung dengan EQUA", async () => {
+    const partner = await ensureTenant(t.db, "0192f1c4-7b7a-7cc2-9d7e-3f1b2a4c5d00", "MITRA1", "partner");
+    const a = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-08-01", { tenantId: EQUA_TENANT_ID, outletCode: "D01" }));
+    const b = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-08-01", { tenantId: partner, outletCode: "D01" }));
+    const c = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-08-01", { tenantId: EQUA_TENANT_ID, outletCode: "D01" }));
+    expect([a, b, c]).toEqual(["D01-260801-0001", "D01-260801-0001", "D01-260801-0002"]);
+    await expect(withTx((tx) => nextNumber(tx, "order", "2026-08-01", {} as never))).rejects.toThrow(/tenantId wajib/);
+  });
+
+  it("D-04 nomor resmi dokumen perangkat memakai TANGGAL BISNIS perangkat (POS 31 Des tersinkron 1 Jan)", async () => {
+    const n = await withTx((tx) => assignOfficialNumber(tx, "pos_sale", { tenantId: EQUA_TENANT_ID, businessDate: "2026-12-31", outletCode: "D09" }));
+    expect(n).toBe("D09-261231-0001");
   });
 });

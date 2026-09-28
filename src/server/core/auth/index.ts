@@ -16,16 +16,20 @@ import "server-only";
 import { registerJob } from "../jobs";
 import { registerCoreSync } from "../sync/core-sync";
 import { installActorResolver } from "./resolver";
-import { purgeOldSessions } from "./session";
+import { purgeOldSessions, sessionHygiene } from "./session";
 
 export * from "./errors";
 export {
   SESSION_COOKIE,
   FIELD_SESSION_MAX_HOURS,
+  FIELD_SESSION_SYNC_GRACE_DAYS,
   PENDING_2FA_MINUTES,
   createSession,
   findFieldSessionCovering,
+  hasFieldSessionOnDevice,
   isUserUsable,
+  loadSessionById,
+  sessionHygiene,
   revokeAllSessions,
   revokeDeviceSessions,
   revokeSession,
@@ -41,6 +45,11 @@ export {
   startTotpEnrollment,
   confirmTotpEnrollment,
   logout,
+  resetTotp,
+  rolesAllowInterface,
+  TOTP_SESSION_MAX_ATTEMPTS,
+  WEB_LOGIN_MAX_FAILURES_PER_IP_15_MIN,
+  type LoginInterface,
   type LoginResult,
   type LoginStep,
   type RequestMeta,
@@ -81,7 +90,7 @@ export {
 } from "./field-login";
 export { applyCrewScope, crewTrucksForDay, isActingDriver, substituteDriverConditions } from "./field-scope";
 export { resolveActor, webActorFromToken, readCookie } from "./resolver";
-export { computePinVerifier, PIN_VERIFIER_ITERATIONS, type PinVerifier } from "./crypto";
+export { computePinVerifier, fieldCommandKey, PIN_VERIFIER_ITERATIONS, signFieldCommand, verifyFieldCommand, type PinVerifier } from "./crypto";
 
 let registered = false;
 
@@ -99,5 +108,11 @@ export function registerCoreAuth(): void {
     description: "Hapus baris sesi yang kedaluwarsa > 30 hari (tabel teknis).",
     schedule: { kind: "daily", at: "03:10" },
     run: ({ now, db }) => purgeOldSessions(now, db),
+  });
+  registerJob({
+    key: "core.auth.session_hygiene",
+    description: "Cabut sesi karyawan yang tanggal keluarnya tiba / akun nonaktif (BR-37) dan sesi lapangan yang habis > 7 hari.",
+    schedule: { kind: "daily", at: "00:05" },
+    run: ({ now, db }) => sessionHygiene(now, db),
   });
 }

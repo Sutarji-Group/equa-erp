@@ -15,10 +15,15 @@
  * | `purchase_receipt`   | `NB-YY-NNNNNN` (nota internal) | tahun                 |
  * | `internal_transfer`  | `TI-YY-NNNNN`                  | tahun                 |
  *
- * Aman konkuren: satu pernyataan UPSERT (`INSERT … ON CONFLICT (kind, scope_key) DO UPDATE SET last_value =
+ * Aman konkuren: satu pernyataan UPSERT (`INSERT … ON CONFLICT (tenant_id, kind, scope_key) DO UPDATE SET last_value =
  * last_value + 1 RETURNING`) mengunci baris urutan sampai transaksi pemanggil selesai (setara `SELECT … FOR UPDATE`),
  * sehingga dua transaksi paralel tidak pernah mendapat nomor sama. Nomor yang diambil transaksi yang kemudian
  * rollback ikut kembali (tidak ada lubang karena rollback).
+ *
+ * Urutan PER TENANT (NFR-30, D-04): `tenantId` WAJIB — kode outlet hanya unik per tenant, jadi outlet mitra berkode
+ * sama (mis. `D01`) tidak berbagi penghitung dengan EQUA. Tanggal = TANGGAL BISNIS dokumen (`ctxBusinessDate(ctx)`,
+ * atau tanggal bisnis perangkat untuk dokumen lapangan — `assignOfficialNumber`), bukan jam server: transaksi POS
+ * 31 Des yang tersinkron 1 Jan tetap bernomor tahun/tanggal 31 Des.
  */
 import "server-only";
 
@@ -65,6 +70,11 @@ export const DOC_TYPES: Record<DocType, DocTypeDef> = {
 export type NumberOptions = {
   /** Wajib untuk `pos_sale` (mis. `D01`, `TK1`). */
   outletCode?: string;
+};
+
+export type NextNumberOptions = NumberOptions & {
+  /** WAJIB (NFR-30): urutan dipisah per tenant. */
+  tenantId: string;
 };
 
 type WibYmd = { yy: string; mm: string; dd: string };
@@ -129,29 +139,39 @@ export function formatDocNumber(docType: DocType, seq: number, date: Date | Busi
 }
 
 /**
- * Ambil nomor berikutnya untuk jenis dokumen pada tanggal (WIB) tertentu, di dalam transaksi pemanggil.
- * `await nextNumber(tx, "order", ctx.now)` → `"P-26-000123"`.
+ * Ambil nomor berikutnya untuk jenis dokumen pada tanggal bisnis tertentu, di dalam transaksi pemanggil.
+ * `await nextNumber(tx, "order", ctxBusinessDate(ctx), { tenantId: ctx.tenantId })` → `"P-26-000123"`.
  */
-export async function nextNumber(
-  tx: Tx,
-  docType: DocType,
-  date: Date | BusinessDate,
-  opts: NumberOptions = {},
-): Promise<string> {
+export async function nextNumber(tx: Tx, docType: DocType, date: Date | BusinessDate, opts: NextNumberOptions): Promise<string> {
   if (!(docType in DOC_TYPES)) {
     throw new DomainError("UNKNOWN_DOC_TYPE", `Jenis nomor dokumen tidak dikenal: ${docType}.`);
   }
+  if (!opts?.tenantId) throw new Error(`nextNumber(${docType}): tenantId wajib diisi (NFR-30).`);
   const scopeKey = sequenceScopeKey(docType, date, opts);
   const rows = await tx
     .insert(documentSequences)
-    .values({ id: newId(), kind: docType, scopeKey, lastValue: 1 })
+    .values({ id: newId(), tenantId: opts.tenantId, kind: docType, scopeKey, lastValue: 1 })
     .onConflictDoUpdate({
-      target: [documentSequences.kind, documentSequences.scopeKey],
+      target: [documentSequences.tenantId, documentSequences.kind, documentSequences.scopeKey],
       set: { lastValue: sql`${documentSequences.lastValue} + 1`, updatedAt: new Date() },
     })
     .returning({ lastValue: documentSequences.lastValue });
   const seq = Number(rows[0]?.lastValue);
   return formatDocNumber(docType, seq, date, opts);
+}
+
+/**
+ * Nomor RESMI untuk dokumen yang terbit di perangkat (POS, nota pembelian, transfer internal) saat perintahnya
+ * tersinkron: memakai TANGGAL BISNIS PERANGKAT (`meta.command.businessDate`) dan tenant perangkat, bukan tanggal
+ * server. Nomor lokal perangkat tetap di `local_number` (`formatLocalNumber` di `@/lib/local-number`).
+ * `await assignOfficialNumber(tx, "pos_sale", { tenantId: meta.device.tenantId, businessDate: meta.command.businessDate, outletCode })`.
+ */
+export async function assignOfficialNumber(
+  tx: Tx,
+  docType: DocType,
+  input: { tenantId: string; businessDate: BusinessDate; outletCode?: string },
+): Promise<string> {
+  return nextNumber(tx, docType, input.businessDate, { tenantId: input.tenantId, outletCode: input.outletCode });
 }
 
 /** Nomor rit = nomor pesanan + urutan tangki: `tripNumber("P-27-000123", 2)` → `"P-27-000123/2"`. */

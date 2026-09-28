@@ -4,14 +4,17 @@
  * "Perangkat & sinkron". Riwayat (`device_usage_logs`) ditulis bila berubah berarti atau paling sering 30 menit sekali.
  *
  * Laporan juga membawa kejadian offline dari perangkat (PIN salah/terkunci saat tanpa sinyal, login offline) agar
- * tercatat dan admin sistem diberi tahu (US-M3-10 KP-1).
+ * tercatat dan admin sistem diberi tahu (US-M3-10 KP-1). Kejadian hanya diterima untuk pengguna yang PERNAH masuk PIN
+ * di perangkat ini (ada baris `sessions`), waktu perangkatnya dibatasi ke [sesi pertama di perangkat, sekarang], dan
+ * log akses memakai waktu SERVER (`occurred_at`) dengan waktu perangkat di `details.deviceTime` + penanda
+ * `reportedByDevice` (perangkat tidak dapat menanam log bertanggal bebas).
  */
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { devices, deviceUsageLogs, employees, users } from "@/db/schema";
+import { devices, deviceUsageLogs, employees, sessions, users } from "@/db/schema";
 import { isUuid } from "@/lib/ids";
 import { formatJam } from "@/lib/time";
 
@@ -61,7 +64,8 @@ export async function recordHealth(auth: DeviceAuth, body: unknown, options: { s
         batteryPct: report.batteryPct === undefined ? device.batteryPct : report.batteryPct,
         appVersion: report.appVersion ?? device.appVersion,
         lastSeenAt: now,
-        ...(report.lastSyncAt ? { lastSyncAt: new Date(report.lastSyncAt) } : {}),
+        // Waktu sinkron terakhir dari perangkat tidak boleh melampaui waktu server.
+        ...(report.lastSyncAt ? { lastSyncAt: new Date(Math.min(new Date(report.lastSyncAt).getTime(), now.getTime())) } : {}),
       })
       .where(eq(devices.id, device.id));
 
@@ -87,8 +91,8 @@ export async function recordHealth(auth: DeviceAuth, body: unknown, options: { s
       });
     }
 
+    const firstSessionAt = new Map<string, Date | null>();
     for (const ev of report.events ?? []) {
-      const at = new Date(ev.at);
       const userRow = await tx
         .select({ id: users.id, tenantId: users.tenantId, fullName: employees.fullName })
         .from(users)
@@ -97,7 +101,29 @@ export async function recordHealth(auth: DeviceAuth, body: unknown, options: { s
         .limit(1);
       const user = userRow[0];
       if (!user || user.tenantId !== device.tenantId) continue;
-      await logDeviceUsage(tx, { tenantId: device.tenantId, deviceId: device.id, userId: user.id, event: ev.type === "offline_login" ? "login" : ev.type, occurredAt: at, details: { offline: true } });
+      // Hanya pengguna yang pernah masuk PIN di perangkat ini (verifier offline hanya ada setelah login daring).
+      if (!firstSessionAt.has(user.id)) {
+        const first = await tx
+          .select({ createdAt: sessions.createdAt })
+          .from(sessions)
+          .where(and(eq(sessions.userId, user.id), eq(sessions.deviceId, device.id), eq(sessions.kind, "device")))
+          .orderBy(asc(sessions.createdAt))
+          .limit(1);
+        firstSessionAt.set(user.id, first[0]?.createdAt ?? null);
+      }
+      const since = firstSessionAt.get(user.id);
+      if (!since) continue;
+      const reported = new Date(ev.at);
+      const deviceAt = new Date(Math.min(Math.max(reported.getTime(), since.getTime()), now.getTime()));
+      const details = { offline: true, reportedByDevice: true, deviceTime: ev.at, reportedAt: now.toISOString() };
+      await logDeviceUsage(tx, {
+        tenantId: device.tenantId,
+        deviceId: device.id,
+        userId: user.id,
+        event: ev.type === "offline_login" ? "login" : ev.type,
+        occurredAt: deviceAt,
+        details,
+      });
       if (ev.type === "pin_failed" || ev.type === "pin_locked") {
         await logAccess(tx, {
           event: ev.type,
@@ -105,9 +131,9 @@ export async function recordHealth(auth: DeviceAuth, body: unknown, options: { s
           tenantId: device.tenantId,
           userId: user.id,
           deviceId: device.id,
-          reason: ev.type === "pin_locked" ? "PIN salah berturut saat offline — dikunci di perangkat (PAR-36)" : "PIN salah saat offline",
-          details: { offline: true, reportedAt: now.toISOString() },
-          occurredAt: at,
+          reason: ev.type === "pin_locked" ? "PIN salah berturut saat offline — dikunci di perangkat (PAR-36; dilaporkan perangkat)" : "PIN salah saat offline (dilaporkan perangkat)",
+          details,
+          occurredAt: now,
         });
       }
       if (ev.type === "pin_locked") {

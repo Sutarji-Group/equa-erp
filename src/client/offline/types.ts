@@ -32,11 +32,21 @@ export type FieldLoginResponse = {
   expiresAt: string;
   user: FieldUserInfo;
   verifier: PinVerifier;
+  /** Kunci perintah sesi (base64url) — dibungkus PIN sebelum disimpan (`wrapCommandKey`). */
+  commandKey: string;
   policy: PinPolicy;
   serverTime: string;
 };
 
-export type ActivationResponse = { ok: true; deviceId: string; deviceSecret: string; device: PublicDevice; serverTime: string };
+export type ActivationResponse = {
+  ok: true;
+  deviceId: string;
+  deviceSecret: string;
+  device: PublicDevice;
+  serverTime: string;
+  /** Batas bawah urutan nomor lokal per lingkup (`nextDeviceSeq`). */
+  deviceSeq?: Record<string, number>;
+};
 
 export type DeviceUserInfo = { id: string; name: string; roleLabel: string; hasPin: boolean };
 
@@ -52,6 +62,7 @@ export type PushResult = {
   objectId?: string | null;
   result?: unknown;
   clockSkewFlagged?: boolean;
+  lateSync?: boolean;
 };
 
 export type OfflineParams = {
@@ -72,6 +83,7 @@ export type PullResponse = {
   params: OfflineParams;
   data: Record<string, unknown>;
   errors: Record<string, string>;
+  deviceSeq?: Record<string, number>;
 };
 
 export type ApiErrorBody = { ok: false; code: string; message: string; wipe?: boolean; lockedUntil?: string; attemptsLeft?: number };

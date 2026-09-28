@@ -21,6 +21,10 @@ const ARCHITECTURE_EVENTS = [
   "water_supply.confirmed", "meter.reading_recorded", "truck_fill.recorded", "water_balance.computed",
   "restitution.recorded", "restitution.settled", "approval.decided", "fleet_event.detected", "period.closed",
   "period.locked", "asset.depreciated", "partner.subscription_invoiced", "digital_payment.succeeded",
+  // Koreksi/pembalik (tinjauan pasca-F3c).
+  "trip.corrected", "trip_payment.reversed", "trip_expense.reversed", "bank_deposit.reversed",
+  "restitution.settlement_reversed", "consumable.receipt_reversed", "purchase_receipt.corrected", "invoice.written_off",
+  "customer_advance.refunded", "discrepancy.reopened",
 ];
 
 const payload = {
@@ -59,10 +63,14 @@ describe("Event domain (ARCHITECTURE §5, §8)", () => {
     }
   });
 
-  it("handler gagal → seluruh transaksi rollback (event & tulisan lain tidak tersimpan)", async () => {
-    const off = on("shift.closed", () => {
-      throw new Error("handler M11 gagal");
-    });
+  it("handler isolate:false gagal → seluruh transaksi rollback (event & tulisan lain tidak tersimpan)", async () => {
+    const off = on(
+      "shift.closed",
+      () => {
+        throw new Error("handler M11 gagal");
+      },
+      { isolate: false },
+    );
     try {
       const before = (await queryEvents(t.db, { type: "shift.closed" })).length;
       await expect(
@@ -119,6 +127,58 @@ describe("Event domain (ARCHITECTURE §5, §8)", () => {
       offAny();
     }
     expect(listHandlers("deposit.closed")).toEqual([]);
+  });
+
+  it("R04 / Bab 6.4 butir 3 handler modul lain (terisolasi, bawaan) gagal → pemancar tetap commit; insiden dicatat; tulisan handler dibatalkan", async () => {
+    const { incidents } = await import("@/db/schema");
+    const seen: string[] = [];
+    const offBad = on(
+      "shift.opened",
+      async (_event, tx) => {
+        await tx.update(parameters).set({ reason: "tulisan handler gagal" }).where(eq(parameters.key, "PAR-03"));
+        throw new Error("JOURNAL_UNBALANCED (uji)");
+      },
+      { name: "m11-accounting:uji-gagal" },
+    );
+    const offGood = on("shift.opened", () => void seen.push("berikutnya tetap jalan"), { name: "m9-reports:uji" });
+    try {
+      const ev = await withTx(async (tx) => {
+        await tx.update(parameters).set({ reason: "tulisan pemancar" }).where(eq(parameters.key, "PAR-02"));
+        return emit(tx, "shift.opened", payload, { ctx: seededContext("depot01") });
+      });
+      expect(seen).toEqual(["berikutnya tetap jalan"]);
+      expect((await queryEvents(t.db, { type: "shift.opened" })).map((e) => e.id)).toContain(ev.id);
+      const [p2] = await t.db.select().from(parameters).where(eq(parameters.key, "PAR-02"));
+      expect(p2!.reason).toBe("tulisan pemancar");
+      const [p3] = await t.db.select().from(parameters).where(eq(parameters.key, "PAR-03"));
+      expect(p3!.reason).not.toBe("tulisan handler gagal");
+      const inc = await t.db.select().from(incidents).where(eq(incidents.objectId, ev.id));
+      expect(inc).toHaveLength(1);
+      expect(inc[0]!.title).toMatch(/m11-accounting:uji-gagal/);
+    } finally {
+      offBad();
+      offGood();
+    }
+  });
+
+  it("registrasi ulang handler bernama sama mengganti yang lama (tidak menggandakan efek)", async () => {
+    let calls = 0;
+    const offA = on("shift.opened", () => void calls++, { name: "m6-pos:uji-dedupe" });
+    const offB = on("shift.opened", () => void calls++, { name: "m6-pos:uji-dedupe" });
+    try {
+      await withTx((tx) => emit(tx, "shift.opened", payload, { ctx: seededContext("depot01") }));
+      expect(calls).toBe(1);
+      expect(listHandlers("shift.opened").filter((n) => n === "m6-pos:uji-dedupe")).toHaveLength(1);
+    } finally {
+      offA();
+      offB();
+    }
+  });
+
+  it("occurredAt event mengikuti ctx.now (waktu dikendalikan uji)", async () => {
+    const now = new Date("2026-09-28T01:02:03Z");
+    const ev = await withTx((tx) => emit(tx, "shift.opened", payload, { ctx: seededContext("depot01", { now }) }));
+    expect(ev.occurredAt.toISOString()).toBe(now.toISOString());
   });
 
   it("tipe event di luar katalog ditolak", async () => {

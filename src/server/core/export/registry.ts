@@ -3,6 +3,7 @@
  */
 import "server-only";
 
+import { ensureBootstrapped } from "../bootstrap";
 import type { ActorContext } from "../context";
 import { can } from "../rbac/authorize";
 import type { AnyReportDef } from "./types";
@@ -21,11 +22,13 @@ export function unregisterReport(key: string): void {
 }
 
 export function getReport(key: string): AnyReportDef | undefined {
+  ensureBootstrapped(); // laporan modul terdaftar lewat registerReports() (instance dingin: halaman katalog M9)
   return reports.get(key);
 }
 
 /** Laporan yang boleh diekspor pelaku (menurut izin). */
 export function listReports(ctx?: ActorContext): AnyReportDef[] {
+  ensureBootstrapped();
   const all = Array.from(reports.values());
   return ctx ? all.filter((r) => can(ctx, r.permission)) : all;
 }

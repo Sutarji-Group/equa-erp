@@ -7,10 +7,13 @@
  *   (admin sistem diberi tahu).
  * - `enrollWithCode(code, pin)`: aktivasi akun dengan kode sekali pakai dari admin sistem + PIN baru.
  * - `lockScreen()` / `unlockScreen(pin)` (PAR-37) & `switchUser()` — TIDAK menghapus antrean siapa pun.
+ * - Kunci perintah (tanda tangan outbox per pengguna): dari server saat login daring, disimpan terbungkus kunci
+ *   turunan PIN; dibuka saat login daring/offline dan dihapus dari memori perangkat saat kunci layar/ganti pengguna.
  */
 import { fieldDb, getMeta, setMeta, type CredentialItem } from "./db";
 import { deviceFetch, FieldApiError, isOnline } from "./api";
-import { verifyPinOffline } from "./crypto";
+import { importCommandKey, unwrapCommandKey, verifyPinOffline, wrapCommandKey } from "./crypto";
+import { clearActiveCommandKey, rebindOutbox, setActiveCommandKey } from "./signing";
 import type { DeviceUserInfo, FieldLoginResponse, PinPolicy } from "./types";
 
 export const DEFAULT_POLICY: PinPolicy = { maxAttempts: 5, lockMinutes: 15, idleMinutes: 10 };
@@ -64,10 +67,17 @@ export async function clearAuthEvents(count: number): Promise<void> {
 /** Peristiwa peramban: minta worker sinkron berjalan (mis. setelah login → unduh data referensi). */
 export const SYNC_REQUEST_EVENT = "equa:sync-request";
 
-async function activate(userId: string, now: number): Promise<void> {
+async function activate(userId: string, now: number, command: { sessionId: string; key: CryptoKey } | null, rebind: boolean): Promise<void> {
   await setMeta(META_ACTIVE, userId);
   await setMeta(META_LOCKED, false);
   await setMeta(META_ACTIVITY, now);
+  if (command) {
+    await setActiveCommandKey(userId, command.sessionId, command.key);
+    // Login PIN DARING pemilik antrean: ikat ulang perintahnya yang belum terkirim ke sesi baru.
+    if (rebind) await rebindOutbox(userId, command.sessionId, command.key);
+  } else {
+    await clearActiveCommandKey();
+  }
   // Perintah pengguna ini yang menunggu login kembali ke antrean kirim.
   await fieldDb()
     .outbox.where("[userId+status]")
@@ -76,7 +86,7 @@ async function activate(userId: string, now: number): Promise<void> {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(SYNC_REQUEST_EVENT));
 }
 
-async function saveCredential(res: FieldLoginResponse, now: number): Promise<CredentialItem> {
+async function saveCredential(res: FieldLoginResponse, now: number, pin: string): Promise<CredentialItem> {
   const cred: CredentialItem = {
     userId: res.user.id,
     name: res.user.name,
@@ -86,6 +96,7 @@ async function saveCredential(res: FieldLoginResponse, now: number): Promise<Cre
     verifier: res.verifier,
     sessionId: res.sessionId,
     sessionExpiresAt: res.expiresAt,
+    commandKeyWrap: res.commandKey ? await wrapCommandKey(pin, res.commandKey) : null,
     policy: res.policy,
     failedCount: 0,
     lockedUntil: null,
@@ -115,8 +126,10 @@ export async function loginWithPin(userId: string, pin: string, opts: LoginOptio
   if (online) {
     try {
       const res = await deviceFetch<FieldLoginResponse>("/api/device/pin-login", { json: { userId, pin } });
-      const saved = await saveCredential(res, now);
-      if (opts.activateUser !== false) await activate(userId, now);
+      const saved = await saveCredential(res, now, pin);
+      if (opts.activateUser !== false) {
+        await activate(userId, now, res.commandKey ? { sessionId: res.sessionId, key: await importCommandKey(res.commandKey) } : null, true);
+      }
       return saved;
     } catch (error) {
       if (!(error instanceof FieldApiError) || !error.network) {
@@ -150,15 +163,18 @@ export async function loginWithPin(userId: string, pin: string, opts: LoginOptio
   }
   await fieldDb().credentials.update(userId, { failedCount: 0, lockedUntil: null, lastLoginAt: now });
   await pushEvent({ type: "offline_login", userId, at: new Date(now).toISOString() });
-  if (opts.activateUser !== false) await activate(userId, now);
+  if (opts.activateUser !== false) {
+    const key = cred.commandKeyWrap ? await unwrapCommandKey(pin, cred.commandKeyWrap) : null;
+    await activate(userId, now, key ? { sessionId: cred.sessionId, key } : null, false);
+  }
   return (await getCredential(userId))!;
 }
 
 /** Aktivasi akun lapangan dengan kode admin sistem + PIN baru (wajib daring). */
 export async function enrollWithCode(code: string, pin: string, now = Date.now()): Promise<CredentialItem> {
   const res = await deviceFetch<FieldLoginResponse>("/api/device/pin-enroll", { json: { code, pin } });
-  const saved = await saveCredential(res, now);
-  await activate(res.user.id, now);
+  const saved = await saveCredential(res, now, pin);
+  await activate(res.user.id, now, res.commandKey ? { sessionId: res.sessionId, key: await importCommandKey(res.commandKey) } : null, true);
   return saved;
 }
 
@@ -169,6 +185,8 @@ export async function isScreenLocked(): Promise<boolean> {
 /** Kunci layar (PAR-37 / tombol "Kunci") — data & antrean tetap utuh. */
 export async function lockScreen(): Promise<void> {
   await setMeta(META_LOCKED, true);
+  // Kunci perintah pengguna dilepas dari perangkat sampai PIN dimasukkan lagi.
+  await clearActiveCommandKey();
 }
 
 /** Buka kunci dengan PIN pengguna aktif (offline memakai verifier). */
@@ -182,6 +200,7 @@ export async function unlockScreen(pin: string, opts: LoginOptions = {}): Promis
 export async function switchUser(): Promise<void> {
   await setMeta(META_ACTIVE, null);
   await setMeta(META_LOCKED, false);
+  await clearActiveCommandKey();
 }
 
 /** Catat aktivitas (untuk kunci layar otomatis PAR-37). */

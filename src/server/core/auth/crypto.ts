@@ -11,6 +11,9 @@
  * - Secret perangkat: diturunkan `HMAC(kunci "device-secret", deviceId:nonce)`; DB menyimpan `d1:<nonce>:<sha256>` —
  *   kebocoran DB saja tidak cukup untuk memalsukan token perangkat.
  * - Verifier PIN offline: PBKDF2-SHA256 ≥ 100.000 iterasi + salt acak (bukan PIN; US-M10-02 KP-5, NFR-10).
+ * - Kunci perintah sinkron per sesi lapangan: `HMAC(kunci "field-command", sessionId)` — tidak disimpan di DB (dapat
+ *   diturunkan ulang); diberikan ke perangkat saat login PIN untuk menandatangani perintah outbox
+ *   (`src/lib/sync-signature.ts`).
  */
 import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, pbkdf2, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
@@ -49,7 +52,7 @@ export function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ba, bb);
 }
 
-export type KeyPurpose = "totp-secret" | "code-hmac" | "device-secret";
+export type KeyPurpose = "totp-secret" | "code-hmac" | "device-secret" | "field-command";
 
 const keyCache = new Map<string, Buffer>();
 
@@ -179,4 +182,24 @@ export async function computePinVerifier(pin: string, options: { salt?: string; 
   const iterations = options.iterations ?? PIN_VERIFIER_ITERATIONS;
   const derived = await pbkdf2Async(pin, fromBase64Url(salt), iterations, 32, "sha256");
   return { algorithm: PIN_VERIFIER_ALGORITHM, iterations, salt, verifier: toBase64Url(derived) };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Kunci & tanda tangan perintah sinkron lapangan (src/lib/sync-signature.ts)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Kunci perintah (32 byte, base64url) untuk sesi lapangan — diturunkan, tidak disimpan. */
+export function fieldCommandKey(sessionId: string): string {
+  return toBase64Url(createHmac("sha256", deriveKey("field-command")).update(`session:${sessionId}`).digest());
+}
+
+/** Tanda tangan HMAC-SHA256 (base64url) atas string perintah dengan kunci perintah sesi. */
+export function signFieldCommand(sessionId: string, signingString: string): string {
+  return toBase64Url(createHmac("sha256", fromBase64Url(fieldCommandKey(sessionId))).update(signingString, "utf8").digest());
+}
+
+/** Verifikasi tanda tangan perintah (waktu-konstan). */
+export function verifyFieldCommand(sessionId: string, signingString: string, signature: string | null | undefined): boolean {
+  if (!signature) return false;
+  return safeEqual(signFieldCommand(sessionId, signingString), signature);
 }
