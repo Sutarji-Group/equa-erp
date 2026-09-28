@@ -1,17 +1,20 @@
 "use client";
 
-import { SerwistProvider } from "@serwist/turbopack/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 
 /**
- * Pendaftaran service worker PWA lapangan (`/serwist/sw.js`, scope `/`). Nonaktif di `next dev` agar cache tidak
- * membingungkan saat pengembangan. `reloadOnOnline` dimatikan: sinyal kembali TIDAK memuat ulang halaman (isian
- * pengguna tidak hilang) — worker sinkron yang mengirim antrean.
+ * Pendaftaran service worker PWA lapangan (`/serwist/sw.js`, dibangun @serwist/turbopack; scope `/`, tipe module).
+ * Nonaktif di `next dev` agar cache tidak membingungkan saat pengembangan. Sengaja TIDAK memakai
+ * `SerwistProvider` dari `@serwist/turbopack/react`: paket itu eksternal di server (esbuild) sehingga komponen
+ * React-nya memakai salinan React lain saat SSR. Sinyal kembali TIDAK memuat ulang halaman (isian tidak hilang) —
+ * worker sinkron yang mengirim antrean.
  */
 export function PwaProvider({ children }: { children: ReactNode }) {
-  return (
-    <SerwistProvider swUrl="/serwist/sw.js" disable={process.env.NODE_ENV === "development"} reloadOnOnline={false} cacheOnNavigation>
-      {children}
-    </SerwistProvider>
-  );
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development" || !("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.register("/serwist/sw.js", { scope: "/", type: "module" }).catch((error: unknown) => {
+      console.warn("[equa] service worker gagal didaftarkan:", error);
+    });
+  }, []);
+  return <>{children}</>;
 }

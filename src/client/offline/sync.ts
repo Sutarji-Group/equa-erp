@@ -11,7 +11,7 @@
  * Pemicu (`startSyncWorker`): kejadian `online`, interval 60 detik, perubahan antrean, tab kembali terlihat, dan
  * tombol "Kirim sekarang" (`syncNow({ force: true })`).
  */
-import { activeSession, clearAuthEvents, takeAuthEvents } from "./auth";
+import { activeSession, clearAuthEvents, SYNC_REQUEST_EVENT, takeAuthEvents } from "./auth";
 import { APP_VERSION, deviceFetch, FieldApiError, isOnline, loadDevice, OFFLINE_MESSAGE } from "./api";
 import { fieldDb, getMeta, PENDING_STATUSES, setMeta, type OutboxItem } from "./db";
 import { OUTBOX_CHANGED_EVENT, pendingByUser } from "./outbox";
@@ -264,6 +264,7 @@ export function startSyncWorker(opts: { intervalMs?: number } = {}): () => void 
   window.addEventListener("online", run);
   window.addEventListener("offline", onOffline);
   window.addEventListener(OUTBOX_CHANGED_EVENT, soon);
+  window.addEventListener(SYNC_REQUEST_EVENT, soon);
   document.addEventListener("visibilitychange", onVisible);
   const timer = setInterval(run, opts.intervalMs ?? SYNC_INTERVAL_MS);
   // Item "sending" yang tertinggal (tab ditutup saat mengirim) kembali ke antrean, lalu kirim.
@@ -277,6 +278,7 @@ export function startSyncWorker(opts: { intervalMs?: number } = {}): () => void 
     window.removeEventListener("online", run);
     window.removeEventListener("offline", onOffline);
     window.removeEventListener(OUTBOX_CHANGED_EVENT, soon);
+    window.removeEventListener(SYNC_REQUEST_EVENT, soon);
     document.removeEventListener("visibilitychange", onVisible);
     clearInterval(timer);
     if (debounce) clearTimeout(debounce);

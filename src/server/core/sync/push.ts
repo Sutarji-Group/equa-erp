@@ -20,6 +20,7 @@ import { attachments, devices, employees, syncCommands, users } from "@/db/schem
 import { isUuid } from "@/lib/ids";
 import { isBusinessDate, toBusinessDate } from "@/lib/time";
 
+import { ensureBootstrapped } from "../bootstrap";
 import { getDb, withTx, type Tx } from "../db";
 import { DomainError, ForbiddenError, parseInput, toUserMessage } from "../errors";
 import { get as getParam } from "../params-read";
@@ -254,6 +255,7 @@ async function processOne(auth: DeviceAuth, raw: unknown, skew: { ms: number | n
 
 /** Proses satu kiriman batch. */
 export async function processPush(auth: DeviceAuth, body: unknown): Promise<PushResponse> {
+  ensureBootstrapped(); // handler modul terdaftar lewat registerSync()
   const data = parseInput(pushBodySchema, body);
   const now = auth.now;
   const { minutes_gt } = await getParam(getDb(), "PAR-42", toBusinessDate(now));

@@ -151,6 +151,12 @@ export async function deviceFetch<T>(path: string, opts: DeviceFetchOptions = {}
   if (!res.ok || data.ok === false) {
     const err = data as Partial<ApiErrorBody>;
     if (err.wipe) await handleWipe();
+    else if (err.code === "DEVICE_BLOCKED" || err.code === "DEVICE_NOT_ACTIVE" || err.code === "DEVICE_UNKNOWN") {
+      // Perangkat diblokir / perlu aktivasi ulang: kunci aplikasi (data lokal tetap utuh sampai perintah hapus).
+      await fieldDb()
+        .device.update("device", { device: { ...dev.device, status: err.code === "DEVICE_BLOCKED" ? "blocked" : "inactive" } })
+        .catch(() => undefined);
+    }
     throw new FieldApiError(err.message ?? "Permintaan ditolak server.", {
       code: err.code ?? "ERROR",
       status: res.status,
@@ -160,6 +166,14 @@ export async function deviceFetch<T>(path: string, opts: DeviceFetchOptions = {}
     });
   }
   return data as T;
+}
+
+/**
+ * Lepas pendaftaran perangkat di peramban (setelah admin menerbitkan kode aktivasi baru): hapus kunci perangkat saja;
+ * antrean & data pengguna TETAP tersimpan dan dikirim setelah aktivasi ulang + login PIN.
+ */
+export async function forgetDevice(): Promise<void> {
+  await fieldDb().device.delete("device");
 }
 
 /** Aktivasi perangkat dengan kode admin sistem (tanpa token). */

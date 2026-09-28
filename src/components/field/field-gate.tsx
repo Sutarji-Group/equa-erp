@@ -1,17 +1,19 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle, ShieldOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 
 import { FieldPinLogin } from "@/components/auth/field-pin-login";
 import { LockScreen } from "@/components/auth/lock-screen";
 import { PinEnrollForm } from "@/components/auth/pin-enroll-form";
+import { BigButton } from "@/components/field/big-button";
 import {
   DEFAULT_POLICY,
   enrollWithCode,
   fieldDb,
+  forgetDevice,
   isScreenLocked,
   knownUsers,
   lastActivityAt,
@@ -170,6 +172,40 @@ export function FieldGate({ home, children }: { home: FieldHome; children: React
   }, [device, snap, sync]);
 
   if (snap === undefined || !device || device.device.home !== home) return <Loading />;
+
+  if (device.device.status === "blocked") {
+    return (
+      <Centered>
+        <ShieldOff className="size-12 text-destructive" aria-hidden />
+        <h1 className="text-2xl font-bold">Perangkat diblokir</h1>
+        <p className="max-w-sm text-center text-lg">
+          Admin sistem memblokir perangkat ini. Aplikasi tidak dapat dipakai. Hubungi admin sistem; data yang belum terkirim tetap
+          tersimpan.
+        </p>
+      </Centered>
+    );
+  }
+  if (device.device.status === "inactive") {
+    return (
+      <Centered>
+        <h1 className="text-2xl font-bold">Perangkat perlu diaktifkan ulang</h1>
+        <p className="max-w-sm text-center text-lg">
+          Admin sistem menerbitkan kode aktivasi baru untuk perangkat ini. Data yang belum terkirim tetap tersimpan dan dikirim
+          setelah aktivasi ulang serta masuk dengan PIN.
+        </p>
+        <div className="w-full max-w-sm">
+          <BigButton
+            onClick={async () => {
+              await forgetDevice();
+              router.replace("/aktivasi-perangkat");
+            }}
+          >
+            Masukkan kode aktivasi baru
+          </BigButton>
+        </div>
+      </Centered>
+    );
+  }
 
   if (!snap.activeUserId || !snap.credential) {
     if (mode === "enroll") {

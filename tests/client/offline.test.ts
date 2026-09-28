@@ -31,7 +31,6 @@ import { setFieldDbNameForTests } from "@/client/offline/db";
 import { attachments, deviceUsageLogs, syncCommands } from "@/db/schema";
 import { deviceId, SEED_DEMO_PIN, userIdByUsername } from "@/db/seed";
 import { issueActivationCode, requestWipe } from "@/server/core/auth";
-import { ensureBootstrapped } from "@/server/core/bootstrap";
 import { setStorageDriverForTests, type StorageDriver } from "@/server/core/storage";
 
 import { seededContext } from "../helpers/context";
@@ -77,7 +76,6 @@ const SOPIR = userIdByUsername("sopir1");
 const KERNET = userIdByUsername("kernet1");
 
 beforeAll(() => {
-  ensureBootstrapped();
   setStorageDriverForTests(memoryDriver);
   setFetchForTests(routeFetch);
   setFieldDbNameForTests(`equa-field-uji-${Date.now()}`);

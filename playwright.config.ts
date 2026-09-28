@@ -49,8 +49,11 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        // Build produksi lalu start; set E2E_DEV=1 untuk memakai `pnpm dev` (lebih cepat saat iterasi).
-        command: process.env.E2E_DEV ? `pnpm dev --port ${PORT}` : `pnpm build && pnpm start --port ${PORT}`,
+        // DB E2E disiapkan ulang (skema + seed + kode aktivasi perangkat demo), lalu build produksi & start;
+        // set E2E_DEV=1 untuk memakai `pnpm dev` (lebih cepat saat iterasi).
+        command: process.env.E2E_DEV
+          ? `pnpm e2e:prepare && pnpm dev --port ${PORT}`
+          : `pnpm e2e:prepare && pnpm build && pnpm start --port ${PORT}`,
         url: `${BASE_URL}/api/health`,
         reuseExistingServer: !process.env.CI,
         timeout: 300_000,

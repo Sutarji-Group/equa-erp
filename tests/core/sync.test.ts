@@ -18,7 +18,6 @@ import {
   registerSyncHandler,
   type PushResult,
 } from "@/server/core/sync";
-import { ensureBootstrapped } from "@/server/core/bootstrap";
 
 import { POST as pushRoute } from "@/app/api/sync/push/route";
 
@@ -43,7 +42,6 @@ const cleanups: (() => void)[] = [];
 const seenAttachments: string[][] = [];
 
 beforeAll(() => {
-  ensureBootstrapped();
   setStorageDriverForTests(memoryDriver);
   cleanups.push(
     registerSyncHandler("test.owner_only", {

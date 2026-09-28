@@ -6,7 +6,7 @@ test.describe("Smoke scaffold (Sprint 0)", () => {
     await expect(page).toHaveURL(/\/masuk$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "id");
     await expect(page.getByLabel("Nama pengguna")).toBeVisible();
-    await expect(page.getByLabel("Kata sandi")).toBeVisible();
+    await expect(page.getByLabel("Kata sandi", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Masuk" })).toBeVisible();
   });
 

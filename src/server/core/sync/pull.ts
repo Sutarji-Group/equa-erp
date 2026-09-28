@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { devices } from "@/db/schema";
 import { toBusinessDate } from "@/lib/time";
 
+import { ensureBootstrapped } from "../bootstrap";
 import { getDb } from "../db";
 import { toUserMessage, ValidationError } from "../errors";
 import { get as getParam } from "../params-read";
@@ -85,6 +86,7 @@ export async function minSupportedVersion(now: Date): Promise<string> {
 }
 
 export async function processPull(auth: DeviceAuth, query: { since?: string | null; keys?: string | null }): Promise<PullResponse> {
+  ensureBootstrapped(); // penyedia modul terdaftar lewat registerSync()
   if (!auth.user || !auth.session) {
     throw new AuthError("SESSION_EXPIRED", "Sesi Anda di perangkat ini berakhir. Masukkan PIN saat ada sinyal untuk melanjutkan.");
   }

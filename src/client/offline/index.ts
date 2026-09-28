@@ -14,7 +14,7 @@
 export * from "./types";
 export { fieldDb, wipeLocalData, PENDING_STATUSES, FIELD_DB_NAME, type OutboxItem, type OutboxStatus, type AttachmentItem, type CredentialItem, type DeviceItem } from "./db";
 export { verifyPinOffline, derivePinVerifier, importDeviceKey, signDeviceJwt } from "./crypto";
-export { APP_VERSION, activateWithCode, deviceFetch, FieldApiError, loadDevice, serverNow, setWipeHandler, OFFLINE_MESSAGE } from "./api";
+export { APP_VERSION, activateWithCode, deviceFetch, FieldApiError, forgetDevice, isOnline, loadDevice, serverNow, setWipeHandler, OFFLINE_MESSAGE } from "./api";
 export {
   activeSession,
   enrollWithCode,

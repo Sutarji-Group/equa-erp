@@ -12,7 +12,8 @@ const SAFE_DETAIL_KEYS = ["wipe", "lockedUntil", "attemptsLeft"] as const;
 /** Seperti `errorResponse`, ditambah detail aman dari `AuthError`. */
 export function apiErrorResponse(error: unknown): Response {
   if (error instanceof AuthError) {
-    const body: Record<string, unknown> = { ok: false, code: error.code, message: error.message };
+    // `serverTime` agar klien dapat mengoreksi selisih jam walau permintaannya ditolak (mis. token kedaluwarsa).
+    const body: Record<string, unknown> = { ok: false, code: error.code, message: error.message, serverTime: new Date().toISOString() };
     for (const key of SAFE_DETAIL_KEYS) {
       if (error.details && key in error.details) body[key] = error.details[key];
     }

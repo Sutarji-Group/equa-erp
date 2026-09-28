@@ -4,7 +4,7 @@ import { readAttachment } from "@/server/core/storage";
 
 /**
  * Menyajikan lampiran (foto bukti kirim, meter, nota…) setelah pemeriksaan pelaku & tenant. Penyimpanan Vercel Blob
- * bersifat privat, jadi semua akses lewat route ini. TODO(auth): resolver sesi dipasang F3c (sampai itu 401).
+ * bersifat privat, jadi semua akses lewat route ini. Pelaku dari resolver F3c (cookie web / token perangkat); tanpa sesi → 401.
  */
 export const dynamic = "force-dynamic";
 

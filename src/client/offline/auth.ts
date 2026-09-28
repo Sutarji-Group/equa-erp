@@ -61,6 +61,9 @@ export async function clearAuthEvents(count: number): Promise<void> {
   await setMeta(META_EVENTS, list.slice(count));
 }
 
+/** Peristiwa peramban: minta worker sinkron berjalan (mis. setelah login → unduh data referensi). */
+export const SYNC_REQUEST_EVENT = "equa:sync-request";
+
 async function activate(userId: string, now: number): Promise<void> {
   await setMeta(META_ACTIVE, userId);
   await setMeta(META_LOCKED, false);
@@ -70,6 +73,7 @@ async function activate(userId: string, now: number): Promise<void> {
     .outbox.where("[userId+status]")
     .equals([userId, "needs_login"])
     .modify({ status: "queued", nextAttemptAt: null });
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(SYNC_REQUEST_EVENT));
 }
 
 async function saveCredential(res: FieldLoginResponse, now: number): Promise<CredentialItem> {

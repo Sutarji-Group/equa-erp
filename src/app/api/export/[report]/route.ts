@@ -4,7 +4,7 @@ import { exportReport, type ExportFormat } from "@/server/core/export";
 
 /**
  * Unduh laporan: `GET /api/export/<kunci>?format=xlsx|pdf|csv&purpose=…&<filter>=…` (US-M9-03, BR-39).
- * Pelaku dari `getActorContext` — TODO(auth): resolver sesi dipasang F3c; sampai itu route membalas 401.
+ * Pelaku dari `getActorContext` (resolver F3c: cookie `equa_session` web kantor / token perangkat); tanpa sesi → 401.
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;

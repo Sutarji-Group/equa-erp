@@ -3,10 +3,9 @@
  *
  * - `buildActorContext(tx, userId, { source, deviceId?, … })` — memuat peran & lingkup AKTIF (masa berlaku mencakup
  *   hari ini). Dipakai lapisan autentikasi (F3c) setelah sesi/token perangkat diverifikasi.
- * - `getActorContext(request?)` — pelaku permintaan saat ini lewat resolver yang dapat diganti.
- *   TODO(auth): F3c memanggil `setActorResolver(...)` (mis. di modul auth yang dimuat bootstrap) untuk membaca cookie
- *   `equa_session` / token perangkat lalu `buildActorContext`. Sampai itu, resolver bawaan mengembalikan `null`
- *   (route membalas 401).
+ * - `getActorContext(request?)` — pelaku permintaan saat ini lewat resolver yang dapat diganti. F3c memasang
+ *   resolver (`src/server/core/auth/resolver.ts`, lewat `ensureBootstrapped` → `registerCoreAuth`): cookie
+ *   `equa_session` (web kantor, 2FA wajib terverifikasi) atau `Authorization: Bearer <JWT perangkat>` (lapangan).
  */
 import "server-only";
 
@@ -91,7 +90,7 @@ export async function buildActorContext(tx: Tx, userId: string, options: BuildAc
 
 export type ActorResolver = (request?: Request) => Promise<ActorContext | null>;
 
-// TODO(auth): diganti F3c lewat setActorResolver (sesi web `equa_session`, token perangkat JWT).
+// Bawaan tanpa sesi; F3c memasang resolver nyata saat bootstrap (setActorResolver).
 const defaultResolver: ActorResolver = async () => null;
 
 let resolver: ActorResolver = defaultResolver;

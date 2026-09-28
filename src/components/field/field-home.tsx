@@ -118,6 +118,11 @@ function HomeShell({ title, children }: { title: string; children?: ReactNode })
           </div>
         </div>
       ) : null}
+      {sync.lastError && sync.online ? (
+        <p role="alert" className="rounded-xl border-2 border-warning bg-warning/15 p-3 text-base">
+          {sync.lastError}
+        </p>
+      ) : null}
       {sync.rejectedCount > 0 ? (
         <p role="alert" className="rounded-xl border-2 border-destructive/40 bg-destructive/5 p-3 text-base text-destructive">
           {sync.rejectedCount} data ditolak server. Lihat alasannya di daftar di bawah; hubungi Admin Keuangan bila perlu dicatat kantor.
