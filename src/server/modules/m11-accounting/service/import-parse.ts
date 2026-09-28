@@ -5,6 +5,8 @@
 import * as ExcelJSNs from "exceljs";
 import Papa from "papaparse";
 
+import { isBusinessDate } from "@/lib/time";
+
 import { DomainError } from "@/server/core/errors";
 
 const ExcelJS = ((ExcelJSNs as unknown as { default?: typeof ExcelJSNs }).default ?? ExcelJSNs) as typeof ExcelJSNs;
@@ -84,10 +86,11 @@ export function parseAmount(raw: string): number | null {
 /** Tanggal: YYYY-MM-DD atau DD/MM/YYYY. */
 export function parseDateText(raw: string): string | null {
   const s = raw.trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  let out: string | null = null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) out = s.slice(0, 10);
   const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s);
-  if (m) return `${m[3]}-${m[2]!.padStart(2, "0")}-${m[1]!.padStart(2, "0")}`;
-  return null;
+  if (m) out = `${m[3]}-${m[2]!.padStart(2, "0")}-${m[1]!.padStart(2, "0")}`;
+  return out && isBusinessDate(out) ? out : null;
 }
 
 export function parseBool(raw: string): boolean {

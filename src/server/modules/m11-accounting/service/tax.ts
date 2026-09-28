@@ -30,7 +30,7 @@ import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, authorizeAny, runService } from "@/server/core/rbac";
 
-import { isAccountingTenant, isPeriodLabel, shiftPeriod } from "./common";
+import { isAccountingTenant, isPeriodLabel, periodEnd, shiftPeriod } from "./common";
 import { computeTrialBalance } from "./statements";
 
 const LINES: ProfitCenter[] = ["L1", "L2", "L3", "L4", "L5"];
@@ -151,7 +151,7 @@ export async function taxOverview(ctx: ActorContext, filter: { period?: string |
   await authorize(ctx, "m11.tax.read", { tx: opts.tx });
   const tx = opts.tx ?? getDb();
   const period = filter.period && isPeriodLabel(filter.period) ? filter.period : monthOf(ctxBusinessDate(ctx));
-  const end = `${period}-28`;
+  const end = periodEnd(period);
   const setting = await taxSettingAt(tx, ctx.tenantId, end);
   const rev = (await revenueByMonth(tx, ctx.tenantId, period, period)).get(period) ?? { L1: 0, L2: 0, L3: 0, L4: 0, L5: 0, SHARED: 0 };
   const total = LINES.reduce((s, l) => s + rev[l], 0);
@@ -182,8 +182,8 @@ export async function monthlyRevenueReport(ctx: ActorContext, filter: { fromPeri
   for (let p = filter.fromPeriod; p <= filter.toPeriod; p = shiftPeriod(p, 1)) {
     const r = byMonth.get(p) ?? { L1: 0, L2: 0, L3: 0, L4: 0, L5: 0, SHARED: 0 };
     const total = LINES.reduce((s, l) => s + r[l], 0);
-    const setting = await taxSettingAt(tx, ctx.tenantId, `${p}-28`);
-    const rate = setting?.scheme === "non_pkp_final" ? (await params.get(tx, "PAR-64", `${p}-28`)).percent : setting?.scheme === "non_pkp_other" ? setting.ratePercent : null;
+    const setting = await taxSettingAt(tx, ctx.tenantId, periodEnd(p));
+    const rate = setting?.scheme === "non_pkp_final" ? (await params.get(tx, "PAR-64", periodEnd(p))).percent : setting?.scheme === "non_pkp_other" ? setting.ratePercent : null;
     rows.push({ period: p, L1: r.L1, L2: r.L2, L3: r.L3, L4: r.L4, L5: r.L5, total, pphEstimate: rate !== null ? Math.round((total * rate) / 100) : null });
     if (rows.length > 36) break;
   }

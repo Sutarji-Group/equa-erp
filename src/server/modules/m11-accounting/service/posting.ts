@@ -211,7 +211,11 @@ export async function executeSpec(tx: Tx, event: EventLike, spec: EventJournalSp
   const lines: PostedLineInput[] = [];
   for (const entry of entries) {
     const eventKey = entry.eventKey ?? spec.eventKey;
-    const mapping = await resolveMapping(tx, eventKey, entry.entryKey, spec.date, tenantId);
+    // Pemetaan yang berlaku pada tanggal peristiwa; bila saat itu belum ada (peristiwa menunggu di daftar tunggu lalu
+    // pemetaan dilengkapi — berlaku ke depan), pakai pemetaan yang berlaku hari ini agar antrean dapat diselesaikan.
+    const mapping =
+      (await resolveMapping(tx, eventKey, entry.entryKey, spec.date, tenantId)) ??
+      (opts.today && opts.today > spec.date ? await resolveMapping(tx, eventKey, entry.entryKey, opts.today, tenantId) : null);
     if (!mapping) {
       return queueForEvent(tx, event, { date: spec.date, sourceObject: spec.sourceObject, payload: queuePayload }, "mapping_missing", `Pemetaan akun untuk ${eventKey} / ${entry.entryKey} belum ada.`, opts);
     }

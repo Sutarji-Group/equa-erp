@@ -133,6 +133,8 @@ export async function createManualJournal(ctx: ActorContext, input: ManualJourna
   const data = parseInput(manualJournalSchema, input, { date: "Tanggal", description: "Keterangan", lines: "Baris jurnal", attachmentId: "Lampiran" });
   return runService(ctx, opts, async (tx) => {
     const { lines, payableAmount } = await validateJournalPayload(tx, ctx, data);
+    // Periode Ditutup/Dikunci menolak jurnal baru; koreksi dicatat di periode terbuka dengan rujukan periode asal.
+    await postingPeriodFor(tx, ctx.tenantId, data.date, "strict");
     const { journal } = await insertJournal(tx, {
       tenantId: ctx.tenantId,
       kind: data.isAccrual ? "accrual" : "manual",

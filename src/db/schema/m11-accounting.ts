@@ -8,6 +8,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -645,7 +646,7 @@ export const manualJournalDetails = pgTable(
     journalId: uuid("journal_id")
       .notNull()
       .references((): AnyPgColumn => journals.id),
-    recurringJournalId: uuid("recurring_journal_id").references((): AnyPgColumn => recurringJournals.id),
+    recurringJournalId: uuid("recurring_journal_id"),
     /** 'YYYY-MM' untuk draf dari jurnal berulang. */
     recurringPeriod: text("recurring_period"),
     /** Jurnal bertanda utang (US-M11-07 KP-1). */
@@ -660,6 +661,7 @@ export const manualJournalDetails = pgTable(
   },
   (t) => [
     uniqueIndex("manual_journal_details_journal_uq").on(t.journalId),
+    foreignKey({ name: "manual_journal_details_recurring_fk", columns: [t.recurringJournalId], foreignColumns: [recurringJournals.id] }),
     uniqueIndex("manual_journal_details_recurring_uq")
       .on(t.recurringJournalId, t.recurringPeriod)
       .where(sql`${t.recurringJournalId} is not null`),

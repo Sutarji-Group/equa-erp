@@ -120,6 +120,7 @@ const cutoverSchema = z
 
 /** Pemilik menetapkan tanggal cut-over (parameter berjejak 6.2b; hanya tanggal 1). Ditolak bila saldo awal sudah terposting. */
 export async function setCutoverDate(ctx: ActorContext, input: z.input<typeof cutoverSchema>, opts: { tx?: Tx } = {}) {
+  await authorize(ctx, "m11.opening_balance.sign", { tx: opts.tx });
   const data = parseInput(cutoverSchema, input, { date: "Tanggal cut-over", reason: "Alasan" });
   return runService(ctx, opts, async (tx) => {
     const posted = await tx.select({ id: openingBalanceBatches.id }).from(openingBalanceBatches).where(and(eq(openingBalanceBatches.tenantId, ctx.tenantId), eq(openingBalanceBatches.status, "posted"))).limit(1);
