@@ -28,9 +28,6 @@ function sourceFiles(dir: string): string[] {
 
 /** Kode 6.3 yang pengirimnya belum ada di cabang ini — alasan tercatat (hand-off M9). */
 const PENDING_EMITTERS: Record<string, string> = {
-  "period.not_closed": "M11 (tutup buku ≤ tanggal 10) — modul M11 dibangun paralel",
-  "tax.pkp_threshold": "M11 (pemantauan PKP FR-M11-12) — laporan bulanan M9 sudah menampilkan % PKP",
-  "period.reopened": "M11 (buka kembali periode, 6.2b)",
   "partner.water_order_sla": "Tahap 3 (portal mitra)",
   "partner.support_sla": "Tahap 3 (portal mitra)",
   "access.request_pending": "M10 memakai approval.requested untuk permintaan akses (6.2a)",

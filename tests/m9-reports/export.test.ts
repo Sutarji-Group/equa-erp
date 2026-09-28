@@ -1,11 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import ExcelJS from "exceljs";
-import { z } from "zod";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { accessLogs, accountingPeriods, exportLogs } from "@/db/schema";
 import { EQUA_TENANT_ID, userIdByUsername } from "@/db/seed";
-import { exportReport, getReport, registerReport, unregisterReport } from "@/server/core/export";
+import { exportReport, getReport } from "@/server/core/export";
+import * as m11 from "@/server/modules/m11-accounting";
 import * as m9 from "@/server/modules/m9-reports";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
@@ -97,33 +97,28 @@ describe("M9 — katalog laporan & ekspor Excel/PDF (US-M9-03)", () => {
     await expect(exportReport(dispatcher(NOW), "m9.monthly_gross_profit", "xlsx", { month: M })).rejects.toThrow(/tidak diizinkan/);
   });
 
-  it("US-M9-03 KP-3 ekspor jurnal format konsultan (M11) memakai mekanisme & log ekspor yang sama begitu laporannya terdaftar", async () => {
-    const before = await m9.getReportCatalog(accountant(NOW));
-    const entry = before.find((c) => c.id === "journal_export")!;
-    expect(entry.pendingKeys).toEqual(["m11.journal_export"]);
-    const registeredByM11 = !!getReport("m11.journal_export");
-    if (!registeredByM11) {
-      expect(entry.reports).toEqual([]);
-      registerReport({
-        key: "m11.journal_export",
-        title: "Ekspor jurnal format konsultan",
-        module: "m11",
-        permission: "m9.monthly_report.read",
-        containsPii: false,
-        filtersSchema: z.object({ month: z.string() }),
-        columns: [{ key: "number", header: "Nomor" }],
-        fetch: async () => ({ rows: [{ number: "JU-1" }] }),
-      });
-    }
-    try {
-      const after = await m9.getReportCatalog(accountant(NOW));
-      expect(after.find((c) => c.id === "journal_export")!.reports[0]).toMatchObject({ key: "m11.journal_export", registered: true });
-      const res = await exportReport(accountant(NOW), "m11.journal_export", "xlsx", { month: M });
-      const [log] = await t.db.select().from(exportLogs).where(eq(exportLogs.id, res.exportLogId));
-      expect(log).toMatchObject({ reportKey: "m11.journal_export", userId: userIdByUsername("akuntan") });
-    } finally {
-      if (!registeredByM11) unregisterReport("m11.journal_export");
-    }
+  it("US-M9-03 KP-3 ekspor jurnal format konsultan (M11) memakai mekanisme & log ekspor yang sama", async () => {
+    // Integrasi M9+M11: baris katalog memakai laporan terdaftar M11 (tanpa kunci "menyusul").
+    const catalog = await m9.getReportCatalog(accountant(NOW));
+    const entry = catalog.find((c) => c.id === "journal_export")!;
+    expect(entry.pendingKeys ?? []).toEqual([]);
+    expect(entry).toMatchObject({ screen: "/akuntansi/pajak", canOpenScreen: true });
+    expect(entry.reports[0]).toMatchObject({ key: "m11.journals", registered: true, allowed: true });
+    const statements = catalog.find((c) => c.id === "gross_profit")!.reports.map((r) => r.key);
+    expect(statements).toEqual(["m9.monthly_gross_profit", "m11.profit_loss", "m11.balance_sheet", "m11.cash_flow"]);
+
+    // Ekspor generik (`/api/export/m11.journals`) → log ekspor & log akses yang sama dengan laporan M9.
+    const res = await exportReport(accountant(NOW), "m11.journals", "xlsx", { period: M });
+    const [log] = await t.db.select().from(exportLogs).where(eq(exportLogs.id, res.exportLogId));
+    expect(log).toMatchObject({ reportKey: "m11.journals", userId: userIdByUsername("akuntan"), filters: { period: M } });
+
+    // Format konsultan (template terkonfigurasi M11, `/akuntansi/pajak/ekspor`) juga tercatat di log ekspor & akses.
+    const out = await m11.exportWithTemplate(accountant(NOW), { templateKey: "journals-consultant", period: M, format: "csv" });
+    const tplLogs = await t.db.select().from(exportLogs).where(and(eq(exportLogs.reportKey, "m11.template.journals-consultant"), eq(exportLogs.fileSha256, out.sha256)));
+    expect(tplLogs).toHaveLength(1);
+    expect(tplLogs[0]).toMatchObject({ userId: userIdByUsername("akuntan"), format: "csv", filters: { period: M } });
+    const access = await t.db.select().from(accessLogs).where(and(eq(accessLogs.event, "export"), eq(accessLogs.objectId, "m11.template.journals-consultant")));
+    expect(access.length).toBeGreaterThan(0);
   });
 
   it("US-M9-03 KP-4 laporan Final menghasilkan berkas identik saat diekspor ulang; Sementara dirender ulang", async () => {

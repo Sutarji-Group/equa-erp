@@ -6,9 +6,9 @@
 
 ## Ringkasan
 
-- **Prioritas M:** 372/490 KP (75.9%) · story: 67 lengkap, 10 sebagian, 17 belum
-- **Semua prioritas:** 411/554 KP (74.2%) · story: 78 lengkap, 11 sebagian, 25 belum
-- Uji dipindai: 1021 judul di 147 berkas; 816 judul merujuk user story.
+- **Prioritas M:** 423/490 KP (86.3%) · story: 79 lengkap, 3 sebagian, 12 belum
+- **Semua prioritas:** 476/554 KP (85.9%) · story: 95 lengkap, 3 sebagian, 16 belum
+- Uji dipindai: 1126 judul di 171 berkas; 921 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
@@ -20,9 +20,9 @@
 | M6 — Penjualan Depot (POS) | 7 | 7 | 0 | 0 | 42/42 | 100.0 |
 | M7 — Penjualan Toko & Stok | 9 | 9 | 0 | 0 | 37/37 | 100.0 |
 | M8 — Produksi & Stok Air | 7 | 7 | 0 | 0 | 29/29 | 100.0 |
-| M9 — Laporan & Dashboard Pemilik | 7 | 0 | 2 | 5 | 6/31 | 19.4 |
+| M9 — Laporan & Dashboard Pemilik | 7 | 7 | 0 | 0 | 31/31 | 100.0 |
 | M10 — Pengguna, Hak Akses & Jejak Audit | 7 | 7 | 0 | 0 | 41/41 | 100.0 |
-| M11 — Akuntansi & Pajak | 10 | 0 | 6 | 4 | 7/47 | 14.9 |
+| M11 — Akuntansi & Pajak | 10 | 10 | 0 | 0 | 47/47 | 100.0 |
 | M12 — Pelacakan Armada / GPS | 8 | 8 | 0 | 0 | 36/36 | 100.0 |
 | P2 — Tahap 2: Aplikasi Pelanggan | 8 | 0 | 1 | 7 | 1/32 | 3.1 |
 | P3 — Tahap 3: Portal Kemitraan / Frenchise | 11 | 0 | 2 | 9 | 2/49 | 4.1 |
@@ -151,17 +151,17 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M9 — Laporan & Dashboard Pemilik
 
-6/31 KP (19.4%) · story: 0 lengkap, 2 sebagian, 5 belum
+31/31 KP (100.0%) · story: 7 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M9-01 | Dashboard H+0 | M | 0/7 | belum | 1, 2, 3, 4, 5, 6, 7 | 0 |
-| US-M9-02 | Laporan bulanan laba kotor per lini dan konsolidasi | M | 0/6 | belum | 1, 2, 3, 4, 5, 6 | 0 |
-| US-M9-03 | Ekspor Excel/PDF | M | 3/4 | sebagian | 3 | 12 |
-| US-M9-04 | Kotak masuk pengecualian dan pengaturan notifikasi pemilik | S | 3/4 | sebagian | 2 | 9 |
-| US-M9-05 | Kinerja per sopir/truk dan per depot/operator | S | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M9-06 | Tren mingguan/bulanan | S | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M9-07 | Laporan KPI program (KPI-01–KPI-11) | S | 0/3 | belum | 1, 2, 3 | 0 |
+| US-M9-01 | Dashboard H+0 | M | 7/7 | lengkap | — | 12 |
+| US-M9-02 | Laporan bulanan laba kotor per lini dan konsolidasi | M | 6/6 | lengkap | — | 11 |
+| US-M9-03 | Ekspor Excel/PDF | M | 4/4 | lengkap | — | 19 |
+| US-M9-04 | Kotak masuk pengecualian dan pengaturan notifikasi pemilik | S | 4/4 | lengkap | — | 14 |
+| US-M9-05 | Kinerja per sopir/truk dan per depot/operator | S | 4/4 | lengkap | — | 4 |
+| US-M9-06 | Tren mingguan/bulanan | S | 3/3 | lengkap | — | 3 |
+| US-M9-07 | Laporan KPI program (KPI-01–KPI-11) | S | 3/3 | lengkap | — | 8 |
 
 ## M10 — Pengguna, Hak Akses & Jejak Audit
 
@@ -179,20 +179,20 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M11 — Akuntansi & Pajak
 
-7/47 KP (14.9%) · story: 0 lengkap, 6 sebagian, 4 belum
+47/47 KP (100.0%) · story: 10 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M11-01 | Bagan akun dan pusat laba | M | 1/5 | sebagian | 2, 3, 4, 5 | 1 |
-| US-M11-02 | Jurnal otomatis dari seluruh transaksi operasional | M | 2/5 | sebagian | 2, 4, 5 | 13 |
-| US-M11-03 | Jurnal manual dengan lampiran dan persetujuan | M | 1/6 | sebagian | 1, 2, 4, 5, 6 | 1 |
-| US-M11-04 | Buku besar dan laporan keuangan | M | 1/5 | sebagian | 1, 3, 4, 5 | 1 |
-| US-M11-05 | Aset tetap dan penyusutan otomatis | M | 0/5 | belum | 1, 2, 3, 4, 5 | 0 |
-| US-M11-06 | Rekonsiliasi bank dan kas | M | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M11-07 | Utang usaha kepada pemasok | S | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M11-08 | Pelaporan pajak PT non-PKP dan pemantauan batas PKP | M | 0/5 | belum | 1, 2, 3, 4, 5 | 0 |
-| US-M11-09 | Saldo awal dan cut-over akuntansi | M | 1/4 | sebagian | 2, 3, 4 | 4 |
-| US-M11-10 | Tutup dan kunci periode | M | 1/5 | sebagian | 1, 2, 4, 5 | 2 |
+| US-M11-01 | Bagan akun dan pusat laba | M | 5/5 | lengkap | — | 8 |
+| US-M11-02 | Jurnal otomatis dari seluruh transaksi operasional | M | 5/5 | lengkap | — | 29 |
+| US-M11-03 | Jurnal manual dengan lampiran dan persetujuan | M | 6/6 | lengkap | — | 11 |
+| US-M11-04 | Buku besar dan laporan keuangan | M | 5/5 | lengkap | — | 14 |
+| US-M11-05 | Aset tetap dan penyusutan otomatis | M | 5/5 | lengkap | — | 6 |
+| US-M11-06 | Rekonsiliasi bank dan kas | M | 4/4 | lengkap | — | 3 |
+| US-M11-07 | Utang usaha kepada pemasok | S | 3/3 | lengkap | — | 3 |
+| US-M11-08 | Pelaporan pajak PT non-PKP dan pemantauan batas PKP | M | 5/5 | lengkap | — | 6 |
+| US-M11-09 | Saldo awal dan cut-over akuntansi | M | 4/4 | lengkap | — | 10 |
+| US-M11-10 | Tutup dan kunci periode | M | 5/5 | lengkap | — | 10 |
 
 ## M12 — Pelacakan Armada / GPS
 

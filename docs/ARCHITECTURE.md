@@ -292,9 +292,19 @@ internal, `trip.failed` (air kembali ke sumber) dan `water_supply.confirmed`; M1
 `trip.arrived`, `trip.failed`, `trip.completed` (titik status, lokasi Selesai) dan `cash_day.closed` (rincian di
 `docs/dev/modules/m8-production.md` §2 dan `docs/dev/modules/m12-fleet.md` §3; uji `tests/integration/m8-m12.test.ts`).
 
+Tambahan modul (integrasi M9 + M11): TIDAK ada tipe event baru dan tidak ada field payload baru. M11 memancarkan
+`period.closed`, `period.locked` (setelah persetujuan `period_lock` pemilik; laporan Final M11 disimpan lebih dulu) dan
+`asset.depreciated`; M11 menjurnal otomatis 33 event keuangan (`JOURNALED_EVENTS`, handler
+`m11-accounting:journal:<type>` tepat sebelum COMMIT; `invoice.issued` sengaja TIDAK dijurnal — B-31/B-52). M9
+mendengar `cash_day.closed` (`m9-reports:publish_h0` → H+0 terkunci), event koreksi/terlambat (`m9-reports:addenda:<type>`
+→ addendum, snapshot tidak diubah) dan `period.locked` (`m9-reports:monthly_final` → versi Final laba kotor bulanan +
+notifikasi; kunci ulang → revisi baru). Rincian di `docs/dev/modules/m11-accounting.md` §3 dan
+`docs/dev/modules/m9-reports.md` §3; uji `tests/integration/m9-m11.test.ts`.
+
 Payload tiap event diketik di `src/server/core/events.types.ts`. Modul menambah event baru hanya dengan menambah entri
 di berkas itu (tambahan, tidak mengubah yang ada). M11 berlangganan event keuangan untuk jurnal otomatis (PRD 7.11.4);
-M9 membaca data, tidak berlangganan.
+M9 membaca data modul untuk angka laporan dan hanya berlangganan event untuk menerbitkan H+0, addenda, dan versi Final
+bulanan (lihat integrasi M9 + M11 di atas).
 
 ## 9. Peta rute web kantor (URL berbahasa Indonesia)
 
@@ -308,9 +318,9 @@ M9 membaca data, tidak berlangganan.
 | M5 | `/piutang`, `/piutang/faktur`, `/piutang/pelunasan`, `/piutang/umur`, `/piutang/pengingat`, `/piutang/faktur-bulanan`, `/piutang/saldo-awal`, `/piutang/status-kredit` (+ rincian `/piutang/faktur/[id]`, `/piutang/pelunasan/[id]`, kartu piutang `/piutang/pelanggan/[id]`) |
 | M6/M7 (kantor) | `/outlet`, `/toko/barang`, `/toko/pemasok`, `/toko/pembelian`, `/toko/opname`, `/toko/pesan-ulang`, `/toko/utang` |
 | M8 (kantor) | `/produksi/neraca-air` (+ rincian sumber-hari `/produksi/neraca-air/rincian`), `/produksi/pengisian` (pengisian vs jadwal, pasokan depot, stok air awal depot), `/produksi/utilisasi`, `/produksi/mutu`, `/produksi/kelola-meter` |
-| M9 | `/laporan/hari-ini` (H+0), `/laporan/bulanan`, `/laporan/katalog`, `/laporan/kinerja`, `/laporan/tren`, `/laporan/kpi`, `/kotak-masuk` |
+| M9 | `/laporan` (alih ke layar pertama yang diizinkan), `/laporan/hari-ini` (H+0), `/laporan/bulanan` (+ unduhan Final identik `/laporan/bulanan/ekspor`), `/laporan/katalog`, `/laporan/kinerja`, `/laporan/tren`, `/laporan/kpi`, `/laporan/periode-paralel`, `/kotak-masuk`; blok H+0 di `/beranda` |
 | M10 | `/akses/pengguna`, `/akses/peran`, `/akses/perangkat`, `/akses/sinkron`, `/akses/tinjauan`, `/akses/data-pribadi`, `/audit`, `/persetujuan`, `/notifikasi`, `/pengaturan/parameter`, `/pengaturan/notifikasi`, `/bantuan` |
-| M11 | `/akuntansi/akun`, `/akuntansi/pemetaan`, `/akuntansi/jurnal`, `/akuntansi/buku-besar`, `/akuntansi/laporan`, `/akuntansi/aset`, `/akuntansi/rekonsiliasi`, `/akuntansi/periode`, `/akuntansi/pajak`, `/akuntansi/saldo-awal` |
+| M11 | `/akuntansi` (ringkasan), `/akuntansi/akun`, `/akuntansi/pemetaan`, `/akuntansi/jurnal` (+ `/akuntansi/jurnal/baru`, `/akuntansi/jurnal/[id]`; `?sumberTipe=&sumberId=` = jurnal suatu transaksi), `/akuntansi/buku-besar`, `/akuntansi/laporan`, `/akuntansi/aset` (+ `/akuntansi/aset/[id]`), `/akuntansi/rekonsiliasi`, `/akuntansi/periode` (+ `/akuntansi/periode/[id]`), `/akuntansi/pajak` (+ unduhan `/akuntansi/pajak/ekspor`), `/akuntansi/saldo-awal`, `/akuntansi/utang` |
 | M12 | `/armada/peta`, `/armada/riwayat` (+ `/armada/riwayat/rit/[id]`, `/armada/riwayat/truk/[id]`), `/armada/kejadian` (+ `/armada/kejadian/[id]`), `/armada/perangkat`, `/armada/bbm`; peta langsung disematkan di `/jadwal` (pemilik & Dispatcher) |
 | RL-7 / Tahap 3 | `/kemitraan/*` (kantor), `/mitra/*` (portal) |
 

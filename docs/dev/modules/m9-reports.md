@@ -129,12 +129,18 @@ Komponen: `src/components/m9-reports/*` (tombol/formulir aksi, isian, grafik, bl
 | B-41 H+0 memakai sinyal M8 | Selesai: utilisasi (`computeUtilizationDays`), susut/status neraca, produksi belum lengkap di blok pengecualian; biaya air/liter memakai `fillTotalsByDay` (event `water_balance.computed` tidak diperlukan — tabel dibaca langsung) |
 | B-44 H+0 memakai M12 | Selesai: `m12.fleetDaySummary` per hari di pengecualian; pola `locationDeviationPatterns` di kinerja sopir |
 
-Terbuka (lihat juga laporan agen):
-1. Lencana hitungan **Kotak masuk** di menu (`badgeKey: "inbox"`) belum diisi — `src/app/(office)/_shell-data.ts` di
-   luar lingkup M9; cukup tambahkan `inbox: (await m9.inboxCount(ctx)).count` bila `can(ctx, "m9.inbox.read")`.
+Terbuka (lihat juga laporan agen; nomor = `docs/dev/backlog.md`):
+1. Lencana hitungan **Kotak masuk** di menu (`badgeKey: "inbox"`) belum diisi — B-58 (`src/app/(office)/_shell-data.ts`;
+   `m9.inboxCount` membangun seluruh kotak masuk → perlu hitungan ringan sebelum dipasang di setiap halaman).
 2. Imutabilitas `daily_summaries.snapshot` setelah terbit dijaga layanan (tidak ada jalur UPDATE); penjaga DB
-   (`IMMUTABLE_COLUMN_GUARDS` di hardening) milik core.
-3. Laporan M11 di katalog (`m11.income_statement`, `m11.balance_sheet`, `m11.cash_flow`, `m11.journal_export`) sebagai
-   `pendingKeys` — otomatis muncul begitu M11 mendaftarkannya. Pengirim notifikasi `period.not_closed`,
-   `tax.pkp_threshold`, `period.reopened` milik M11 (uji `US-M9-04 KP-1` mengizinkannya sementara).
-4. `access.request_pending` di katalog notifikasi tidak dipakai (M10 memakai `approval.requested`).
+   (`IMMUTABLE_COLUMN_GUARDS` di hardening) milik core — B-59.
+3. `access.request_pending` di katalog notifikasi tidak dipakai (M10 memakai `approval.requested`) — B-60.
+4. Satu definisi PKP: blok PKP laporan bulanan & `m9.gross_revenue_pkp` menghitung sendiri; tampilkan/pakai
+   `m11.pkpStatus` (US-M11-08 KP-4) — B-54.
+
+Diselesaikan saat integrasi M9 + M11 (B-61): katalog memakai laporan terdaftar M11 — baris "Laba kotor … laba rugi,
+neraca, arus kas" = `m9.monthly_gross_profit` + `m11.profit_loss`, `m11.balance_sheet`, `m11.cash_flow`; baris "Ekspor
+jurnal format konsultan" = `m11.journals` dengan layar `/akuntansi/pajak` (template konsultan `/akuntansi/pajak/ekspor`,
+log ekspor yang sama). `pendingKeys` tidak lagi dipakai katalog (tipe tetap untuk modul menyusul). Pengirim
+`period.not_closed`, `tax.pkp_threshold`, `period.reopened` kini ada (M11) → dihapus dari `PENDING_EMITTERS` uji
+`US-M9-04 KP-1`. Uji lintas modul `tests/integration/m9-m11.test.ts`.

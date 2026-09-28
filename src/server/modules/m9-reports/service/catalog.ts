@@ -95,8 +95,8 @@ export const REPORT_CATALOG: readonly CatalogEntry[] = [
     ref: "FR-M9-02",
     screen: "/laporan/bulanan",
     screenPermission: "m9.monthly_report.read",
-    reportKeys: ["m9.monthly_gross_profit"],
-    pendingKeys: ["m11.income_statement", "m11.balance_sheet", "m11.cash_flow"],
+    // Integrasi M9+M11: laba rugi, neraca & arus kas = laporan ekspor terdaftar M11 (`m11-accounting/reports.ts`).
+    reportKeys: ["m9.monthly_gross_profit", "m11.profit_loss", "m11.balance_sheet", "m11.cash_flow"],
     customExport: "/laporan/bulanan/ekspor",
   },
   {
@@ -277,10 +277,11 @@ export const REPORT_CATALOG: readonly CatalogEntry[] = [
     readers: "Admin Keuangan, akuntan",
     priority: "M",
     ref: "NFR-23, US-M11-08 KP-3",
-    screen: "/akuntansi/jurnal",
-    screenPermission: "m11.journal.read",
-    reportKeys: [],
-    pendingKeys: ["m11.journal_export"],
+    // Integrasi M9+M11: format konsultan (template) diunduh di /akuntansi/pajak (`/akuntansi/pajak/ekspor`, log ekspor
+    // yang sama); daftar jurnal per periode = laporan ekspor terdaftar `m11.journals`.
+    screen: "/akuntansi/pajak",
+    screenPermission: ["m11.tax.read", "m11.journal.read"],
+    reportKeys: ["m11.journals"],
   },
 ];
 

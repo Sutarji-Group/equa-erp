@@ -126,12 +126,17 @@ ada pemetaan wajib yang tidak tertutup. Data transaksi demo (dev/E2E saja): 8 ju
 (rit tunai/tempo, setoran, penjualan depot & toko + HPP, pasokan air internal, listrik L1 bertinjauan pemilik, setor
 bank), jurnal berulang sewa kantor (K15), 2 aset tetap (truk T1, peralatan D01).
 
-## 11. Butir terbuka
+## 11. Butir terbuka (nomor = `docs/dev/backlog.md`)
 - `bank_accounts.gl_account_id` bisa kosong/dipakai bersama → rekonsiliasi per rekening memakai akun bawaan pemetaan
-  `transfer.matched` (ditandai "akun buku dipakai bersama"). Sebaiknya M4 mewajibkan akun buku per rekening.
-- Dasbor M9 sebaiknya menampilkan `pkpStatus` (US-M11-08 KP-4 "tampil di dashboard M9").
-- Modul lain dapat menautkan `/akuntansi/jurnal?sumberTipe=&sumberId=` dari layar rinciannya (ketertelusuran dua arah).
-- B-31 diselesaikan berbeda dari harapan hand-off M5: `invoice.issued` tidak dijurnal (lihat §8).
+  `transfer.matched` (ditandai "akun buku dipakai bersama"). Sebaiknya M4 mewajibkan akun buku per rekening — B-53.
+- Dasbor M9 sebaiknya menampilkan `pkpStatus` (US-M11-08 KP-4 "tampil di dashboard M9") — B-54.
+- Modul lain dapat menautkan `/akuntansi/jurnal?sumberTipe=&sumberId=` dari layar rinciannya (ketertelusuran dua arah) — B-55.
+- B-31 diselesaikan berbeda dari harapan hand-off M5: `invoice.issued` tidak dijurnal (lihat §8); konfirmasi M5/PM — B-52.
 - Alokasi L1 ke L3 belum dipecah per outlet (satu baris L3); markup transfer internal toko → depot (harga mitra) belum
-  dieliminasi dari persediaan depot pada konsolidasi.
-- Arus kas: kategori dari nama/induk akun lawan (heuristik) — tinjau bersama akuntan bila bagan akun berubah.
+  dieliminasi dari persediaan depot pada konsolidasi — B-56.
+- Arus kas: kategori dari nama/induk akun lawan (heuristik) — tinjau bersama akuntan bila bagan akun berubah — B-57.
+- Unggahan bukti jurnal & berkas impor lewat Server Action (batas 1 MB bawaan Next) — B-18.
+
+Integrasi M9 + M11: laporan M11 `m11.profit_loss`, `m11.balance_sheet`, `m11.cash_flow`, `m11.journals` tampil di katalog
+laporan M9 (`/laporan/katalog`); `period.locked` → M9 menyimpan versi Final laba kotor bulanan (revisi saat dikunci
+ulang). Uji `tests/integration/m9-m11.test.ts` (jurnal otomatis → angka M9 = laba rugi M11 per lini).
