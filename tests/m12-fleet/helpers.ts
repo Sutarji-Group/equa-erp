@@ -55,6 +55,15 @@ export async function gpsTruck(
   return { truckId: truck.id, code: truck.code, deviceId, deviceCode, imei };
 }
 
+/** Pasang perangkat GPS baru di truk yang sudah ada (mis. truk dunia M3) lewat master armada. */
+export async function attachGps(db: Db, truckId: string, opts: { vendor?: string } = {}): Promise<{ deviceId: string; deviceCode: string }> {
+  const deviceId = newId();
+  const deviceCode = `GPS-A-${deviceId.slice(-6)}`;
+  await db.insert(devices).values({ id: deviceId, tenantId: EQUA_TENANT_ID, deviceCode, name: "GPS truk uji", kind: "gps", status: "active", truckId, vendor: opts.vendor ?? "Vendor uji" });
+  await db.update(trucks).set({ gpsDeviceId: deviceId }).where(eq(trucks.id, truckId));
+  return { deviceId, deviceCode };
+}
+
 /** Satu posisi format internal. */
 export function fix(deviceRef: string, at: Date, p: LatLng, extra: Partial<GpsFix> = {}): GpsFix {
   return {

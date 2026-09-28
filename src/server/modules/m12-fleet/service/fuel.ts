@@ -11,7 +11,7 @@
  */
 import "server-only";
 
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
 
 import { customerAddresses, customers, fuelEstimates, tariffZones, tripExpenses, tripTracks, trips, trucks } from "@/db/schema";
 import { formatRupiah } from "@/lib/money";
@@ -108,7 +108,18 @@ export async function fuelMonthly(ctx: ActorContext, input: unknown, opts: { tx?
   const actual = await tx
     .select({ truckId: tripExpenses.truckId, amount: sql<number>`coalesce(sum(${tripExpenses.amount}), 0)::bigint` })
     .from(tripExpenses)
-    .where(and(eq(tripExpenses.tenantId, ctx.tenantId), eq(tripExpenses.kind, "fuel"), ne(tripExpenses.status, "rejected"), gte(tripExpenses.businessDate, from), lte(tripExpenses.businessDate, to)))
+    .where(
+      and(
+        eq(tripExpenses.tenantId, ctx.tenantId),
+        eq(tripExpenses.kind, "fuel"),
+        ne(tripExpenses.status, "rejected"),
+        gte(tripExpenses.businessDate, from),
+        lte(tripExpenses.businessDate, to),
+        // Koreksi M3 = baris pembalik (BR-38): baris pembalik & baris asal yang sudah dibalik tidak dihitung.
+        isNull(tripExpenses.reversalOfId),
+        sql`not exists (select 1 from ${tripExpenses} as r where r.reversal_of_id = ${tripExpenses.id})`,
+      ),
+    )
     .groupBy(tripExpenses.truckId);
   const actualByTruck = new Map(actual.map((a) => [a.truckId, Number(a.amount)]));
   const fleet = await tx.select({ id: trucks.id, code: trucks.code }).from(trucks).where(eq(trucks.tenantId, ctx.tenantId)).orderBy(asc(trucks.code));
