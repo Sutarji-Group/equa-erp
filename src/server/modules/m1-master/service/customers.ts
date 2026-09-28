@@ -1167,7 +1167,7 @@ export async function coordinateLockProgress(ctx: ActorContext, opts: { tx?: Tx 
 }
 
 async function authorizeAnyRead(ctx: ActorContext, tx?: Tx) {
-  if (can(ctx, "m1.customer.read") || can(ctx, "m1.import.read")) return;
+  if (can(ctx, "m1.customer.read") || can(ctx, "m1.import.read") || can(ctx, "m1.data_signoff.read")) return;
   await authorize(ctx, "m1.customer.read", { tx });
 }
 

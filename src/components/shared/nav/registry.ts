@@ -480,6 +480,14 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         permission: "m1.import.create",
         description: "Impor & pembersihan duplikat saat cut-over.",
       },
+      {
+        id: "m1.signoff",
+        href: "/master/tanda-tangan",
+        label: "Tanda tangan data awal",
+        icon: ClipboardCheck,
+        permission: "m1.data_signoff.read",
+        description: "Ringkasan data awal per kelompok untuk ditandatangani pemilik (NFR-34).",
+      },
     ],
   },
   {
