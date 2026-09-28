@@ -108,6 +108,15 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("zone.addresses_moved", "Alamat berpindah zona akibat perubahan batas", "normal", ["owner"], "Tinjau daftar alamat di Data master > Zona tarif", "US-M1-05 KP-4"),
   e("initial_data.signoff_pending", "Ringkasan data awal menunggu tanda tangan", "normal", ["owner"], "Tinjau & tanda tangani sebelum go-live", "US-M1-06 KP-4, NFR-34"),
   e("credit.migrated_set", "Tempo migrasi ditetapkan pemilik (tanda tangan data awal)", "info", ["finance_admin"], "Perhatikan batas & tempo pelanggan lama", "US-M1-06 KP-6, 6.2b"),
+  // --- Tambahan modul M10 (hanya tambah) ---
+  e("access.daily_summary", "Ringkasan perubahan akses hari ini", "info", ["owner"], "Baca ringkasan; tinjau bila ada yang tidak dikenal", "US-M10-01 KP-7"),
+  e("user.password_reset", "Kata sandi pengguna direset", "info", ["owner"], "Informasi", "US-M10-02 KP-4, 7.10.6"),
+  e("user.deactivated", "Akun pengguna dinonaktifkan", "info", ["owner"], "Informasi", "US-M10-01 KP-5, BR-37"),
+  e("access_review.due", "Tinjauan hak akses kuartalan belum dilakukan", "normal", ["owner"], "Tinjau daftar pengguna & tandai ditinjau", "US-M10-01 KP-6, PAR-47"),
+  e("anonymization.deferred", "Anonimisasi ditunda (piutang terbuka)", "normal", ["system_admin"], "Beri tahu pemohon; ajukan ulang setelah lunas", "US-M10-06 KP-2, PTB-36"),
+  e("anonymization.executed", "Anonimisasi data pribadi dijalankan", "info", ["owner", "system_admin"], "Informasi", "US-M10-06 KP-2"),
+  e("backup.failed", "Pencadangan gagal", "high", ["system_admin", "owner"], "Ulangi pencadangan & catat hasilnya", "US-M10-06 KP-4, NFR-13"),
+  e("support.ticket_answered", "Laporan kendala Anda dijawab", "normal", [], "Baca jawaban; tandai selesai bila sudah beres", "US-M10-07 KP-3"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

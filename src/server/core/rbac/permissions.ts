@@ -478,6 +478,13 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   p("p3.support_request.create", "Mengajukan permintaan dukungan teknis", [PW], { ref: "US-P3-11 KP-1" }),
   p("p3.support_request.respond", "Menanggapi permintaan dukungan mitra", [RC, SA], { ref: "US-P3-11" }),
   p("p3.partner_report.read", "Melihat laporan outlet mitra (portal)", [PW, O, FA, RC], { ref: "US-P3-10" }),
+
+  // ===================================================================================================================
+  // Tambahan modul M10 (Pengguna, Hak Akses & Jejak Audit) — hanya tambah
+  // ===================================================================================================================
+  p("m10.app_version.update", "Mengatur versi minimal aplikasi lapangan/POS", [SA], { kind: "admin", ref: "US-M10-07 KP-4, NFR-32" }),
+  p("m10.initial_accounts.sign", "Menyetujui sekaligus daftar akun awal go-live", [O], { kind: "approve", ref: "US-M10-01 KP-8, NFR-34" }),
+  p("m10.access_log.export", "Mengekspor log akses", [O], { ref: "US-M10-05 KP-4/KP-6" }),
 ];
 
 const BY_KEY = new Map<string, PermissionDef>(PERMISSIONS.map((perm) => [perm.key, perm]));

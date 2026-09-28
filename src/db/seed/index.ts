@@ -16,6 +16,7 @@ import { seedAccounting } from "./accounting";
 import { seedCatalog } from "./catalog";
 import { seedCustomers } from "./customers";
 import { seedDemoM1Master } from "./demo-m1-master";
+import { seedDemoM10Access } from "./demo-m10-access";
 import { seedId } from "./ids";
 import { seedOrganization } from "./org";
 import { DEFAULT_FEATURE_FLAGS, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS, PARAMETER_EFFECTIVE_FROM } from "./parameters";
@@ -93,7 +94,9 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     const cust = await seedCustomers(tx);
     await seedAccounting(tx);
     await seedWaTemplates(tx);
+    // Demo modul (tambahan per modul; idempoten).
     await seedDemoM1Master(tx);
+    await seedDemoM10Access(tx);
 
     const counts = await countRows(tx);
     return { parameters: paramRows.length, users: org.usersInserted, customers: cust.customers, counts };

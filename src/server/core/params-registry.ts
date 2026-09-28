@@ -370,6 +370,63 @@ export const PARAM_REGISTRY = {
         "Jendela aktif penanda mitra toko otomatis (hari), jendela pelengkapan koordinat data awal (hari), dan ambang kemiripan nama untuk peringatan duplikat pelanggan.",
     },
   }),
+
+  // --- Tambahan modul M10 (Pengguna, Hak Akses & Jejak Audit) — hanya tambah ---
+  "access.review_inactive_days": defineParam({
+    schema: z.object({ days: int(1) }).strict(),
+    affectedRoles: ["owner", "system_admin"],
+    fallback: { days: 60 },
+    meta: {
+      name: "Tinjauan hak akses: batas hari tanpa login",
+      unit: "hari",
+      reference: "US-M10-01 KP-6, R09, PAR-47",
+      description: "Pengguna tanpa login lebih dari nilai ini ditandai pada tinjauan hak akses kuartalan.",
+    },
+  }),
+  "monitoring.mass_sync_failure": defineParam({
+    schema: z.object({ devices_gt: int(0), minutes_gt: int(1) }).strict(),
+    affectedRoles: ["system_admin"],
+    fallback: { devices_gt: 3, minutes_gt: 30 },
+    meta: {
+      name: "Sinkron gagal massal → peringatan tim IT",
+      unit: "perangkat / menit (jam layanan)",
+      reference: "US-M10-07 KP-2, NFR-28",
+      description: "Lebih dari N perangkat dengan antrean belum terkirim dan tidak sinkron lebih dari M menit pada jam layanan → insiden.",
+    },
+  }),
+  "monitoring.service_down": defineParam({
+    schema: z.object({ minutes_gt: int(1) }).strict(),
+    affectedRoles: ["system_admin"],
+    fallback: { minutes_gt: 15 },
+    meta: {
+      name: "Layanan tidak dapat diakses → peringatan tim IT",
+      unit: "menit tanpa denyut pemantauan (jam layanan)",
+      reference: "US-M10-07 KP-2, NFR-28, NFR-02",
+      description: "Jeda denyut pemantauan terjadwal lebih dari nilai ini pada jam layanan dicatat sebagai insiden layanan tidak dapat diakses.",
+    },
+  }),
+  "monitoring.incident_targets": defineParam({
+    schema: z.object({ response_minutes: int(1), recovery_hours: int(1) }).strict(),
+    affectedRoles: ["system_admin"],
+    fallback: { response_minutes: 30, recovery_hours: 4 },
+    meta: {
+      name: "Target tanggap & pulih insiden",
+      unit: "menit / jam",
+      reference: "US-M10-07 KP-2, NFR-31",
+      description: "Insiden kritis ditanggapi paling lama N menit dan pulih paling lama M jam.",
+    },
+  }),
+  "backup.policy": defineParam({
+    schema: z.object({ daily_max_age_hours: int(1), restore_tests_per_year: int(1) }).strict(),
+    affectedRoles: ["system_admin", "owner"],
+    fallback: { daily_max_age_hours: 26, restore_tests_per_year: 2 },
+    meta: {
+      name: "Kebijakan status cadangan & uji pemulihan",
+      unit: "jam / kali per tahun",
+      reference: "US-M10-06 KP-4, NFR-13, NFR-14",
+      description: "Cadangan harian terakhir lebih tua dari N jam ditandai; uji pemulihan minimal M kali per 12 bulan.",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;
