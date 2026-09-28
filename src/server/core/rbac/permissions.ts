@@ -553,6 +553,22 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   p("m11.fixed_asset.sign", "Menandatangani daftar aset impor", [O], { kind: "approve", ref: "US-M11-05 KP-1, NFR-34" }),
   p("m11.cost_allocation.set", "Menetapkan kunci alokasi biaya bersama", [O], { kind: "approve", ref: "US-M11-01 KP-5" }),
   p("m11.payable.read", "Melihat utang usaha (nota & jurnal manual)", [O, FA, AC], { ref: "US-M11-07" }),
+
+  // ===================================================================================================================
+  // Tambahan modul P2 (Aplikasi Pelanggan, Tahap 2) — hanya tambah
+  // ===================================================================================================================
+  p("p2.customer_account.verify", "Memverifikasi akun aplikasi pelanggan (tautkan, ganti nomor, tindak lanjut hapus akun)", [D], {
+    pii: true,
+    ref: "US-P2-01 KP-2/KP-4, 8.7",
+  }),
+  p("p2.app_order.read", "Melihat pesanan dari aplikasi pelanggan & tenggat konfirmasi", [O, D], { ref: "US-P2-02 KP-4" }),
+  p("p2.app_order.confirm", "Mengonfirmasi / menolak pesanan dari aplikasi pelanggan", [D], {
+    daily: true,
+    orderWrite: true,
+    ref: "US-P2-02 KP-4, PAR-75",
+  }),
+  p("p2.wa_cost.read", "Melihat biaya pesan WhatsApp Business API", [O, FA, AC], { ref: "US-P2-08 KP-3, NFR-29" }),
+  p("p2.adoption.read", "Melihat adopsi aplikasi pelanggan & laporan bulanan keluhan", [O, D, FA], { ref: "8.2, US-P2-06 KP-3" }),
 ];
 
 const BY_KEY = new Map<string, PermissionDef>(PERMISSIONS.map((perm) => [perm.key, perm]));

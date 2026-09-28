@@ -173,6 +173,14 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("journal.recurring_ready", "Draf jurnal berulang bulan ini siap", "normal", ["finance_admin"], "Lengkapi lampiran lalu ajukan/posting", "US-M11-03 KP-4"),
   e("journal.retroactive_done", "Jurnal retroaktif selesai dibangkitkan", "normal", ["finance_admin", "accountant"], "Akuntan memverifikasi sebelum periode pertama ditutup", "US-M11-02 KP-4, PTB-47"),
   e("asset.signoff_pending", "Daftar aset menunggu tanda tangan pemilik", "normal", ["owner"], "Tinjau & tanda tangani daftar aset impor", "US-M11-05 KP-1, NFR-34"),
+  // --- Tambahan modul P2 (Aplikasi Pelanggan, Tahap 2) — hanya tambah ---
+  e("customer_app.order_submitted", "Pesanan baru dari aplikasi pelanggan", "normal", ["dispatcher"], "Konfirmasi (jadwalkan) atau tolak beralasan ≤ PAR-75 jam layanan", "US-P2-02 KP-4, PAR-75"),
+  e("customer_app.order_confirm_overdue", "Pesanan aplikasi belum dikonfirmasi lewat tenggat", "high", ["dispatcher", "owner"], "Konfirmasi atau tolak sekarang; pelanggan menunggu", "US-P2-02 KP-4, PAR-75"),
+  e("customer_app.account_review", "Akun aplikasi menunggu verifikasi nama", "normal", ["dispatcher"], "Hubungi pelanggan; tautkan ke data pelanggan atau buat pelanggan baru (8.7)", "US-P2-01 KP-2, 8.7"),
+  e("customer_app.deletion_requested", "Pelanggan meminta hapus akun (UU PDP)", "normal", ["system_admin"], "Catat permintaan anonimisasi di Akses > Data pribadi; pemilik menyetujui", "US-P2-01 KP-5, US-M10-06 KP-2"),
+  e("customer_app.complaint_submitted", "Keluhan pelanggan baru", "normal", ["dispatcher", "finance_admin"], "Tanggapan pertama ≤ PAR-75 jam layanan", "US-P2-06 KP-2, PAR-75"),
+  e("customer_app.complaint_overdue", "Keluhan pelanggan belum ditanggapi lewat tenggat", "high", ["dispatcher", "finance_admin", "owner"], "Tanggapi keluhan sekarang", "US-P2-06 KP-2, PAR-75"),
+  e("customer_app.payment_succeeded", "Pembayaran digital pelanggan berhasil", "info", ["finance_admin"], "Cocokkan dengan settlement bank di Kas > Transfer masuk", "US-P2-04 KP-3, PTB-50"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

@@ -80,6 +80,8 @@ import {
   Wallet,
   Warehouse,
 } from "lucide-react";
+// Tambahan modul P2 (Aplikasi Pelanggan) — hanya tambah.
+import { CircleStar, MessageSquareWarning, MessagesSquare, QrCode, SmartphoneNfc, UserRoundCheck } from "lucide-react";
 
 /** Kode modul pemilik rute (Bab 7 PRD; `p3` = kemitraan RL-7/Tahap 3). */
 export type NavModule =
@@ -96,7 +98,9 @@ export type NavModule =
   | "m10"
   | "m11"
   | "m12"
-  | "p3";
+  | "p3"
+  // Tambahan modul P2 (Aplikasi Pelanggan, Tahap 2) — hanya tambah.
+  | "p2";
 
 /** Kunci hitungan yang dapat ditampilkan sebagai lencana angka di menu (diisi dari `counts` OfficeShell). */
 export type NavBadgeKey = "approvals" | "notifications" | "inbox";
@@ -721,6 +725,69 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       },
       // Hanya peran yang boleh mengirim tiket (akuntan baca-saja & pemilik mitra/portal tidak; tinjauan pasca-F3c).
       { id: "m10.help", href: "/bantuan", label: "Bantuan", icon: LifeBuoy, permission: "m10.support_ticket.create" },
+    ],
+  },
+  // Tambahan modul P2 (Aplikasi Pelanggan, Tahap 2) — hanya tambah. Menu operasional tampil bila flag
+  // `phase2.customer_app` aktif; "Akun pelanggan" selalu tampil agar pemilik dapat mengaktifkan aplikasi (D-02).
+  {
+    id: "p2",
+    label: "Aplikasi pelanggan",
+    module: "p2",
+    items: [
+      {
+        id: "p2.complaints",
+        href: "/keluhan",
+        label: "Kotak keluhan",
+        icon: MessageSquareWarning,
+        permission: "p2.complaint.read",
+        description: "Keluhan pelanggan: operasional (Dispatcher) & tagihan (Admin Keuangan); tanggapan ≤ PAR-75.",
+        flag: "phase2.customer_app",
+      },
+      { id: "p2.complaint_detail", href: "/keluhan/[id]", label: "Rincian keluhan", icon: MessagesSquare, permission: "p2.complaint.read", hidden: true },
+      {
+        id: "p2.app_orders",
+        href: "/keluhan/pesanan-aplikasi",
+        label: "Pesanan aplikasi",
+        icon: SmartphoneNfc,
+        permission: "p2.app_order.read",
+        description: "Pesanan mandiri pelanggan menunggu konfirmasi/penolakan Dispatcher (PAR-75).",
+        flag: "phase2.customer_app",
+      },
+      {
+        id: "p2.ratings",
+        href: "/keluhan/penilaian",
+        label: "Penilaian layanan",
+        icon: CircleStar,
+        permission: "p2.rating.read",
+        description: "Rata-rata nilai per truk & sopir; komentar mentah hanya pemilik & Dispatcher.",
+        flag: "phase2.customer_app",
+      },
+      {
+        id: "p2.payments",
+        href: "/keluhan/pembayaran",
+        label: "Pembayaran digital & WA",
+        icon: QrCode,
+        permission: ["p2.payment_intent.read", "p2.wa_cost.read"],
+        description: "Pembayaran QRIS/VA pelanggan (PTB-50) dan biaya pesan WhatsApp Business API (NFR-29).",
+        flag: "phase2.customer_app",
+      },
+      {
+        id: "p2.reports",
+        href: "/keluhan/laporan",
+        label: "Laporan aplikasi",
+        icon: ChartColumn,
+        permission: "p2.adoption.read",
+        description: "Laporan bulanan keluhan per jenis & truk, adopsi aplikasi pelanggan.",
+        flag: "phase2.customer_app",
+      },
+      {
+        id: "p2.accounts",
+        href: "/keluhan/akun",
+        label: "Akun pelanggan",
+        icon: UserRoundCheck,
+        permission: "p2.customer_account.read",
+        description: "Akun aplikasi: verifikasi nama, ganti nomor, hapus akun; aktivasi aplikasi pelanggan (pemilik).",
+      },
     ],
   },
 ];
