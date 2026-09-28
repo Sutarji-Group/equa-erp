@@ -142,3 +142,19 @@ Tanggal baseline: 27 September 2026.
    hanya menampilkan sorotan di 'Kas hari ini'.
 5. **Template WA konfirmasi pesanan** boleh diedit dari layar M2 (izin `m1.wa_template.*`), tabel tetap milik M1.
 6. Backlog lintas modul dilacak di `docs/dev/backlog.md`.
+
+## D-10 Keputusan PM atas isu integrasi ronde 3–6 (29 Sep 2026)
+1. **Jurnal piutang (B-31/B-52):** DISETUJUI pendekatan M11 — pendapatan & piutang dijurnal saat peristiwa sumber
+   (`trip.completed` tempo/kurang bayar, penjualan POS tempo); `invoice.issued` TIDAK dijurnal ulang. Faktur yang tidak
+   berasal dari rit, POS, atau saldo awal (mis. langganan sistem mitra RL-7) WAJIB punya event sumber sendiri yang
+   dijurnal (`partner.subscription_invoiced` → L5).
+2. **E-mail faktur/pernyataan (B-36):** dikirim dari server lewat Resend dengan PDF terlampir bila `RESEND_API_KEY`
+   terisi; bila tidak, tetap tautan `mailto:` (dicatat sebagai "dibuka", bukan "terkirim"). Dikerjakan di sprint pengerasan.
+3. **Batas unggah Server Action (B-18):** `serverActions.bodySizeLimit = '4mb'` (di bawah batas badan permintaan Vercel
+   4,5 MB) + kompresi gambar di klien sebelum unggah; PDF > 4 MB ditolak dengan pesan tindakan.
+4. **Peta komersial (B-46):** tetap sesuai D-01 — OSM + garis lurus × 1,3 bawaan; OSRM/penyedia komersial opsional lewat
+   `MAP_ROUTING_URL`. Biaya peta = 0 selama pilot.
+5. **Kode notifikasi `access.request_pending` (B-60):** dipertahankan di katalog sebagai alias terdokumentasi; pemberitahuan
+   permintaan akses memakai `approval.requested` (tidak ada notifikasi ganda).
+6. **Uji bergantung jam dinding:** DILARANG. Semua uji memakai `ctx.now` / waktu tetap (penyebab dua kegagalan ronde 5 sudah
+   diperbaiki integrator).
