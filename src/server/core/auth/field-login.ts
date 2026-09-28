@@ -242,7 +242,7 @@ async function completeFieldLogin(
     details: { method, sessionId: session.id },
     occurredAt: now,
   });
-  await logDeviceUsage(tx, { deviceId: device.id, userId: found.candidate.id, event: "login", occurredAt: now, appVersion: auth.appVersion, details: { method } });
+  await logDeviceUsage(tx, { tenantId: device.tenantId, deviceId: device.id, userId: found.candidate.id, event: "login", occurredAt: now, appVersion: auth.appVersion, details: { method } });
   return {
     sessionId: session.id,
     expiresAt: session.expiresAt.toISOString(),
@@ -292,7 +292,7 @@ export async function pinLogin(auth: DeviceAuth, input: { userId: string; pin: s
         reason: lockedUntil ? "PIN salah berturut — dikunci (PAR-36)" : "PIN salah",
         occurredAt: now,
       });
-      await logDeviceUsage(tx, { deviceId: device.id, userId: user.id, event: lockedUntil ? "pin_locked" : "pin_failed", occurredAt: now });
+      await logDeviceUsage(tx, { tenantId: device.tenantId, deviceId: device.id, userId: user.id, event: lockedUntil ? "pin_locked" : "pin_failed", occurredAt: now });
       if (lockedUntil) {
         await notify(tx, {
           event: "device.pin_locked",
@@ -377,7 +377,7 @@ export async function enrollPin(auth: DeviceAuth, input: { code: string; pin: st
       after: { pinSet: true, device: device.deviceCode },
       reason: enrollment.purpose === "reset" ? "PIN baru setelah reset admin sistem" : "Aktivasi akun lapangan di hadapan admin sistem",
     });
-    await logDeviceUsage(tx, { deviceId: device.id, userId: enrollment.userId, event: "pin_enrolled", occurredAt: now });
+    await logDeviceUsage(tx, { tenantId: device.tenantId, deviceId: device.id, userId: enrollment.userId, event: "pin_enrolled", occurredAt: now });
     return { result: await completeFieldLogin(tx, auth, found, input.pin, "pin_enroll") };
   });
   if ("error" in outcome) throw outcome.error;

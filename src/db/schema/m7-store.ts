@@ -6,6 +6,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -21,6 +22,7 @@ import { enumValues } from "../../lib/labels";
 import { businessDate, dateStr, money, pk, timestamps, tstz } from "./_columns";
 import {
   approvalRef,
+  approvalRequests,
   attachmentRef,
   createdBy,
   fieldMeta,
@@ -77,7 +79,14 @@ export const purchaseReceipts = pgTable(
     outletId: uuid("outlet_id")
       .notNull()
       .references((): AnyPgColumn => outlets.id),
-    number: text("number").notNull().unique(),
+    /**
+     * Nomor resmi (D-04) — diisi SERVER saat sinkron (kosong selama di antrean perangkat), unik per tenant (NFR-30).
+     * Dokumen yang dibuat di perangkat memakai `local_number` (memuat kode perangkat, unik per perangkat) +
+     * `device_seq`; dokumen kantor langsung memakai `number` (7.6.6, Bab 6.4 butir 2).
+     */
+    number: text("number"),
+    localNumber: text("local_number"),
+    deviceSeq: integer("device_seq"),
     supplierId: uuid("supplier_id")
       .notNull()
       .references((): AnyPgColumn => suppliers.id),
@@ -109,6 +118,20 @@ export const purchaseReceipts = pgTable(
   (t) => [
     index("purchase_receipts_supplier_idx").on(t.supplierId, t.paymentStatus),
     index("purchase_receipts_outlet_date_idx").on(t.outletId, t.businessDate),
+    uniqueIndex("purchase_receipts_tenant_number_uq")
+      .on(t.tenantId, t.number)
+      .where(sql`${t.number} is not null`),
+    uniqueIndex("purchase_receipts_device_local_number_uq")
+      .on(t.deviceId, t.localNumber)
+      .where(sql`${t.localNumber} is not null`),
+    // BR-28, US-M7-02 KP-1/KP-6: nota pemasok yang sama tidak dapat diinput dua kali (kecuali setelah dibalik).
+    uniqueIndex("purchase_receipts_supplier_note_uq")
+      .on(t.tenantId, t.supplierId, t.supplierNoteNumber)
+      .where(sql`${t.supplierNoteNumber} is not null and ${t.reversalOfId} is null and ${t.status} <> 'reversed'`),
+    check(
+      "purchase_receipts_number_chk",
+      sql`(${t.number} is not null or ${t.localNumber} is not null) and (${t.deviceId} is null or (${t.localNumber} is not null and ${t.deviceSeq} is not null))`,
+    ),
   ],
 );
 
@@ -116,6 +139,8 @@ export const purchaseReceiptLines = pgTable(
   "purchase_receipt_lines",
   {
     id: pk(),
+    /** NFR-30: disalin dari `purchase_receipts.tenant_id`. */
+    tenantId: tenantRef(),
     receiptId: uuid("receipt_id")
       .notNull()
       .references((): AnyPgColumn => purchaseReceipts.id),
@@ -127,7 +152,10 @@ export const purchaseReceiptLines = pgTable(
     lineTotal: money("line_total").notNull(),
     ...timestamps(),
   },
-  (t) => [index("purchase_receipt_lines_receipt_idx").on(t.receiptId)],
+  (t) => [
+    index("purchase_receipt_lines_receipt_idx").on(t.receiptId),
+    index("purchase_receipt_lines_tenant_idx").on(t.tenantId, t.productId),
+  ],
 );
 
 /** Pembayaran pemasok (US-M7-08 KP-2): kas kantor atau transfer; dialokasikan ke nota. */
@@ -166,12 +194,26 @@ export const supplierPaymentAllocations = pgTable(
     id: pk(),
     supplierPaymentId: uuid("supplier_payment_id").notNull(),
     purchaseReceiptId: uuid("purchase_receipt_id").notNull(),
+    /** Bertanda (negatif untuk pembalikan). Append-only (hardening.sql). */
     amount: money("amount").notNull(),
     ...timestamps(),
     createdBy: createdBy(),
+    /** Koreksi alokasi keliru = baris pembalik beralasan (BR-38, US-M7-08 KP-2). */
+    reversalOfId: uuid("reversal_of_id"),
+    reversalReason: text("reversal_reason"),
+    correctionApprovalId: uuid("correction_approval_id"),
   },
   (t) => [
     index("supplier_payment_alloc_receipt_idx").on(t.purchaseReceiptId),
+    foreignKey({ name: "supplier_payment_alloc_reversal_fk", columns: [t.reversalOfId], foreignColumns: [t.id] }),
+    foreignKey({
+      name: "supplier_payment_alloc_correction_fk",
+      columns: [t.correctionApprovalId],
+      foreignColumns: [approvalRequests.id],
+    }),
+    uniqueIndex("supplier_payment_alloc_reversal_uq")
+      .on(t.reversalOfId)
+      .where(sql`${t.reversalOfId} is not null`),
     foreignKey({
       name: "supplier_payment_alloc_payment_fk",
       columns: [t.supplierPaymentId],
@@ -224,7 +266,14 @@ export const internalTransfers = pgTable(
   {
     id: pk(),
     tenantId: tenantRef(),
-    number: text("number").notNull().unique(),
+    /**
+     * Nomor resmi (D-04) — diisi SERVER saat sinkron (kosong selama di antrean perangkat), unik per tenant (NFR-30).
+     * Dokumen yang dibuat di perangkat memakai `local_number` (memuat kode perangkat, unik per perangkat) +
+     * `device_seq`; dokumen kantor langsung memakai `number` (7.6.6, Bab 6.4 butir 2).
+     */
+    number: text("number"),
+    localNumber: text("local_number"),
+    deviceSeq: integer("device_seq"),
     fromOutletId: uuid("from_outlet_id")
       .notNull()
       .references((): AnyPgColumn => outlets.id),
@@ -243,14 +292,41 @@ export const internalTransfers = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /** Koreksi = baris pembalik beralasan (BR-38). */
+    reversalOfId: uuid("reversal_of_id"),
+    reversalReason: text("reversal_reason"),
+    correctionApprovalId: uuid("correction_approval_id"),
   },
-  (t) => [index("internal_transfers_to_outlet_idx").on(t.toOutletId, t.status)],
+  (t) => [
+    index("internal_transfers_to_outlet_idx").on(t.toOutletId, t.status),
+    uniqueIndex("internal_transfers_tenant_number_uq")
+      .on(t.tenantId, t.number)
+      .where(sql`${t.number} is not null`),
+    uniqueIndex("internal_transfers_device_local_number_uq")
+      .on(t.deviceId, t.localNumber)
+      .where(sql`${t.localNumber} is not null`),
+    foreignKey({ name: "internal_transfers_reversal_fk", columns: [t.reversalOfId], foreignColumns: [t.id] }),
+    foreignKey({
+      name: "internal_transfers_correction_approval_fk",
+      columns: [t.correctionApprovalId],
+      foreignColumns: [approvalRequests.id],
+    }),
+    uniqueIndex("internal_transfers_reversal_uq")
+      .on(t.reversalOfId)
+      .where(sql`${t.reversalOfId} is not null`),
+    check(
+      "internal_transfers_number_chk",
+      sql`(${t.number} is not null or ${t.localNumber} is not null) and (${t.deviceId} is null or (${t.localNumber} is not null and ${t.deviceSeq} is not null))`,
+    ),
+  ],
 );
 
 export const internalTransferLines = pgTable(
   "internal_transfer_lines",
   {
     id: pk(),
+    /** NFR-30: disalin dari `internal_transfers.tenant_id`. */
+    tenantId: tenantRef(),
     transferId: uuid("transfer_id")
       .notNull()
       .references((): AnyPgColumn => internalTransfers.id),
@@ -270,7 +346,10 @@ export const internalTransferLines = pgTable(
     differenceReason: text("difference_reason"),
     ...timestamps(),
   },
-  (t) => [index("internal_transfer_lines_transfer_idx").on(t.transferId)],
+  (t) => [
+    index("internal_transfer_lines_transfer_idx").on(t.transferId),
+    index("internal_transfer_lines_tenant_idx").on(t.tenantId, t.productId),
+  ],
 );
 
 // =====================================================================================================================

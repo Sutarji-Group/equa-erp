@@ -2,12 +2,12 @@
  * M3 — Aplikasi Sopir (PRD 7.3): pembayaran per rit dan pengeluaran rit. Status rit & bukti kirim ada di `trips` (M2);
  * pelunasan piutang lewat sopir memakai `customer_payments` (M5) dengan `channel = 'driver'`; setoran di `deposits` (M4).
  */
-import { relations } from "drizzle-orm";
-import { foreignKey, index, pgEnum, pgTable, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
+import { check, foreignKey, index, pgEnum, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 import { enumValues } from "../../lib/labels";
 import { businessDate, money, pk, timestamps, tstz } from "./_columns";
-import { approvalRef, attachmentRef, createdBy, fieldMeta, paymentMethodEnum, tenantRef, userRef } from "./core";
+import { approvalRef, approvalRequests, attachmentRef, createdBy, fieldMeta, paymentMethodEnum, tenantRef, userRef } from "./core";
 import { customers, trucks } from "./m1-master";
 import { trips } from "./m2-orders";
 import { deposits, incomingTransfers, officeCashMovements } from "./m4-cash";
@@ -59,11 +59,33 @@ export const tripPayments = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /**
+     * Baris asal yang sudah dibalik: `reversed_at` + `reversed_by_id` (= baris pembalik). Baris pembalik memuat
+     * `reversal_of_id` dan jumlah bertanda negatif. Satu pembayaran hidup per rit (US-M3-04 KP-1/KP-2, 7.3.6).
+     */
+    reversedAt: tstz("reversed_at"),
+    reversedById: uuid("reversed_by_id"),
   },
   (t) => [
     index("trip_payments_trip_idx").on(t.tripId),
     index("trip_payments_driver_date_idx").on(t.driverUserId, t.businessDate),
     index("trip_payments_deposit_idx").on(t.depositId),
+    foreignKey({ name: "trip_payments_reversed_by_fk", columns: [t.reversedById], foreignColumns: [t.id] }),
+    // US-M3-04 KP-1: hanya satu pembayaran aktif per rit (ponsel cadangan / kernet pengganti → konflik sinkron).
+    uniqueIndex("trip_payments_live_uq")
+      .on(t.tripId)
+      .where(sql`${t.reversalOfId} is null and ${t.reversedAt} is null`),
+    uniqueIndex("trip_payments_reversal_uq")
+      .on(t.reversalOfId)
+      .where(sql`${t.reversalOfId} is not null`),
+    uniqueIndex("trip_payments_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
+    // US-M3-04 KP-2 / PTB-18: tunai = diterima + kurang bayar = seharusnya; baris pembalik bertanda negatif.
+    check(
+      "trip_payments_amounts_chk",
+      sql`(${t.reversalOfId} is null and ${t.receivedAmount} >= 0 and ${t.underpaymentAmount} >= 0 and (${t.method} <> 'cash' or ${t.receivedAmount} + ${t.underpaymentAmount} = ${t.expectedAmount})) or (${t.reversalOfId} is not null and ${t.receivedAmount} <= 0 and ${t.underpaymentAmount} <= 0 and ${t.expectedAmount} <= 0)`,
+    ),
   ],
 );
 
@@ -98,6 +120,10 @@ export const tripExpenses = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /** Koreksi = baris pembalik beralasan (BR-38, US-M3-08 KP-2); > PAR-21 disetujui pemilik. */
+    reversalOfId: uuid("reversal_of_id"),
+    reversalReason: text("reversal_reason"),
+    correctionApprovalId: uuid("correction_approval_id"),
   },
   (t) => [
     foreignKey({
@@ -105,9 +131,21 @@ export const tripExpenses = pgTable(
       columns: [t.officeCashMovementId],
       foreignColumns: [officeCashMovements.id],
     }),
+    foreignKey({ name: "trip_expenses_reversal_fk", columns: [t.reversalOfId], foreignColumns: [t.id] }),
+    foreignKey({
+      name: "trip_expenses_correction_approval_fk",
+      columns: [t.correctionApprovalId],
+      foreignColumns: [approvalRequests.id],
+    }),
     index("trip_expenses_truck_date_idx").on(t.truckId, t.businessDate),
     index("trip_expenses_deposit_idx").on(t.depositId),
     index("trip_expenses_status_idx").on(t.status),
+    uniqueIndex("trip_expenses_reversal_uq")
+      .on(t.reversalOfId)
+      .where(sql`${t.reversalOfId} is not null`),
+    uniqueIndex("trip_expenses_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
   ],
 );
 

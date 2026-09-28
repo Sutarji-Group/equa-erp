@@ -147,6 +147,8 @@ describe("Sinkron push (docs/ARCHITECTURE.md §7)", () => {
     expect((second.results[0]!.result as { pong: boolean }).pong).toBe(true);
     const effects = await t.db.select().from(deviceUsageLogs).where(and(eq(deviceUsageLogs.deviceId, dev.deviceId), eq(deviceUsageLogs.event, "ping")));
     expect(effects).toHaveLength(1);
+    // NFR-30: riwayat pemakaian perangkat membawa tenant perangkatnya.
+    expect(effects[0]!.tenantId).toBe(EQUA_TENANT_ID);
     expect(await t.db.select().from(syncCommands).where(eq(syncCommands.id, ping.id))).toHaveLength(1);
   });
 

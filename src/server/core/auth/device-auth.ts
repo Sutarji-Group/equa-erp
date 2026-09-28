@@ -118,7 +118,7 @@ async function executeWipe(device: DeviceRow, meta: { ip: string | null; userAge
       details: { reportedQueueCount: lostQueue },
       occurredAt: meta.now,
     });
-    await logDeviceUsage(tx, { deviceId: device.id, userId: device.lastUserId, event: "wiped", occurredAt: meta.now, queueCount: lostQueue });
+    await logDeviceUsage(tx, { tenantId: device.tenantId, deviceId: device.id, userId: device.lastUserId, event: "wiped", occurredAt: meta.now, queueCount: lostQueue });
     await auditRecord(tx, {
       ctx: deviceActorContext(device, meta.now),
       objectType: "device",

@@ -75,6 +75,7 @@ export async function recordHealth(auth: DeviceAuth, body: unknown, options: { s
     const queueFlip = prev && report.queueCount !== undefined && (prev.queueCount ?? 0) > 0 !== report.queueCount > 0;
     if (!prev || queueFlip || now.getTime() - prev.occurredAt.getTime() >= HEALTH_LOG_INTERVAL_MS) {
       await logDeviceUsage(tx, {
+        tenantId: device.tenantId,
         deviceId: device.id,
         userId: auth.user?.id ?? device.lastUserId,
         event: "health_report",
@@ -96,7 +97,7 @@ export async function recordHealth(auth: DeviceAuth, body: unknown, options: { s
         .limit(1);
       const user = userRow[0];
       if (!user || user.tenantId !== device.tenantId) continue;
-      await logDeviceUsage(tx, { deviceId: device.id, userId: user.id, event: ev.type === "offline_login" ? "login" : ev.type, occurredAt: at, details: { offline: true } });
+      await logDeviceUsage(tx, { tenantId: device.tenantId, deviceId: device.id, userId: user.id, event: ev.type === "offline_login" ? "login" : ev.type, occurredAt: at, details: { offline: true } });
       if (ev.type === "pin_failed" || ev.type === "pin_locked") {
         await logAccess(tx, {
           event: ev.type,

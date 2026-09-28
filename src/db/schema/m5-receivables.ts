@@ -34,6 +34,7 @@ import { customerAddresses, customers, products } from "./m1-master";
 import { trips } from "./m2-orders";
 import { deposits, incomingTransfers, officeCashMovements } from "./m4-cash";
 import { posSaleLines, posSales } from "./m6-pos";
+import { journals } from "./m11-accounting";
 
 export const invoiceStatusEnum = pgEnum("invoice_status", enumValues("invoice_status"));
 export const invoiceKindEnum = pgEnum("invoice_kind", enumValues("invoice_kind"));
@@ -48,7 +49,7 @@ export const reminderStatusEnum = pgEnum("reminder_status", enumValues("reminder
 
 /**
  * Faktur (Terbuka → Sebagian dibayar → Lunas; US-M5-01). Tidak dapat dihapus; koreksi lewat nota kredit (BR-38).
- * sisa = amount − paid_amount − credited_amount (disimpan untuk kueri umur piutang).
+ * sisa = amount − paid_amount − credited_amount − written_off_amount (disimpan untuk kueri umur piutang; CHECK).
  */
 export const invoices = pgTable(
   "invoices",
@@ -95,10 +96,33 @@ export const invoices = pgTable(
     paidAt: tstz("paid_at"),
     ...timestamps(),
     createdBy: createdBy(),
+    /**
+     * Piutang sementara "transfer belum diterima" (US-M4-04 KP-4, PTB-28, 7.5.6): transfer masuk yang Tidak ditemukan.
+     */
+    pendingTransferId: uuid("pending_transfer_id").references((): AnyPgColumn => incomingTransfers.id),
+    /** Penghapusan piutang tak tertagih lewat jurnal manual (US-M5-01 KP-6) — mengurangi sisa tanpa nota kredit. */
+    writtenOffAmount: money("written_off_amount").notNull().default(0),
+    writtenOffAt: tstz("written_off_at"),
+    writeOffJournalId: uuid("write_off_journal_id"),
+    writeOffApprovalId: uuid("write_off_approval_id"),
   },
   (t) => [
     index("invoices_customer_status_idx").on(t.customerId, t.status),
     index("invoices_due_status_idx").on(t.status, t.dueDate),
+    foreignKey({ name: "invoices_write_off_journal_fk", columns: [t.writeOffJournalId], foreignColumns: [journals.id] }),
+    foreignKey({
+      name: "invoices_write_off_approval_fk",
+      columns: [t.writeOffApprovalId],
+      foreignColumns: [approvalRequests.id],
+    }),
+    // US-M7-04 KP-3: satu faktur per penjualan tempo toko.
+    uniqueIndex("invoices_pos_sale_uq")
+      .on(t.posSaleId)
+      .where(sql`${t.posSaleId} is not null`),
+    check(
+      "invoices_outstanding_chk",
+      sql`${t.outstandingAmount} = ${t.amount} - ${t.paidAmount} - ${t.creditedAmount} - ${t.writtenOffAmount} and ${t.outstandingAmount} >= 0`,
+    ),
     uniqueIndex("invoices_kind_trip_uq")
       .on(t.kind, t.tripId)
       .where(sql`${t.tripId} is not null`),
@@ -213,6 +237,9 @@ export const customerPayments = pgTable(
     }),
     index("customer_payments_customer_idx").on(t.customerId, t.businessDate),
     index("customer_payments_deposit_idx").on(t.depositId),
+    uniqueIndex("customer_payments_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
   ],
 );
 

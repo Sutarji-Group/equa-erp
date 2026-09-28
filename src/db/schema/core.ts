@@ -15,6 +15,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -155,7 +156,17 @@ export const outlets = pgTable(
     deactivatedAt: tstz("deactivated_at"),
     deactivationReason: text("deactivation_reason"),
     ...timestamps(),
+    /**
+     * Tanggal outlet mulai Aktif (US-P3-01 KP-4, US-P3-09 KP-1): dasar "jumlah outlet aktif per bulan" tagihan
+     * langganan (RL-7) — rentang aktif = activated_on..deactivated_at.
+     */
+    activatedOn: dateStr("activated_on"),
+    /** Onboarding mitra lengkap (semua butir wajib dicentang, US-P3-01 KP-4). */
+    onboardingCompletedAt: tstz("onboarding_completed_at"),
+    /** Tanggal mulai ditagih langganan (US-P3-09 KP-1, US-P3-04 KP-1). */
+    billingStartDate: dateStr("billing_start_date"),
   },
+  // NFR-30: indeks unik (id, tenant_id) + FK komposit tenant dikelola src/db/sql/hardening.sql (bukan drizzle-kit).
   (t) => [uniqueIndex("outlets_tenant_code_uq").on(t.tenantId, t.code), index("outlets_tenant_idx").on(t.tenantId)],
 );
 
@@ -445,6 +456,8 @@ export const deviceUsageLogs = pgTable(
   "device_usage_logs",
   {
     id: pk(),
+    /** NFR-30: disalin dari `devices.tenant_id` (isolasi tenant tanpa join). */
+    tenantId: tenantRef(),
     deviceId: uuid("device_id")
       .notNull()
       .references((): AnyPgColumn => devices.id),
@@ -458,7 +471,10 @@ export const deviceUsageLogs = pgTable(
     details: jsonb("details").$type<Record<string, unknown>>(),
     ...createdAtOnly(),
   },
-  (t) => [index("device_usage_logs_device_idx").on(t.deviceId, t.occurredAt)],
+  (t) => [
+    index("device_usage_logs_device_idx").on(t.deviceId, t.occurredAt),
+    index("device_usage_logs_tenant_idx").on(t.tenantId, t.occurredAt),
+  ],
 );
 
 /** Sesi login (tabel teknis — boleh dihapus). Token disimpan sebagai hash; cookie `equa_session`. */
@@ -533,6 +549,8 @@ export const auditLogs = pgTable(
     actorEmployeeId: employeeRef("actor_employee_id"),
     actorRoles: roleCodeEnum("actor_roles").array(),
     actorDeviceId: deviceRef("actor_device_id"),
+    /** Aktor aplikasi pelanggan Tahap 2 (`customer_accounts.id`, tanpa FK — aturan impor core; US-M10-05 KP-1). */
+    actorCustomerAccountId: refId("actor_customer_account_id"),
     source: actorSourceEnum("source").notNull(),
     objectType: text("object_type").notNull(),
     objectId: text("object_id").notNull(),
@@ -551,6 +569,14 @@ export const auditLogs = pgTable(
     index("audit_logs_object_idx").on(t.objectType, t.objectId),
     index("audit_logs_actor_idx").on(t.actorUserId, t.serverTime),
     index("audit_logs_time_idx").on(t.serverTime),
+    // US-M10-05 KP-2 / NFR-11: rantai hash tidak boleh bercabang — setiap hash hanya punya satu penerus, dan hanya ada
+    // satu baris genesis (prev_hash kosong). `audit.record` menyerialkan penulisan dengan pg_advisory_xact_lock.
+    uniqueIndex("audit_logs_prev_hash_uq")
+      .on(t.prevHash)
+      .where(sql`${t.prevHash} is not null`),
+    uniqueIndex("audit_logs_genesis_uq")
+      .on(sql`(true)`)
+      .where(sql`${t.prevHash} is null`),
   ],
 );
 
@@ -577,6 +603,14 @@ export const parameters = pgTable(
     reason: text("reason"),
     ...timestamps(),
     createdBy: createdBy(),
+    /**
+     * Batas nilai yang boleh ditetapkan tenant mitra (US-M6-07 KP-3, US-P3-02 KP-1): kas awal, ambang void, resep
+     * "dalam batas yang ditetapkan EQUA". Struktur sama dengan `value` (mis. `{ "amount": 100000 }`).
+     */
+    minValue: jsonb("min_value"),
+    maxValue: jsonb("max_value"),
+    /** Parameter ini boleh diubah pemilik mitra untuk tenant/outlet-nya (dalam min/max). Bawaan: tidak. */
+    tenantEditable: boolean("tenant_editable").notNull().default(false),
   },
   (t) => [
     // Satu nilai per (kunci, lingkup, tanggal berlaku). Setara UNIQUE NULLS NOT DISTINCT, dipecah menjadi indeks unik
@@ -627,7 +661,8 @@ export const approvalRequests = pgTable(
   {
     id: pk(),
     tenantId: tenantRef(),
-    number: text("number").notNull().unique(),
+    /** Unik per tenant (NFR-30, D-04) — `approval_requests_tenant_number_uq`. */
+    number: text("number").notNull(),
     type: text("type").notNull(),
     status: approvalStatusEnum("status").notNull().default("submitted"),
     requesterUserId: uuid("requester_user_id")
@@ -662,6 +697,13 @@ export const approvalRequests = pgTable(
     index("approval_requests_status_idx").on(t.status, t.approverRole, t.deadlineAt),
     index("approval_requests_object_idx").on(t.objectType, t.objectId),
     index("approval_requests_requester_idx").on(t.requesterUserId),
+    uniqueIndex("approval_requests_tenant_number_uq").on(t.tenantId, t.number),
+    // US-M10-04 KP-2/KP-3: satu permintaan menunggu keputusan per (jenis, objek) — efek handler tidak terjadi dua kali.
+    uniqueIndex("approval_requests_live_uq")
+      .on(t.tenantId, t.type, t.objectType, t.objectId)
+      .where(sql`${t.status} = 'submitted'`),
+    // FR-M10-03 / US-M10-03 KP-1: pemohon tidak pernah dapat memutuskan permintaannya sendiri.
+    check("approval_requests_sod_chk", sql`${t.decidedBy} is null or ${t.decidedBy} <> ${t.requesterUserId}`),
   ],
 );
 
@@ -687,7 +729,14 @@ export const delegations = pgTable(
     ...timestamps(),
     createdBy: createdBy(),
   },
-  (t) => [index("delegations_delegate_idx").on(t.delegateUserId, t.validUntil)],
+  (t) => [
+    index("delegations_delegate_idx").on(t.delegateUserId, t.validUntil),
+    // US-M10-04 KP-5: delegasi ke diri sendiri tidak sah; masa berlaku harus positif.
+    check(
+      "delegations_valid_chk",
+      sql`${t.delegateUserId} <> ${t.delegatorUserId} and ${t.validUntil} > ${t.validFrom}`,
+    ),
+  ],
 );
 
 /** Notifikasi (Bab 6.3, US-M9-04 KP-1). Tidak dihapus; status berubah. */
@@ -772,6 +821,8 @@ export const domainEvents = pgTable(
     occurredAt: tstz("occurred_at").notNull().defaultNow(),
     businessDate: businessDate(),
     actorUserId: userRef("actor_user_id"),
+    /** Aktor aplikasi pelanggan Tahap 2 (`customer_accounts.id`, tanpa FK — aturan impor core). */
+    actorCustomerAccountId: refId("actor_customer_account_id"),
     source: actorSourceEnum("source"),
     objectType: text("object_type"),
     objectId: text("object_id"),
@@ -790,8 +841,18 @@ export const documentSequences = pgTable(
     scopeKey: text("scope_key").notNull(),
     lastValue: bigint("last_value", { mode: "number" }).notNull().default(0),
     ...timestamps(),
+    /**
+     * Urutan per tenant (NFR-30, D-04): kode outlet hanya unik per tenant, sehingga lingkup 'D01-270926' mitra dan
+     * EQUA tidak boleh berbagi counter. MASA TRANSISI: `nextNumber` (core/numbering.ts) belum mengisi kolom ini dan
+     * masih memakai target ON CONFLICT (kind, scope_key); setelah numbering mengisi tenant_id dan memakai
+     * `document_sequences_tenant_kind_scope_uq`, kolom dijadikan NOT NULL dan indeks global lama dihapus.
+     */
+    tenantId: uuid("tenant_id").references((): AnyPgColumn => tenants.id),
   },
-  (t) => [uniqueIndex("document_sequences_kind_scope_uq").on(t.kind, t.scopeKey)],
+  (t) => [
+    uniqueIndex("document_sequences_kind_scope_uq").on(t.kind, t.scopeKey),
+    uniqueIndex("document_sequences_tenant_kind_scope_uq").on(t.tenantId, t.kind, t.scopeKey),
+  ],
 );
 
 /** Perintah sinkron lapangan — PK = ID klien (UUID v7) → idempotensi (ARCHITECTURE §7). */

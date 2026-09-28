@@ -117,10 +117,11 @@ async function requireDevice(tx: Tx, ctx: ActorContext, deviceId: string): Promi
   return device;
 }
 
-/** Catat riwayat pemakaian perangkat (US-M10-02 KP-7). */
+/** Catat riwayat pemakaian perangkat (US-M10-02 KP-7). `tenantId` = `devices.tenant_id` (NFR-30). */
 export async function logDeviceUsage(
   tx: Tx,
   input: {
+    tenantId: string;
     deviceId: string;
     userId?: string | null;
     event: string;
@@ -132,6 +133,7 @@ export async function logDeviceUsage(
   },
 ): Promise<void> {
   await tx.insert(deviceUsageLogs).values({
+    tenantId: input.tenantId,
     deviceId: input.deviceId,
     userId: input.userId ?? null,
     event: input.event,
@@ -366,7 +368,7 @@ export async function activateDevice(rawCode: string, meta: ActivationMeta = {})
       .where(eq(devices.id, device.id))
       .returning();
     await logAccess(tx, { ...logBase, event: "device_activated", tenantId: device.tenantId, deviceId: device.id, objectType: "device", objectId: device.id });
-    await logDeviceUsage(tx, { deviceId: device.id, event: "activated", occurredAt: now, appVersion: meta.appVersion ?? null });
+    await logDeviceUsage(tx, { tenantId: device.tenantId, deviceId: device.id, event: "activated", occurredAt: now, appVersion: meta.appVersion ?? null });
     await auditRecord(tx, {
       ctx: deviceActorContext(device, now),
       objectType: "device",
@@ -404,7 +406,7 @@ export async function blockDevice(ctx: ActorContext, deviceId: string, reason: s
       details: { sessionsRevoked: revoked },
       occurredAt: ctx.now,
     });
-    await logDeviceUsage(tx, { deviceId: device.id, userId: ctx.userId, event: "blocked", occurredAt: ctx.now, details: { reason: why } });
+    await logDeviceUsage(tx, { tenantId: device.tenantId, deviceId: device.id, userId: ctx.userId, event: "blocked", occurredAt: ctx.now, details: { reason: why } });
     return updated!;
   });
 }
@@ -427,7 +429,7 @@ export async function requestWipe(ctx: ActorContext, deviceId: string, reason: s
     await revokeDeviceSessions(tx, device.id, "device_wipe", ctx.now);
     await auditRecord(tx, { ctx, objectType: "device", objectId: device.id, action: "update", before: { status: device.status }, after: { status: "wipe_pending" }, reason: why });
     await logAccess(tx, { event: "device_wipe_requested", tenantId: ctx.tenantId, userId: ctx.userId, deviceId: device.id, reason: why, occurredAt: ctx.now });
-    await logDeviceUsage(tx, { deviceId: device.id, userId: ctx.userId, event: "wipe_requested", occurredAt: ctx.now, details: { reason: why } });
+    await logDeviceUsage(tx, { tenantId: device.tenantId, deviceId: device.id, userId: ctx.userId, event: "wipe_requested", occurredAt: ctx.now, details: { reason: why } });
     return updated!;
   });
 }

@@ -6,6 +6,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -79,6 +80,9 @@ export const meterReadings = pgTable(
       .on(t.waterMeterId, t.businessDate, t.phase)
       .where(sql`${t.supersededById} is null`),
     index("meter_readings_source_date_idx").on(t.waterSourceId, t.businessDate),
+    uniqueIndex("meter_readings_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
   ],
 );
 
@@ -141,11 +145,25 @@ export const truckFills = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /** Baris asal yang sudah dibalik: `reversed_at` + `reversed_by_id` (= baris pembalik). */
+    reversedAt: tstz("reversed_at"),
+    reversedById: uuid("reversed_by_id"),
   },
   (t) => [
     index("truck_fills_source_date_idx").on(t.waterSourceId, t.businessDate),
     index("truck_fills_trip_idx").on(t.tripId),
     index("truck_fills_truck_date_idx").on(t.truckId, t.businessDate),
+    foreignKey({ name: "truck_fills_reversed_by_fk", columns: [t.reversedById], foreignColumns: [t.id] }),
+    // US-M8-02 KP-2/KP-6, PTB-09: satu pengisian hidup per rit (neraca air tidak rusak oleh pencatatan ganda).
+    uniqueIndex("truck_fills_trip_live_uq")
+      .on(t.tripId)
+      .where(sql`${t.tripId} is not null and ${t.reversalOfId} is null and ${t.reversedAt} is null`),
+    uniqueIndex("truck_fills_reversal_uq")
+      .on(t.reversalOfId)
+      .where(sql`${t.reversalOfId} is not null`),
+    uniqueIndex("truck_fills_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
   ],
 );
 
@@ -209,7 +227,12 @@ export const tankLevelReadings = pgTable(
     ...fieldMeta(),
     ...timestamps(),
   },
-  (t) => [index("tank_level_readings_source_date_idx").on(t.waterSourceId, t.businessDate)],
+  (t) => [
+    index("tank_level_readings_source_date_idx").on(t.waterSourceId, t.businessDate),
+    uniqueIndex("tank_level_readings_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
+  ],
 );
 
 /** Jadwal uji mutu per lokasi (US-M8-06 KP-1; frekuensi PAR-70; pengingat H-7). */

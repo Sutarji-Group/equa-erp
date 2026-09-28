@@ -38,6 +38,7 @@ import {
 } from "./core";
 import { customers, trucks } from "./m1-master";
 import { tripExpenses, tripPayments } from "./m3-driver";
+import { invoices } from "./m5-receivables";
 import { shifts } from "./m6-pos";
 import { accounts } from "./m11-accounting";
 
@@ -83,7 +84,8 @@ export const deposits = pgTable(
   {
     id: pk(),
     tenantId: tenantRef(),
-    number: text("number").notNull().unique(),
+    /** Unik per tenant (NFR-30, D-04) — `deposits_tenant_number_uq`. */
+    number: text("number").notNull(),
     sourceType: depositSourceTypeEnum("source_type").notNull(),
     businessDate: businessDate().notNull(),
     status: depositStatusEnum("status").notNull().default("running"),
@@ -131,14 +133,21 @@ export const deposits = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /**
+     * Setor sebagian di tengah shift (BR-08, PTB-23, US-M6-02 KP-2, US-M7-09 KP-1): kas berjalan > PAR-02 → setor bank
+     * dengan slip. Setoran akhir shift (`is_partial = false`) tetap satu per shift dan ditunjuk `shifts.deposit_id`;
+     * jumlahnya = tunai seharusnya − kas awal tetap − Σ setoran sebagian (`shifts.partial_deposit_total`).
+     */
+    isPartial: boolean("is_partial").notNull().default(false),
   },
   (t) => [
+    uniqueIndex("deposits_tenant_number_uq").on(t.tenantId, t.number),
     uniqueIndex("deposits_driver_day_uq")
       .on(t.depositorUserId, t.businessDate)
       .where(sql`${t.sourceType} = 'driver'`),
-    uniqueIndex("deposits_shift_uq")
+    uniqueIndex("deposits_shift_final_uq")
       .on(t.shiftId)
-      .where(sql`${t.shiftId} is not null`),
+      .where(sql`${t.shiftId} is not null and ${t.isPartial} = false`),
     index("deposits_status_date_idx").on(t.status, t.businessDate),
     index("deposits_date_idx").on(t.tenantId, t.businessDate),
   ],
@@ -251,8 +260,8 @@ export const incomingTransfers = pgTable(
     matchRefNote: text("match_ref_note"),
     bankStatementLineId: uuid("bank_statement_line_id"),
     notFoundAt: tstz("not_found_at"),
-    /** KP-4: piutang sementara pada pelanggan dengan penanda "transfer belum diterima". */
-    temporaryInvoiceId: refId("temporary_invoice_id"),
+    /** KP-4: piutang sementara pada pelanggan dengan penanda "transfer belum diterima" (`invoices.pending_transfer_id`). */
+    temporaryInvoiceId: uuid("temporary_invoice_id").references((): AnyPgColumn => invoices.id),
     notes: text("notes"),
     ...timestamps(),
     createdBy: createdBy(),
@@ -264,8 +273,15 @@ export const incomingTransfers = pgTable(
       foreignColumns: [bankStatementLines.id],
     }),
     index("incoming_transfers_status_idx").on(t.status, t.transferDate),
-    index("incoming_transfers_source_idx").on(t.sourceObjectType, t.sourceObjectId),
     index("incoming_transfers_customer_idx").on(t.customerId),
+    // US-M4-04 KP-1 / US-M4-01 KP-3: satu transfer tercatat per objek sumber (event terulang tidak menggandakan).
+    uniqueIndex("incoming_transfers_source_uq")
+      .on(t.sourceObjectType, t.sourceObjectId)
+      .where(sql`${t.sourceObjectId} is not null`),
+    // US-M6-04 KP-1 / PTB-04: satu transfer QRIS per shift.
+    uniqueIndex("incoming_transfers_qris_shift_uq")
+      .on(t.shiftId)
+      .where(sql`${t.sourceKind} = 'qris_shift' and ${t.shiftId} is not null`),
   ],
 );
 
@@ -375,6 +391,10 @@ export const officeCashMovements = pgTable(
     }),
     index("office_cash_movements_date_idx").on(t.tenantId, t.businessDate),
     index("office_cash_movements_source_idx").on(t.sourceObjectType, t.sourceObjectId),
+    // US-M4-01 KP-3: satu mutasi kas per (jenis, sumber) — posting turunan yang terulang tidak menggandakan saldo.
+    uniqueIndex("office_cash_movements_source_uq")
+      .on(t.kind, t.sourceObjectType, t.sourceObjectId)
+      .where(sql`${t.reversalOfId} is null and ${t.sourceObjectId} is not null`),
   ],
 );
 

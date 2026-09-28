@@ -29,6 +29,7 @@ export function registerCoreSync(): void {
     labels: { note: "Catatan" },
     handle: async (ctx, payload, { tx, command, device, clockSkewFlagged }) => {
       await logDeviceUsage(tx, {
+        tenantId: device.tenantId,
         deviceId: device.id,
         userId: ctx.userId,
         event: "ping",

@@ -22,7 +22,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { enumValues } from "../../lib/labels";
-import { businessDate, coord, meters, money, pk, refId, timestamps, tstz } from "./_columns";
+import { businessDate, coord, dateStr, meters, money, pk, refId, timestamps, tstz } from "./_columns";
 import { devices, geofenceLocationTypeEnum, tenantRef, userRef } from "./core";
 import { trucks } from "./m1-master";
 import { trips } from "./m2-orders";
@@ -67,6 +67,10 @@ export const gpsPositions = pgTable(
     index("gps_positions_truck_time_idx").on(t.truckId, t.deviceTime),
     index("gps_positions_device_time_idx").on(t.deviceId, t.deviceTime),
     index("gps_positions_trip_idx").on(t.tripId),
+    // US-M12-01 KP-1/KP-6: retry penghubung vendor / kirim ulang outbox GPS ponsel tidak menggandakan posisi.
+    uniqueIndex("gps_positions_dedupe_uq").on(t.truckId, t.source, t.deviceTime),
+    // NFR-21 / PAR-52: job retensi 12 bulan menghapus berdasarkan waktu lintas truk (withRetentionPurge).
+    index("gps_positions_time_idx").on(t.deviceTime),
   ],
 );
 
@@ -102,6 +106,15 @@ export const fleetEvents = pgTable(
     explanation: text("explanation"),
     explainedBy: userRef("explained_by"),
     explainedAt: tstz("explained_at"),
+    /**
+     * Metadata offline keterangan BR-25 (US-M3-06 KP-4, US-M12-05 KP-3/KP-4): waktu isi di perangkat ≠ waktu sinkron;
+     * "hari yang sama" dinilai dari `explanation_business_date`; terlambat → `explanation_late`.
+     */
+    explanationDeviceTime: tstz("explanation_device_time"),
+    explanationDeviceId: uuid("explanation_device_id").references((): AnyPgColumn => devices.id),
+    explanationSyncCommandId: uuid("explanation_sync_command_id"),
+    explanationBusinessDate: dateStr("explanation_business_date"),
+    explanationLate: boolean("explanation_late").notNull().default(false),
     reviewDecision: fleetReviewDecisionEnum("review_decision"),
     reviewNote: text("review_note"),
     reviewedBy: userRef("reviewed_by"),

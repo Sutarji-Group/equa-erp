@@ -23,9 +23,11 @@ import { enumValues } from "../../lib/labels";
 import { businessDate, coord, createdAtOnly, dateStr, liters, meters, money, pk, timestamps, tstz } from "./_columns";
 import {
   approvalRef,
+  approvalRequests,
   attachmentRef,
   createdBy,
   deliverySlotEnum,
+  deviceRef,
   employeeRef,
   employees,
   fieldMeta,
@@ -46,6 +48,7 @@ import {
   zoneTariffs,
 } from "./m1-master";
 import { tripExpenses, tripPayments } from "./m3-driver";
+import { customerAccounts } from "./p2-customer";
 
 // =====================================================================================================================
 // Enum M2
@@ -103,7 +106,8 @@ export const recurringOrders = pgTable(
     status: recurringStatusEnum("status").notNull().default("active"),
     /** Tanggal kirim terakhir yang sudah dibangkitkan (H-2, PAR-34). */
     lastGeneratedDate: dateStr("last_generated_date"),
-    createdVia: text("created_via").notNull().default("office"),
+    /** Asal langganan (kantor / aplikasi pelanggan / portal mitra) — nilai `order_source`. */
+    createdVia: orderSourceEnum("created_via").notNull().default("office"),
     notes: text("notes"),
     ...timestamps(),
     createdBy: createdBy(),
@@ -220,12 +224,36 @@ export const orders = pgTable(
     cancelledBy: userRef("cancelled_by"),
     ...timestamps(),
     createdBy: createdBy(),
+    /** PTB-18 / US-M2-05 KP-6: persetujuan "pesanan baru saat kurang bayar kedua belum lunas" (terpisah dari kredit). */
+    underpaymentApprovalRequestId: uuid("underpayment_approval_request_id"),
+    /** Tahap 2 (US-P2-02 KP-4/KP-5, US-M10-05 KP-1): pelaku dari aplikasi pelanggan (bukan `users`). */
+    createdByCustomerAccountId: uuid("created_by_customer_account_id"),
+    cancelledByCustomerAccountId: uuid("cancelled_by_customer_account_id"),
   },
   (t) => [
     index("orders_customer_date_idx").on(t.customerId, t.requestedDate),
     index("orders_status_date_idx").on(t.status, t.requestedDate),
     index("orders_address_date_idx").on(t.addressId, t.requestedDate),
     index("orders_tenant_date_idx").on(t.tenantId, t.requestedDate),
+    // US-M2-06 KP-2/KP-3, KPI-06: job H-2 (PAR-34) tidak pernah membangkitkan pesanan langganan dua kali per tanggal.
+    uniqueIndex("orders_recurring_date_uq")
+      .on(t.recurringOrderId, t.requestedDate)
+      .where(sql`${t.recurringOrderId} is not null`),
+    foreignKey({
+      name: "orders_underpayment_approval_fk",
+      columns: [t.underpaymentApprovalRequestId],
+      foreignColumns: [approvalRequests.id],
+    }),
+    foreignKey({
+      name: "orders_created_by_customer_account_fk",
+      columns: [t.createdByCustomerAccountId],
+      foreignColumns: [customerAccounts.id],
+    }),
+    foreignKey({
+      name: "orders_cancelled_by_customer_account_fk",
+      columns: [t.cancelledByCustomerAccountId],
+      foreignColumns: [customerAccounts.id],
+    }),
   ],
 );
 
@@ -371,15 +399,59 @@ export const trips = pgTable(
     ...fieldMeta(),
     ...timestamps(),
     createdBy: createdBy(),
+    /**
+     * Tanggal bisnis perangkat saat Selesai (Bab 5.3): rit lewat tanggal dapat selesai pada hari lain (KPI-01, H+0 rit
+     * per truk). Metadata per aksi lapangan (Berangkat/Tiba/Selesai/Gagal) ada di `trip_status_events`.
+     */
+    completionBusinessDate: dateStr("completion_business_date"),
+    syncConflictResolvedAt: tstz("sync_conflict_resolved_at"),
+    syncConflictResolvedBy: userRef("sync_conflict_resolved_by"),
+    /** US-M5-03 KP-2 / PTB-27: rit tempo belum Berangkat saat pelanggan menjadi Ditahan → ubah ke tunai atau tarik. */
+    creditHoldFlaggedAt: tstz("credit_hold_flagged_at"),
+    creditHoldResolution: text("credit_hold_resolution"),
   },
   (t) => [
     index("trips_truck_date_idx").on(t.truckId, t.scheduledDate),
+    index("trips_truck_completion_idx").on(t.truckId, t.completionBusinessDate),
     index("trips_order_idx").on(t.orderId),
     index("trips_status_date_idx").on(t.status, t.scheduledDate),
     index("trips_customer_idx").on(t.customerId, t.scheduledDate),
     index("trips_driver_date_idx").on(t.driverUserId, t.scheduledDate),
     uniqueIndex("trips_order_seq_uq").on(t.orderId, t.sequenceInOrder),
   ],
+);
+
+/**
+ * Riwayat aksi lapangan per rit (Bab 6.7, Bab 5.3, US-M3-03 KP-6, 7.2.6): satu baris per Berangkat/Tiba/Selesai/Gagal
+ * dengan waktu perangkat & sinkron, lokasi, perintah sinkron, penanda dicatat kantor / terlambat sinkron / jam
+ * menyimpang — tidak saling menimpa seperti `fieldMeta` tunggal di `trips`. Append-only (hardening.sql).
+ */
+export const tripStatusEvents = pgTable(
+  "trip_status_events",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    tripId: uuid("trip_id")
+      .notNull()
+      .references((): AnyPgColumn => trips.id),
+    status: tripStatusEnum("status").notNull(),
+    deviceTime: tstz("device_time"),
+    /** Tanggal bisnis WIB di perangkat saat aksi. */
+    businessDate: businessDate(),
+    syncedAt: tstz("synced_at"),
+    lat: coord("lat"),
+    lng: coord("lng"),
+    accuracyM: meters("accuracy_m"),
+    userId: userRef("user_id"),
+    deviceId: deviceRef(),
+    syncCommandId: uuid("sync_command_id").unique("trip_status_events_sync_command_uq"),
+    recordedByOffice: boolean("recorded_by_office").notNull().default(false),
+    officeRecordReason: text("office_record_reason"),
+    lateSync: boolean("late_sync").notNull().default(false),
+    clockSkewFlagged: boolean("clock_skew_flagged").notNull().default(false),
+    ...createdAtOnly(),
+  },
+  (t) => [index("trip_status_events_trip_idx").on(t.tripId, t.createdAt)],
 );
 
 /** Log perubahan jadwal (US-M2-03 KP-5: perubahan setelah terbit tercatat & dikirim ke sopir). */
@@ -499,7 +571,13 @@ export const tripIncidents = pgTable(
     ...fieldMeta(),
     ...timestamps(),
   },
-  (t) => [index("trip_incidents_trip_idx").on(t.tripId), index("trip_incidents_date_idx").on(t.businessDate)],
+  (t) => [
+    index("trip_incidents_trip_idx").on(t.tripId),
+    index("trip_incidents_date_idx").on(t.businessDate),
+    uniqueIndex("trip_incidents_sync_command_uq")
+      .on(t.syncCommandId)
+      .where(sql`${t.syncCommandId} is not null`),
+  ],
 );
 
 // =====================================================================================================================
@@ -528,6 +606,7 @@ export const tripsRelations = relations(trips, ({ one, many }) => ({
   schedule: one(dailySchedules, { fields: [trips.scheduleId], references: [dailySchedules.id] }),
   destinationOutlet: one(outlets, { fields: [trips.destinationOutletId], references: [outlets.id] }),
   incidents: many(tripIncidents),
+  statusEvents: many(tripStatusEvents),
   changeLogs: many(scheduleChangeLogs),
   payments: many(tripPayments),
   expenses: many(tripExpenses),
@@ -569,6 +648,10 @@ export const recurringOrderFailuresRelations = relations(recurringOrderFailures,
     fields: [recurringOrderFailures.recurringOrderId],
     references: [recurringOrders.id],
   }),
+}));
+
+export const tripStatusEventsRelations = relations(tripStatusEvents, ({ one }) => ({
+  trip: one(trips, { fields: [tripStatusEvents.tripId], references: [trips.id] }),
 }));
 
 export const tripIncidentsRelations = relations(tripIncidents, ({ one }) => ({

@@ -175,7 +175,8 @@ export const journals = pgTable(
   {
     id: pk(),
     tenantId: tenantRef(),
-    number: text("number").notNull().unique(),
+    /** Unik per tenant (NFR-30, D-04) — `journals_tenant_number_uq`. */
+    number: text("number").notNull(),
     kind: journalKindEnum("kind").notNull(),
     status: journalStatusEnum("status").notNull().default("draft"),
     /** Tanggal bisnis peristiwa (Bab 5.3). */
@@ -218,6 +219,10 @@ export const journals = pgTable(
     uniqueIndex("journals_auto_event_uq")
       .on(t.sourceEventId)
       .where(sql`${t.kind} = 'auto' and ${t.sourceEventId} is not null and ${t.reversalOfId} is null`),
+    uniqueIndex("journals_tenant_number_uq").on(t.tenantId, t.number),
+    // US-M11-10 KP-3 / BR-32: jurnal terposting selalu berperiode. Keseimbangan, periode Ditutup/Dikunci, dan cut-over
+    // dijaga trigger di src/db/sql/hardening.sql (EQ004/EQ005/EQ006).
+    check("journals_posted_period_chk", sql`${t.status} <> 'posted' or ${t.periodId} is not null`),
   ],
 );
 

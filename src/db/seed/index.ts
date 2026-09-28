@@ -33,7 +33,14 @@ export {
   deviceId,
   POOL_ID,
 } from "./org";
-export { PRODUCT_SEEDS, TARIFF_ZONE_SEEDS, productId, tariffZoneId, FUEL_COMPONENT_PER_TRIP } from "./catalog";
+export {
+  PRODUCT_SEEDS,
+  TARIFF_ZONE_SEEDS,
+  productId,
+  tariffZoneId,
+  tariffZoneBoundaryId,
+  FUEL_COMPONENT_PER_TRIP,
+} from "./catalog";
 export { CUSTOMER_SEEDS, customerId, internalCustomerId } from "./customers";
 export { CHART_OF_ACCOUNTS, EVENT_MAPPING_SEEDS, accountId } from "./accounting";
 export { WA_TEMPLATE_SEEDS } from "./templates";
@@ -106,6 +113,7 @@ const COUNTED_TABLES = [
   "user_scopes",
   "devices",
   "tariff_zones",
+  "tariff_zone_boundaries",
   "zone_tariffs",
   "fuel_components",
   "products",

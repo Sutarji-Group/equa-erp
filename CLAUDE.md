@@ -49,6 +49,11 @@ Lihat `docs/DECISIONS.md` D-06. `pnpm typecheck && pnpm lint && pnpm test` harus
   agar `pnpm db:push` idempoten. Setelah mengubah skema: `pnpm typecheck && pnpm test` (snapshot uji dibangun ulang).
 - DB menolak DELETE/TRUNCATE tabel bisnis dan UPDATE/DELETE `audit_logs`/`access_logs`/`domain_events`
   (`src/db/sql/hardening.sql`, SQLSTATE `EQ001`/`EQ002`, `isHardeningViolation()`); job retensi memakai `withRetentionPurge()`.
+  Tambahan tinjauan skema S0: UPDATE ledger/alokasi ditolak (`EQ002`), kolom imutabel transaksi (`EQ003`, daftar kolom
+  per tabel di `IMMUTABLE_COLUMN_GUARDS`, src/db/hardening.ts), jurnal terposting seimbang saat COMMIT (`EQ004`), periode
+  Ditutup/Dikunci (`EQ005`), sebelum cut-over (`EQ006`). FK komposit tenant NFR-30 (`TENANT_FOREIGN_KEYS`) dikelola
+  hardening.sql, bukan drizzle-kit. Tabel anak ber-`tenant_id` (mis. `device_usage_logs`) WAJIB diisi dari induknya.
+  DB dev lama: `pnpm db:push` menjalankan `src/db/sql/pre-push.sql` dulu (kolom NOT NULL baru).
 - Uji DB: `useTestDb({ seed?: boolean })` atau `createTestDb()` dari `tests/helpers/db.ts` (PGlite dari snapshot cache,
   ±1 detik). Data seed: ID deterministik `seedId(kunci)` + pembantu `userIdByUsername`, `outletId`, `truckId`,
   `customerId`, `productId`, … dari `@/db/seed`.
