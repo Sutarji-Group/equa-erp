@@ -164,16 +164,15 @@ export function ShiftSales({ onReplace }: { onReplace: (sale: PosSaleRef) => voi
             {s.priceMismatch ? " · harga beda dari master" : ""}
             {s.replacesSaleId ? " · pengganti" : ""}
           </p>
-          {s.status === "valid" && !s.isReversal ? (
-            voiding === s.id ? (
-              <div className="mt-2">
-                <VoidForm sale={s} onDone={() => setVoiding(null)} onReplace={onReplace} />
-              </div>
-            ) : (
-              <button type="button" onClick={() => setVoiding(s.id)} className="mt-2 min-h-12 rounded-xl border-2 px-4 text-base font-semibold text-destructive hover:bg-destructive/10">
-                Void…
-              </button>
-            )
+          {voiding === s.id ? (
+            // Tetap tampil setelah void tercatat (status berubah optimistis) agar operator bisa membuat transaksi pengganti.
+            <div className="mt-2">
+              <VoidForm sale={s} onDone={() => setVoiding(null)} onReplace={onReplace} />
+            </div>
+          ) : s.status === "valid" && !s.isReversal ? (
+            <button type="button" onClick={() => setVoiding(s.id)} className="mt-2 min-h-12 rounded-xl border-2 px-4 text-base font-semibold text-destructive hover:bg-destructive/10">
+              Void…
+            </button>
           ) : null}
         </li>
       ))}

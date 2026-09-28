@@ -65,7 +65,7 @@ export default async function TenantPage() {
         <SectionCard title="Tenant mitra baru" description="Membuat tenant, depot pertama, dan (opsional) menyalin katalog standar EQUA. Harga dapat diubah mitra sendiri setelahnya.">
           <OutletActionForm action={createTenantAction} submitLabel="Buat tenant mitra" testId="form-tenant" className="max-w-xl">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Kode tenant" name="code" required placeholder="MITRA-01" hint="Huruf besar, angka, tanda hubung." />
+              <Field label="Kode tenant" name="code" required placeholder="MITRA01" hint="Huruf dan angka, maksimal 10." />
               <Field label="Nama usaha" name="name" required />
               <Field label="Kode depot" name="outletCode" required placeholder="M01" />
               <Field label="Nama depot" name="outletName" required />

@@ -28,7 +28,7 @@ const NAV: { view: View; label: string; icon: typeof ShoppingCart }[] = [
 ];
 
 function PosScreen() {
-  const { session, ref, shift, figures, today } = usePos();
+  const { session, ref, shift, figures, today, grid } = usePos();
   const [view, setView] = useState<View>("jual");
   const [draft, setDraft] = useState<SaleDraft>({ lines: [], replacesSaleId: null });
   const [lastSale, setLastSale] = useState<PosSaleRef | null>(null);
@@ -80,8 +80,13 @@ function PosScreen() {
             </p>
             <div className="mt-3">
               <ShiftSales
-                onReplace={() => {
-                  setDraft({ lines: [], replacesSaleId: null });
+                onReplace={(voided) => {
+                  // Transaksi pengganti (US-M6-03 KP-1): keranjang diisi ulang dari transaksi yang di-void (harga master terkini).
+                  const lines = voided.lines.flatMap((l) => {
+                    const p = grid.find((g) => g.id === l.productId);
+                    return p ? [{ productId: p.id, name: p.name, unitPrice: p.price, quantity: l.quantity }] : [];
+                  });
+                  setDraft({ lines, replacesSaleId: voided.id });
                   setView("jual");
                 }}
               />
