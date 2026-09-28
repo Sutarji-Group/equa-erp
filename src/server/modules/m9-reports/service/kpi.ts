@@ -322,7 +322,7 @@ export async function fieldAdoption(tx: Tx, tenantId: string, from: BusinessDate
     .where(and(eq(users.tenantId, tenantId), eq(users.status, "active"), eq(userRoles.status, "active"), inArray(userRoles.role, [...KPI11_ROLES])));
   const active = await tx.execute<{ user_id: string; d: string }>(sql`
     select distinct user_id, coalesce(business_date::text, to_char(received_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD')) as d
-    from sync_commands where tenant_id = ${tenantId} and user_id is not null and status in ('applied', 'duplicate', 'conflict')
+    from sync_commands where tenant_id = ${tenantId} and user_id is not null and status in ('applied', 'conflict')
       and received_at >= ${businessDateToUtcRange(from).start} and received_at < ${businessDateToUtcRange(to).end}`);
   const operatingDays = [...new Set(active.rows.map((r) => String(r.d)))].filter((d) => d >= from && d <= to);
   const byRole = KPI11_ROLES.map((role) => {
