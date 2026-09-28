@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { ScheduleBoard } from "@/components/m2-orders/schedule-board";
+import { FleetLiveMap } from "@/components/m12-fleet/fleet-live-map";
 import { ExportButtons } from "@/components/shared/export-buttons";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { formatTanggal, isBusinessDate, toBusinessDate } from "@/lib/time";
 import { requirePermission } from "@/server/core/auth/office";
 import { can } from "@/server/core/rbac";
 import * as m2 from "@/server/modules/m2-orders";
+import * as m12 from "@/server/modules/m12-fleet";
 
 export const metadata: Metadata = { title: "Papan jadwal" };
 
@@ -22,6 +24,8 @@ export default async function JadwalPage({ searchParams }: PageProps<"/jadwal">)
   const sp = await searchParams;
   const date = typeof sp.tanggal === "string" && isBusinessDate(sp.tanggal) ? sp.tanggal : toBusinessDate(ctx.now);
   const board = await m2.getBoard(ctx, date);
+  // US-M12-02 KP-4: peta armada real-time tersemat di papan jadwal (hanya pemilik & Dispatcher; hari ini).
+  const fleet = can(ctx, "m12.position.read") && date === toBusinessDate(ctx.now) ? await m12.getFleetSnapshot(ctx, {}) : null;
   return (
     <div className="grid gap-4">
       <PageHeader
@@ -42,6 +46,12 @@ export default async function JadwalPage({ searchParams }: PageProps<"/jadwal">)
         }
       />
       <ScheduleBoard board={board} />
+      {fleet ? (
+        <section aria-label="Peta truk real-time" className="grid gap-2">
+          <h2 className="text-base font-semibold">Peta truk real-time</h2>
+          <FleetLiveMap initial={fleet} compact />
+        </section>
+      ) : null}
     </div>
   );
 }

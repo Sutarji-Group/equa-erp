@@ -64,9 +64,11 @@ describe("M12 — registrasi modul (event, job, laporan, navigasi)", () => {
     const owner = seededContext("pemilik");
     const today = toBusinessDate(new Date());
     for (const key of M12_REPORTS) {
-      const xlsx = await exportReport(owner, key, "xlsx", key.startsWith("m12.fuel_") ? { month: today.slice(0, 7) } : {});
+      const filters = key.startsWith("m12.fuel_") ? { month: today.slice(0, 7) } : {};
+      // Laporan pemeriksaan zona memuat alamat (data pribadi, BR-39) → tujuan ekspor wajib.
+      const xlsx = await exportReport(owner, key, "xlsx", filters, "Uji ekspor laporan armada");
       expect(xlsx.contentType, key).toContain("spreadsheet");
-      const pdf = await exportReport(owner, key, "pdf", key.startsWith("m12.fuel_") ? { month: today.slice(0, 7) } : {});
+      const pdf = await exportReport(owner, key, "pdf", filters, "Uji ekspor laporan armada");
       expect(pdf.contentType, key).toContain("pdf");
     }
   });
