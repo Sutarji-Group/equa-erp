@@ -1,30 +1,17 @@
 /**
- * M5 — handler perintah sinkron lapangan (outbox offline, docs/ARCHITECTURE.md §7).
+ * M5 — sinkron lapangan. M5 TIDAK punya perintah lapangan sendiri: pelunasan lewat sopir dicatat perintah M3
+ * `m3.collection.create` (M5 menerapkan alokasinya dari `collection.recorded`), penjualan tempo toko lewat
+ * `m6.pos_sale.create` (M5 menerbitkan faktur dari `pos_sale.recorded`).
  *
- * Registri sinkron tersedia di `@/server/core/sync` (F3c). Pola:
- * ```ts
- * import { z } from "zod";
- * import { registerPullProvider, registerSyncHandler } from "@/server/core/sync";
- * export function registerSync(): void {
- *   registerSyncHandler("<modul>.<objek>.<aksi>", {
- *     permission: "<modul>.<sumberdaya>.<aksi>",        // atau null (semua pengguna lapangan)
- *     // Izin bersyarat (kernet pengganti US-M2-11) — WAJIB untuk izin m3.* yang ada di CONDITIONAL_GRANTS:
- *     conditions: async (ctx, payload, { tx }) => substituteDriverConditions(tx, ctx, truckIdDari(payload), ctxBusinessDate(ctx)),
- *     schema: z.object({ … }),                           // payload divalidasi (pesan Indonesia)
- *     handle: async (ctx, payload, meta) => {
- *       // tulis dengan meta.tx; kolom fieldMeta(): { ...fieldMetaValues(meta) } (device_id, device_time, synced_at,
- *       // sync_command_id, late_sync, clock_skew_flagged); lampiran = meta.attachments (sudah diverifikasi pemiliknya).
- *       // DomainError = ditolak FINAL (disimpan); galat lain = retry. Nomor resmi dokumen perangkat:
- *       // assignOfficialNumber(meta.tx, "pos_sale", { tenantId: meta.device.tenantId, businessDate: meta.command.businessDate, outletCode }).
- *       return { objectType: "…", objectId: "…" };       // atau { status: "conflict", message: "…" } (tabrakan kantor)
- *     },
- *   });
- *   registerPullProvider("<modul>.<nama>", async ({ ctx, tx, since, device }) => ({ … }));
- * }
- * ```
+ * Pull `m5.customer_credit` (sopir/kernet): status kredit, saldo piutang, dan eksposur pelanggan rit hari ini pada truk
+ * pelaku (US-M5-01 KP-3 "tampil di … aplikasi sopir (data sinkron)"); `undefined` bila tidak berubah sejak kursor.
  */
 import "server-only";
 
+import { registerPullProvider } from "@/server/core/sync";
+
+import { customerCreditPull } from "./service/pull";
+
 export function registerSync(): void {
-  // Belum ada handler — diisi agen modul M5 (registri sinkron F3c tersedia: @/server/core/sync).
+  registerPullProvider("m5.customer_credit", { roles: ["driver", "helper"], fetch: (pc) => customerCreditPull(pc) });
 }

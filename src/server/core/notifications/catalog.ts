@@ -144,6 +144,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("cash_close_exception.overdue", "Setoran tertunda lewat 24 jam menjadi selisih", "high", ["owner", "finance_admin"], "Terima setoran dan jelaskan selisihnya", "PTB-21, US-M4-06 KP-2", 24),
   e("cash_day.closed", "Kas harian ditutup", "info", ["owner"], "Ringkasan H+0 terbit ≤ 30 menit (M9)", "US-M4-06 KP-4/KP-5, NFR-04"),
   e("bank_statement.unmatched", "Mutasi bank tanpa pasangan", "normal", ["finance_admin"], "Tindak lanjuti mutasi yang tidak cocok dengan transfer tercatat", "US-M4-04 KP-3"),
+  // --- Tambahan modul M5 (Piutang & Penagihan) — hanya tambah ---
+  e("receivable.dispute_opened", "Faktur disengketakan pelanggan", "normal", ["owner"], "Putuskan: nota kredit atau sengketa ditolak (≤ PAR-45 hari)", "7.5.6, PAR-45"),
+  e("receivable.dispute_decided", "Sengketa faktur diputuskan pemilik", "info", ["finance_admin"], "Tindak lanjuti ke pelanggan", "7.5.6"),
+  e("credit.hold_released", "Status Ditahan dibuka", "normal", ["dispatcher", "finance_admin"], "Pesanan tempo dapat dibuat lagi", "BR-03, US-M5-03 KP-3"),
+  e("receivable.monthly_ready", "Faktur bulanan siap kirim", "normal", ["finance_admin"], "Kirim PDF faktur bulanan lewat WA/e-mail hari ini", "US-M5-06 KP-4, PAR-12"),
+  e("receivable.advance_review", "Kelebihan bayar menjadi uang muka pelanggan", "info", ["finance_admin"], "Tinjau: dialokasikan ke faktur berikutnya atau ajukan pengembalian", "US-M5-02 KP-3"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

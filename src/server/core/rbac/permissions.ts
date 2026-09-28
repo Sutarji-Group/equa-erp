@@ -522,6 +522,17 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   }),
   p("m7.supplier.deactivate", "Menonaktifkan/mengaktifkan kembali pemasok", [FA], { ref: "7.7.3" }),
   p("m7.supplier_payment.reverse", "Membalik pembayaran pemasok yang keliru (beralasan)", [FA], { finance: true, cash: true, ref: "BR-38, US-M7-08 KP-2" }),
+
+  // ===================================================================================================================
+  // Tambahan modul M5 (Piutang & Penagihan) — hanya tambah
+  // ===================================================================================================================
+  p("m5.credit_hold.release", "Membuka status Ditahan sebelum lunas (keputusan pemilik, beralasan)", [O], {
+    kind: "approve",
+    ref: "US-M5-03 KP-3, BR-03, 6.2a",
+  }),
+  p("m5.credit_hold.evaluate", "Menghitung ulang umur piutang & status Ditahan sekarang", [O, FA], { ref: "US-M5-03 KP-1" }),
+  p("m5.monthly_invoice.issue", "Menerbitkan faktur bulanan periode lalu (bila job belum berjalan)", [FA], { finance: true, ref: "US-M5-06 KP-2" }),
+  p("m5.opening_balance.sign", "Menandatangani total saldo awal piutang", [O], { kind: "approve", ref: "US-M5-07 KP-2, NFR-34" }),
 ];
 
 const BY_KEY = new Map<string, PermissionDef>(PERMISSIONS.map((perm) => [perm.key, perm]));

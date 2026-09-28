@@ -559,6 +559,43 @@ export const PARAM_REGISTRY = {
         "Batas jam selisih dianggap lewat tindak lanjut (KPI-03) dan setoran tertunda harus diterima, batas hari pemilik membuka kembali selisih di bawah ambang, toleransi tanggal usulan pasangan mutasi bank, jarak hari rekonsiliasi fisik kas kecil, dan jumlah bulan nihil selisih untuk insentif.",
     },
   }),
+
+  // --- Tambahan modul M5 (Piutang & Penagihan) — hanya tambah ---
+  /** Angka aturan piutang yang disebut PRD 7.5 / PTB-18 / FR-M5-04 tanpa nomor PAR. */
+  "m5.receivable_rules": defineParam({
+    schema: z
+      .object({
+        /** PTB-18: faktur kurang bayar lapangan jatuh tempo H+N (bawaan H+0). */
+        underpayment_due_days: int(0),
+        /** FR-M5-04: batas atas kelompok umur lewat tempo pertama (1–N hari). */
+        aging_first_bucket_days: int(1),
+        /** FR-M5-04: batas atas kelompok umur lewat tempo kedua (… – N hari); di atasnya = kelompok terakhir. */
+        aging_second_bucket_days: int(1),
+        /** US-M5-04 KP-3: "akan Ditahan" = faktur yang akan melewati PAR-09 dalam N hari. */
+        hold_warning_days: int(0),
+        /** US-M5-04 KP-2: rentang bawaan kartu piutang (hari ke belakang). */
+        statement_default_days: int(1),
+        /** KPI-04: sasaran % piutang lewat tempo terhadap total piutang (ditampilkan di umur piutang & ringkasan mingguan). */
+        kpi04_target_percent: z.number().min(0).max(100),
+      })
+      .strict(),
+    affectedRoles: ["finance_admin", "dispatcher"],
+    fallback: {
+      underpayment_due_days: 0,
+      aging_first_bucket_days: 7,
+      aging_second_bucket_days: 30,
+      hold_warning_days: 3,
+      statement_default_days: 90,
+      kpi04_target_percent: 5,
+    },
+    meta: {
+      name: "Aturan piutang (jatuh tempo kurang bayar, kelompok umur, peringatan Ditahan, kartu piutang, sasaran KPI-04)",
+      unit: null,
+      reference: "PTB-18, FR-M5-04, US-M5-04 KP-1/KP-2/KP-3, KPI-04",
+      description:
+        "Jatuh tempo faktur kurang bayar lapangan (H+N), batas kelompok umur piutang (1–7 / 8–30 / > 30 hari), jendela hari \"akan Ditahan\" pada daftar tindakan harian, rentang bawaan kartu piutang, dan sasaran % piutang lewat tempo (KPI-04, bawaan < 5%).",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

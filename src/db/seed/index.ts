@@ -20,6 +20,7 @@ import { seedDemoM10Access } from "./demo-m10-access";
 import { seedDemoM2Orders } from "./demo-m2-orders";
 import { seedDemoM3Driver } from "./demo-m3-driver";
 import { seedDemoM4Cash } from "./demo-m4-cash";
+import { seedDemoM5Receivables } from "./demo-m5-receivables";
 import { seedDemoM6Pos } from "./demo-m6-pos";
 import { seedDemoM7Store } from "./demo-m7-store";
 import { seedId } from "./ids";
@@ -106,6 +107,7 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoM6Pos(tx);
     await seedDemoM3Driver(tx);
     await seedDemoM7Store(tx);
+    await seedDemoM5Receivables(tx);
     // M4 (Kas & Setoran) memakai data demo M3/M6/M7 di atas — jalankan paling akhir.
     await seedDemoM4Cash(tx);
 

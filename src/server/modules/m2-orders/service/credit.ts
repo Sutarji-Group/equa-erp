@@ -15,7 +15,7 @@ import "server-only";
 
 import { and, eq, gt, inArray, ne, sql, sum } from "drizzle-orm";
 
-import { customers, invoices, orders, trips, unbilledCharges } from "@/db/schema";
+import { customers, invoices, orders, trips } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 
@@ -23,6 +23,7 @@ import type { ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { NotFoundError } from "@/server/core/errors";
 import { assertTenantScope, authorizeAny } from "@/server/core/rbac";
+import { getReceivableBalance } from "@/server/modules/m5-receivables";
 
 import { ACTIVE_ORDER_STATUSES, SECOND_UNDERPAYMENT_OPEN_INVOICES, type CustomerRow } from "./common";
 
@@ -61,14 +62,8 @@ export async function computeCreditExposure(
     .limit(1);
   const customer = rows[0];
   if (!customer) throw new NotFoundError("Pelanggan tidak ditemukan.");
-  const [inv] = await tx
-    .select({ total: sum(invoices.outstandingAmount) })
-    .from(invoices)
-    .where(and(eq(invoices.customerId, customerId), gt(invoices.outstandingAmount, 0)));
-  const [unbilled] = await tx
-    .select({ total: sum(unbilledCharges.amount) })
-    .from(unbilledCharges)
-    .where(and(eq(unbilledCharges.customerId, customerId), eq(unbilledCharges.status, "unbilled")));
+  // Saldo piutang = faktur terbuka + belum ditagih — satu sumber di M5 (US-M5-01 KP-3).
+  const balance = await getReceivableBalance(tx, customerId);
   const orderConds = [
     eq(trips.customerId, customerId),
     eq(trips.paymentMethod, "credit"),
@@ -82,8 +77,8 @@ export async function computeCreditExposure(
     .from(trips)
     .innerJoin(orders, eq(orders.id, trips.orderId))
     .where(and(...orderConds));
-  const openInvoices = Number(inv?.total ?? 0);
-  const unbilledTotal = Number(unbilled?.total ?? 0);
+  const openInvoices = balance.openInvoices;
+  const unbilledTotal = balance.unbilledCharges;
   const openCreditOrders = Number(open?.total ?? 0);
   const extraAmount = Math.max(0, Math.round(opts.extraAmount ?? 0));
   const exposure = openInvoices + unbilledTotal + openCreditOrders + extraAmount;
