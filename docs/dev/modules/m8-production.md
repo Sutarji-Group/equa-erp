@@ -128,3 +128,20 @@ Filter umum `from`, `to`, `sourceId`, `outletId`.
 - M9: ringkasan H+0 memakai `utilizationFlags` & `water_balance.computed` (belum dibangun).
 - Foto pembacaan demo tidak disertakan (seed tanpa berkas); unggahan foto kantor (koreksi, sertifikat) lewat Server
   Action tunduk batas 1 MB bawaan Next (B-18).
+
+## 11. Backlog & verifikasi akhir
+
+- **B-03** (bagian /produksi): SELESAI — `<FieldSupportPanel />` terpasang di menu Bantuan aplikasi operator
+  (`src/components/m8-production/produksi-app.tsx`).
+- **B-10**: SELESAI — layar kantor stok air awal depot (`/produksi/pengisian`, tab "Stok awal depot";
+  `recordDepotOpeningWater` → `m6.postWaterMovement` jenis `opening`), uji `tests/m8-production/depot-opening.test.ts`.
+- Cek akhir: `pnpm typecheck`, `pnpm lint`, `pnpm build` hijau; `pnpm trace` M8 29/29 KP (M & S) tercakup; seluruh uji
+  `tests/m8-production/**` hijau. E2E dijalankan terhadap `next start` (tanpa build kedua):
+  `PGLITE_DATA_DIR=./.data/pglite-e2e-m8-production pnpm e2e:prepare` → `ALLOW_DEV_SECRETS=1 PGLITE_DATA_DIR=… pnpm
+  start --port 3108` → `E2E_BASE_URL=http://localhost:3108 pnpm test:e2e e2e/m8-production` (3 uji: pemilik, Admin
+  Keuangan, operator ponsel offline).
+- Uji di luar M8 yang bergantung jam dinding nyata (gagal di mana pun saat tanggal WIB ≠ 2026-09-28 / di luar jam
+  kerja): `tests/core/notifications.test.ts` "US-M9-04 KP-3 ringkasan e-mail harian" (jendela digest memakai
+  `notifications.created_at` = jam nyata DB, uji mengunci 2026-09-28) dan `tests/m4-cash/deposits.test.ts` "US-M4-02
+  KP-4" (`approval_requests.created_at` jam nyata vs `deadline_at` dari `ctx.now` tetap). Bukan akibat M8 — pemilik:
+  Core / M4.
