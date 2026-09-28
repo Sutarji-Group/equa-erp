@@ -28,6 +28,8 @@ const eslintConfig = defineConfig([
     "public/sw.js",
     "public/swe-worker-*.js",
     "drizzle/meta/**",
+    // Worktree agen paralel (orkestrator) — bukan bagian dari proyek ini:
+    ".claude/**",
   ]),
 ]);
 
