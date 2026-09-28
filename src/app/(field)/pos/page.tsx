@@ -1,8 +1,8 @@
 "use client";
 
-import { FieldHomePage } from "@/components/field/field-home";
+import { PosApp } from "@/components/m6-pos/pos-app";
 
-/** Beranda POS depot & toko (M6/M7 mengisi shift, penjualan, setoran). */
+/** Beranda POS depot (M6; kerangka POS juga dipakai toko M7): shift, penjualan, void, pasokan air, stok, riwayat. */
 export default function PosPage() {
-  return <FieldHomePage home="/pos" title="POS Depot & Toko" />;
+  return <PosApp />;
 }
