@@ -61,7 +61,7 @@ export default async function DepositDetailPage({ params }: PageProps<"/kas/seto
   const wa = d.source.phone ? normalizeWaNumber(d.source.phone) : null;
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <OfficeBreadcrumbLabel label={dep.number} />
       <PageHeader
         backHref="/kas/setoran"

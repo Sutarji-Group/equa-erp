@@ -43,7 +43,7 @@ export default async function OfficeCashPage({ searchParams }: { searchParams: P
   const canOpening = can(ctx, "m4.office_cash.count");
   const activeAccounts = data.accounts.filter((a) => a.isActive);
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Kas kantor & setor bank"
         description={`${formatTanggal(date)} — saldo sistem dibandingkan dengan hitung fisik saat tutup kas.`}
@@ -82,7 +82,7 @@ export default async function OfficeCashPage({ searchParams }: { searchParams: P
                   <TableRow key={m.id}>
                     <TableCell className="text-sm">{formatJam(m.createdAt)}</TableCell>
                     <TableCell className="text-sm">{m.kindLabel}</TableCell>
-                    <TableCell className="max-w-80 text-sm">{m.description ?? "—"}</TableCell>
+                    <TableCell className="max-w-80 whitespace-normal text-sm">{m.description ?? "—"}</TableCell>
                     <TableCell className="text-right">{m.direction === "in" ? formatRupiah(m.amount) : "—"}</TableCell>
                     <TableCell className="text-right">{m.direction === "out" ? formatRupiah(m.amount) : "—"}</TableCell>
                     <TableCell className="text-right font-medium">{formatRupiah(m.balanceAfter)}</TableCell>
@@ -96,7 +96,7 @@ export default async function OfficeCashPage({ searchParams }: { searchParams: P
         )}
       </SectionCard>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {canBank ? (
           <SectionCard title="Setor ke bank" description="Jumlah, tanggal, rekening PT, dan foto slip wajib. Mengurangi kas kantor; dicocokkan dengan mutasi di Transfer masuk.">
             {activeAccounts.length ? (

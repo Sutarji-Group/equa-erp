@@ -90,7 +90,7 @@ export default async function DepositsPage({ searchParams }: { searchParams: Pro
   const to = sp.sampai && isBusinessDate(sp.sampai) ? sp.sampai : today;
   const from = sp.dari && isBusinessDate(sp.dari) ? sp.dari : addDays(to, -6);
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Setoran"
         description="Terima setoran sopir, depot, dan toko. Angka seharusnya dihitung sistem; masukkan jumlah fisik lalu verifikasi pengeluaran rit."

@@ -48,7 +48,7 @@ export default async function CashTodayPage({ searchParams }: { searchParams: Pr
   const byLine = (line: m4.CashLine) => pos.rows.filter((r) => r.line === line);
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Kas hari ini"
         description={`${formatTanggal(pos.date)} — angka seharusnya dihitung sistem dari data sopir, depot, dan toko yang sudah tersinkron.`}
@@ -90,7 +90,7 @@ export default async function CashTodayPage({ searchParams }: { searchParams: Pr
                 <TableBody>
                   {rows.map((r) => (
                     <TableRow key={r.key} className={r.flags.length ? "bg-warning/10" : undefined} data-flagged={r.flags.length ? "true" : undefined}>
-                      <TableCell>
+                      <TableCell className="min-w-56 whitespace-normal">
                         <span className="font-medium">
                           {r.depositIds[0] ? (
                             <Link href={`/kas/setoran/${r.depositIds[r.depositIds.length - 1]}`} className="text-primary hover:underline">
@@ -115,7 +115,7 @@ export default async function CashTodayPage({ searchParams }: { searchParams: Pr
                       </TableCell>
                       <TableCell className="text-right">{r.received === null ? "—" : formatRupiah(r.received)}</TableCell>
                       <TableCell className={`text-right ${r.discrepancy ? "font-medium text-destructive" : ""}`}>{r.discrepancy === null ? "—" : formatRupiah(r.discrepancy, { signed: true })}</TableCell>
-                      <TableCell className="max-w-48 text-sm">{r.reason ?? "—"}</TableCell>
+                      <TableCell className="max-w-48 whitespace-normal text-sm">{r.reason ?? "—"}</TableCell>
                       <TableCell className="text-right">{r.unmatchedTransfers ? formatRupiah(r.unmatchedTransfers) : "—"}</TableCell>
                       <TableCell className="text-right">{r.qris ? formatRupiah(r.qris) : "—"}</TableCell>
                     </TableRow>

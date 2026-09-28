@@ -50,7 +50,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
   const unmatchedTotal = s.unmatchedTransfers.reduce((sum, x) => sum + x.amount, 0);
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Tutup kas"
         description={`${formatTanggal(date)} — batas tutup kas pukul ${s.cutoff.replace(":", ".")} WIB. Ringkasan H+0 terbit untuk pemilik setelah kas ditutup.`}
@@ -158,7 +158,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
                 {s.exceptions.map((e) => (
                   <TableRow key={e.id}>
                     <TableCell className="text-sm">{e.sourceLabel}</TableCell>
-                    <TableCell className="max-w-72 text-sm">{e.reason}</TableCell>
+                    <TableCell className="max-w-72 whitespace-normal text-sm">{e.reason}</TableCell>
                     <TableCell>
                       <ToneBadge tone={EXCEPTION_TONE[e.status] ?? "neutral"}>{label("cash_close_exception_status", e.status)}</ToneBadge>
                       {e.convertedDiscrepancyId ? (
@@ -176,7 +176,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
         </SectionCard>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SectionCard title={`Selisih hari ini (${s.discrepancies.length})`} actions={<Link href="/kas/selisih" className="text-sm font-medium text-primary hover:underline">Buka selisih</Link>} flush>
           {s.discrepancies.length ? (
             <Table data-testid="selisih-hari-ini">

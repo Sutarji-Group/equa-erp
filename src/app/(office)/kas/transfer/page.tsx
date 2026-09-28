@@ -46,7 +46,7 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const view = sp.tampil === "mutasi" ? "mutasi" : "transfer";
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader title="Transfer masuk" description="Setiap transfer yang dicatat lapangan dicocokkan dengan mutasi bank. Tanpa mutasi lewat batas hari → Tidak ditemukan." />
       <LinkTabs
         label="Tampilan transfer"
@@ -250,7 +250,7 @@ async function StatementView({ ctx }: { ctx: ActorContext }) {
                   <TableRow key={l.id}>
                     <TableCell className="text-sm">{formatTanggal(l.lineDate, { weekday: false })}</TableCell>
                     <TableCell className="text-sm">{l.bankLabel}</TableCell>
-                    <TableCell className="max-w-72 text-sm">
+                    <TableCell className="max-w-72 whitespace-normal text-sm">
                       {l.description ?? "—"}
                       {l.followUpNote ? <span className="block text-xs text-muted-foreground">Catatan: {l.followUpNote}</span> : null}
                     </TableCell>

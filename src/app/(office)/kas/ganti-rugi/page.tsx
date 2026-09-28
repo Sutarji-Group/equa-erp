@@ -40,7 +40,7 @@ export default async function RestitutionPage({ searchParams }: { searchParams: 
   const isOwner = ctx.roles.includes("owner");
   const outstanding = balances.reduce((s, b) => s + b.outstanding, 0);
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Ganti rugi karyawan"
         description="Selisih kurang yang ditolak pemilik dicatat per kejadian bila ganti rugi aktif. Sistem tidak memotong gaji — rekap bulanan diserahkan ke penggajian."
@@ -137,7 +137,7 @@ async function ListView({ ctx, view, employeeId }: { ctx: ActorContext; view: "t
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell className="max-w-80 text-sm">
+                  <TableCell className="max-w-80 whitespace-normal text-sm">
                     {formatTanggal(r.businessDate, { weekday: false })}
                     <span className="block text-xs text-muted-foreground">{r.reason}</span>
                     {r.depositId && r.depositNumber ? (
@@ -242,7 +242,7 @@ async function RecapView({ ctx, month }: { ctx: ActorContext; month?: string }) 
                     <TableCell className="text-right">{formatRupiah(r.settledCash)}</TableCell>
                     <TableCell className="text-right">{formatRupiah(r.settledPayroll)}</TableCell>
                     <TableCell className="text-right font-medium">{formatRupiah(r.outstandingEndOfMonth)}</TableCell>
-                    <TableCell className="max-w-72 text-xs text-muted-foreground">{r.details || "—"}</TableCell>
+                    <TableCell className="max-w-72 whitespace-normal text-xs text-muted-foreground">{r.details || "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

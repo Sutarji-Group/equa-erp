@@ -37,7 +37,7 @@ export default async function DiscrepanciesPage({ searchParams }: { searchParams
   const sp = await searchParams;
   const view = sp.tampil === "riwayat" ? "riwayat" : sp.tampil === "semua" ? "semua" : "terbuka";
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Selisih"
         description="Selisih setoran & kas: alasan dari Admin Keuangan, keputusan pemilik untuk selisih ≥ ambang (≤ 24 jam), tindak lanjut & ganti rugi."
@@ -127,7 +127,7 @@ async function ListView({ ctx, view, sp }: { ctx: ActorContext; view: "terbuka" 
                         </span>
                       </TableCell>
                       <TableCell className={`text-right font-semibold ${r.amount < 0 ? "text-destructive" : "text-success"}`}>{formatRupiah(r.amount, { signed: true })}</TableCell>
-                      <TableCell className="max-w-64 text-sm">
+                      <TableCell className="max-w-64 whitespace-normal text-sm">
                         {r.reason ? label("discrepancy_reason", r.reason) : <span className="text-destructive">Belum dijelaskan</span>}
                         {r.explanation ?? r.reasonNote ? <span className="block text-xs text-muted-foreground">{r.explanation ?? r.reasonNote}</span> : null}
                         {r.decisionReason ? <span className="block text-xs">Keputusan: {r.decisionReason}</span> : null}

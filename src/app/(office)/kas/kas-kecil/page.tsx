@@ -37,7 +37,7 @@ export default async function PettyCashPage({ searchParams }: { searchParams: Pr
   const canCount = can(ctx, "m4.petty_cash.count");
   const outlets = canCreate ? (await m4.pettyCashOutletOptions(ctx)).map((o) => ({ value: o.id, label: `${o.code} — ${o.name}` })) : [];
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Kas kecil"
         description={`Pengisian & pengeluaran di atas ${formatRupiah(data.approvalAbove)} perlu persetujuan pemilik. Hitung fisik setiap ${data.countEveryDays} hari.`}
@@ -54,7 +54,7 @@ export default async function PettyCashPage({ searchParams }: { searchParams: Pr
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {canCreate ? (
           <SectionCard title="Catat kas kecil" description="Pengisian mengurangi kas kantor. Pengeluaran wajib kategori, pusat laba, dan foto bukti.">
             <CashActionForm action={pettyCashAction} submitLabel="Simpan" testId="form-kas-kecil">
@@ -117,7 +117,7 @@ export default async function PettyCashPage({ searchParams }: { searchParams: Pr
                       {r.category ? label("petty_cash_category", r.category) : "—"}
                       {r.profitCenter ? <span className="block text-xs text-muted-foreground">{label("profit_center", r.profitCenter)}</span> : null}
                     </TableCell>
-                    <TableCell className="max-w-72 text-sm">{r.description ?? "—"}</TableCell>
+                    <TableCell className="max-w-72 whitespace-normal text-sm">{r.description ?? "—"}</TableCell>
                     <TableCell className="text-right font-medium">{formatRupiah(r.amount)}</TableCell>
                     <TableCell>
                       <ToneBadge tone={STATUS_TONE[r.status]}>{label("petty_cash_status", r.status)}</ToneBadge>
