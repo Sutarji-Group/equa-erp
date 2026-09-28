@@ -152,11 +152,19 @@ export type RecordSalePayload = {
   localNumber: string;
   deviceSeq: number;
   lines: SaleLinePayload[];
-  paymentMethod: "cash" | "qris";
+  /** `credit` = tempo mitra (toko M7). */
+  paymentMethod: "cash" | "qris" | "credit";
   cashReceived?: number | null;
   qrisReference?: string | null;
   receiptPrinted?: boolean;
   replacesSaleId?: string | null;
+  // --- Tambahan M7 (toko) ---
+  customerId?: string | null;
+  discountAmount?: number;
+  discountReason?: string | null;
+  /** Perangkat tahu transaksi ini perlu persetujuan pemilik (diskon > PAR-14 / tempo di luar kontrol kredit). */
+  requestApproval?: boolean;
+  creditOffline?: boolean;
 };
 export type VoidSalePayload = { saleId: string; reason: "wrong_product" | "wrong_quantity" | "customer_cancelled" | "wrong_payment_method" | "other"; note?: string | null };
 export type CloseShiftPayload = {
@@ -306,6 +314,17 @@ export function gridProducts(catalog: CatalogRef | undefined, priceKind: "standa
 
 /** Teks status per transaksi di perangkat (US-M6-06 KP-2). */
 export function saleStatusText(s: Pick<PosSaleRef, "status" | "local">): string {
-  const base = s.status === "voided" ? "Di-void" : s.status === "void_pending" ? "Void menunggu persetujuan" : s.status === "valid" ? "Sah" : s.status;
+  const base =
+    s.status === "voided"
+      ? "Di-void"
+      : s.status === "void_pending"
+        ? "Void menunggu persetujuan"
+        : s.status === "valid"
+          ? "Sah"
+          : s.status === "pending_approval"
+            ? "Menunggu persetujuan pemilik"
+            : s.status === "rejected"
+              ? "Ditolak"
+              : s.status;
   return s.local ? `${base} · tersimpan di perangkat` : `${base} · terkirim`;
 }

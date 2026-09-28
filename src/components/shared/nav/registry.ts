@@ -368,6 +368,32 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: ReceiptText,
         permission: "m7.supplier_payable.read",
       },
+      // --- Tambahan modul M7 (hanya tambah) ---
+      {
+        id: "m7.reports",
+        href: "/toko/laporan",
+        label: "Laporan toko",
+        icon: ChartColumn,
+        permission: ["m7.report.read", "m7.product_performance.read"],
+        description: "Barang laris/mati & margin, pembelian mitra, diskon, transfer internal ke depot, riwayat opname.",
+      },
+      { id: "m7.items.detail", href: "/toko/barang/[id]", label: "Rincian barang toko", icon: Boxes, permission: "m7.stock.read", hidden: true },
+      {
+        id: "m7.purchases.detail",
+        href: "/toko/pembelian/[id]",
+        label: "Rincian nota pembelian",
+        icon: PackagePlus,
+        permission: "m7.purchase_receipt.read",
+        hidden: true,
+      },
+      {
+        id: "m7.stock_counts.detail",
+        href: "/toko/opname/[id]",
+        label: "Rincian opname",
+        icon: ClipboardCheck,
+        permission: "m7.stock_count.read",
+        hidden: true,
+      },
     ],
   },
   {

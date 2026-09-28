@@ -126,6 +126,10 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("water_supply.discrepancy", "Selisih pasokan air depot (kirim vs terima)", "normal", ["dispatcher"], "Periksa catatan sopir & operator; masukan neraca air M8", "US-M6-05 KP-1, P-04 langkah 3"),
   e("pos.shift_conflict", "Konflik shift POS (dua shift terbuka)", "high", ["finance_admin"], "Tinjau shift dari perangkat cadangan; tandai selesai setelah dicocokkan", "7.6.6, Bab 6.4 butir 3"),
   e("tenant.created", "Tenant mitra baru dibuat", "info", ["owner"], "Informasi; lengkapi pengaturan outlet mitra", "US-M6-07 KP-1"),
+  // --- Tambahan modul M7 (Penjualan Toko & Stok) — hanya tambah ---
+  e("store.substitute_note_pending", "Nota pengganti toko menunggu diterima", "normal", ["finance_admin"], "Periksa foto barang & keterangan; terima sebagai nota atau balik beralasan", "7.7.6, BR-28"),
+  e("store.credit_offline_review", "Penjualan tempo toko dicatat saat offline", "high", ["finance_admin"], "Tinjau eksposur & batas kredit pelanggan; tagih bila melampaui", "US-M7-04 KP-4, PTB-42"),
+  e("store.transfer_difference", "Selisih transfer internal toko → depot", "normal", ["finance_admin"], "Periksa selisih kirim–terima & alasannya", "US-M7-06 KP-1"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

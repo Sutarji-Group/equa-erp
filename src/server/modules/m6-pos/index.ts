@@ -21,7 +21,7 @@ export const MODULE_NAME = "Penjualan Depot (POS)" as const;
 
 // --- Titik perluasan kerangka POS (M7) -------------------------------------------------------------------------------
 export { registerPosKindPolicy, posKindPolicy, hasPosKindPolicy } from "./service/policy";
-export type { PosKindPolicy, PosSaleHookArgs, PosShiftClosingArgs, PosSaleLineInput } from "./service/policy";
+export type { PosKindPolicy, PosSaleHookArgs, PosShiftClosingArgs, PosSaleLineInput, PosSaleDecision, PosSaleValidateArgs } from "./service/policy";
 export { depotPolicy } from "./service/depot-policy";
 export type { FieldWriteMeta, PosDevice, OutletPosSettings } from "./service/common";
 export { outletPosSettings, fixedOpeningCash, isoWeekLabel, isoWeekRange, COUNTED_SALE } from "./service/common";
@@ -63,6 +63,8 @@ export type { ShiftFigures } from "./service/figures";
 
 // --- Transaksi & void (US-M6-01, US-M6-03) ----------------------------------------------------------------------------
 export { recordSale, voidSale, reverseSaleAfterClose, pendingVoidReversals, voidCountOn, recordSaleSchema, voidSaleSchema } from "./service/sales";
+// Tambahan M7: transaksi menunggu persetujuan (diskon > PAR-14 / tempo di luar kontrol kredit).
+export { completePendingSale, rejectPendingSale } from "./service/sales";
 export type { RecordSaleInput, RecordSaleResult, VoidSaleResult } from "./service/sales";
 
 // --- Stok bahan & opname (US-M6-04) -----------------------------------------------------------------------------------

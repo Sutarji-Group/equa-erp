@@ -27,7 +27,8 @@ const NAV: { view: View; label: string; icon: typeof ShoppingCart }[] = [
   { view: "riwayat", label: "Riwayat", icon: History },
 ];
 
-function PosScreen() {
+/** Layar POS depot (diekspor untuk pemilih mode outlet M7: toko memakai layarnya sendiri di dalam PosProvider yang sama). */
+export function PosScreen() {
   const { session, ref, shift, figures, today, grid } = usePos();
   const [view, setView] = useState<View>("jual");
   const [draft, setDraft] = useState<SaleDraft>({ lines: [], replacesSaleId: null });

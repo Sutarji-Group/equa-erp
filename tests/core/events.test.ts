@@ -29,6 +29,8 @@ const ARCHITECTURE_EVENTS = [
   "employee.exited",
   // Tambahan modul M2: pesanan dibuat & transisi status pesanan (US-M2-01, US-M2-02 KP-2).
   "order.created", "order.status_changed",
+  // Tambahan modul M7: retur barang toko setelah shift/hari transaksi (US-M7-01 KP-5, PTB-46).
+  "store_return.recorded",
 ];
 
 const payload = {

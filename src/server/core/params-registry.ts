@@ -461,6 +461,40 @@ export const PARAM_REGISTRY = {
         "Jam tenggat persetujuan void pada tanggal bisnis shift (lewat → dianggap ditolak), lama riwayat shift yang dilihat operator, jumlah tombol produk di kisi POS, serta batas baris/jumlah per transaksi.",
     },
   }),
+  // --- Tambahan modul M7 (Penjualan Toko & Stok) — hanya tambah ---
+  /** Angka aturan toko yang disebut PRD 7.7 tanpa nomor PAR. */
+  "m7.store_rules": defineParam({
+    schema: z
+      .object({
+        /** US-M7-05 KP-4: opname bulan lalu belum dilakukan sampai tanggal ini → ditandai ke pemilik. */
+        stock_count_deadline_day: int(1).max(28),
+        /** US-M7-08 KP-1: pengingat utang pemasok H-N sebelum jatuh tempo. */
+        payable_reminder_days_before: int(0),
+        /** PTB-42: tempo yang tiba di server > N menit setelah dicatat di perangkat dianggap dicatat offline. */
+        credit_offline_after_minutes: int(1),
+        /** US-M7-07 KP-1: kelompok "laris" = N% barang teratas menurut omzet. */
+        fast_moving_top_percent: pct,
+        /** US-M7-03 KP-1: rata-rata penjualan harian dihitung atas N hari terakhir. */
+        average_sales_days: int(1),
+      })
+      .strict(),
+    scopes: ["global", "tenant"],
+    affectedRoles: ["store_cashier", "finance_admin"],
+    fallback: {
+      stock_count_deadline_day: 5,
+      payable_reminder_days_before: 3,
+      credit_offline_after_minutes: 5,
+      fast_moving_top_percent: 30,
+      average_sales_days: 30,
+    },
+    meta: {
+      name: "Aturan toko (tenggat opname, pengingat utang, tempo offline, laris, rata-rata jual)",
+      unit: null,
+      reference: "US-M7-03 KP-1, US-M7-04 KP-4, US-M7-05 KP-4, US-M7-07 KP-1, US-M7-08 KP-1",
+      description:
+        "Tanggal batas opname toko bulan lalu, jarak hari pengingat utang pemasok sebelum jatuh tempo, ambang menit tempo dianggap dicatat offline (PTB-42), persentase barang laris, dan jangka rata-rata penjualan untuk daftar pesan ulang.",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

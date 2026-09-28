@@ -97,8 +97,10 @@ m5.opening_balance.read
 m5.receivable.read
 m5.reminder.read
 m6.outlet.read
+m7.product_performance.read
 m7.purchase_receipt.read
 m7.reorder.read
+m7.report.read
 m7.stock.read
 m7.stock_count.read
 m7.supplier.read
@@ -160,6 +162,10 @@ p3.support_request.read
 | Depot & toko | `/toko/opname` | Opname | `m7.stock_count.read` |  |
 | Depot & toko | `/toko/pesan-ulang` | Pesan ulang | `m7.reorder.read` |  |
 | Depot & toko | `/toko/utang` | Utang pemasok | `m7.supplier_payable.read` |  |
+| Depot & toko | `/toko/laporan` | Laporan toko | `m7.report.read` / `m7.product_performance.read` |  |
+| Depot & toko | `/toko/barang/[id]` | Rincian barang toko | `m7.stock.read` | tidak tampil di sidebar |
+| Depot & toko | `/toko/pembelian/[id]` | Rincian nota pembelian | `m7.purchase_receipt.read` | tidak tampil di sidebar |
+| Depot & toko | `/toko/opname/[id]` | Rincian opname | `m7.stock_count.read` | tidak tampil di sidebar |
 | Produksi air | `/produksi/neraca-air` | Neraca air | `m8.water_balance.read` |  |
 | Produksi air | `/produksi/utilisasi` | Utilisasi kapasitas | `m8.utilization.read` |  |
 | Produksi air | `/produksi/mutu` | Mutu air | `m8.quality_test.read` |  |

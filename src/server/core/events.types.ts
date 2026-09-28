@@ -363,6 +363,18 @@ export interface PosSaleRecordedPayload {
   /** Tersinkron setelah shift-nya ditutup (perangkat lain) — ditinjau Admin Keuangan. */
   afterShiftClosed?: boolean;
   qrisReference?: string | null;
+  // --- Tambahan opsional M7 (toko; M5 membuat faktur per transaksi tempo, M11 menjurnal diskon & HPP) ---
+  /** Jenis harga master yang dipakai (umum/mitra, BR-18). */
+  priceKind?: EnumValue<"price_kind"> | null;
+  discountReason?: string | null;
+  /** Diskon disetujui pemilik (> PAR-14) — ID persetujuan. */
+  approvalIds?: string[];
+  /** Tempo: tempo pelanggan (hari) untuk jatuh tempo faktur M5 (US-M7-04 KP-3). */
+  paymentTermDays?: number | null;
+  /** PTB-42: tempo dicatat saat perangkat offline (eksposur sinkron terakhir) — tinjauan Admin Keuangan. */
+  creditOffline?: boolean;
+  /** HPP per baris (rata-rata bergerak saat jual). */
+  lineCosts?: { productId: string; quantity: number; unitCost: number }[];
 }
 export interface PosSaleVoidedPayload {
   posSaleId: string;
@@ -425,12 +437,26 @@ export interface PurchaseReceiptRecordedPayload {
   total: number;
   paymentMode: "credit" | "cash" | "transfer";
   isOpeningPayable: boolean;
+  // --- Tambahan opsional M7 ---
+  number?: string | null;
+  businessDate?: string;
+  dueDate?: string | null;
+  /** Nota pengganti yang diterima Admin Keuangan (7.7.6). */
+  fromSubstituteNote?: boolean;
+  lines?: { productId: string; quantity: number; unitCost: number }[];
 }
 export interface SupplierPaymentRecordedPayload {
   supplierPaymentId: string;
   supplierId: string;
   amount: number;
   method: "cash" | "transfer";
+  // --- Tambahan opsional M7 (M4 mencatat kas kantor/transfer keluar; M11 menjurnal utang usaha) ---
+  businessDate?: string;
+  bankAccountId?: string | null;
+  /** Pembalik pembayaran keliru (BR-38): `amount` negatif, merujuk pembayaran asal. */
+  reversalOfId?: string | null;
+  reason?: string | null;
+  allocations?: { purchaseReceiptId: string; amount: number }[];
 }
 
 // --- M8 produksi -----------------------------------------------------------------------------------------------------
@@ -669,6 +695,31 @@ export interface OrderStatusChangedPayload {
   cancelReason?: EnumValue<"order_cancel_reason"> | null;
 }
 
+// --- Tambahan modul M7 (toko) — hanya tambah ------------------------------------------------------------------------
+/**
+ * Retur barang toko SETELAH hari/shift transaksi (US-M7-01 KP-5, PTB-46): barang kembali ke stok (dicatat Admin
+ * Keuangan di M7); M5 menerbitkan nota kredit (tempo) / pengembalian dana (tunai/QRIS); M11 membalik pendapatan & HPP.
+ * Retur pada shift yang sama memakai void (`pos_sale.voided`).
+ */
+export interface StoreReturnRecordedPayload {
+  /** ID retur (sumber kartu stok `store_return`). */
+  storeReturnId: string;
+  posSaleId: string;
+  posSaleNumber: string | null;
+  outletId: string;
+  customerId: string | null;
+  /** Cara bayar transaksi asal (tempo → nota kredit faktur; tunai/QRIS → pengembalian dana). */
+  method: PaymentMethod;
+  /** Nilai retur (harga jual setelah diskon proporsional). */
+  amount: number;
+  /** HPP barang yang kembali ke stok. */
+  cogs: number;
+  lines: { productId: string; quantity: number; unitPrice: number; lineTotal: number; unitCost: number }[];
+  reason: string;
+  approvalId?: string | null;
+  businessDate: string;
+}
+
 /** Peta tipe event → payload. */
 export interface DomainEventMap {
   "trip.published": TripPublishedPayload;
@@ -733,6 +784,7 @@ export interface DomainEventMap {
   "employee.exited": EmployeeExitedPayload;
   "order.created": OrderCreatedPayload;
   "order.status_changed": OrderStatusChangedPayload;
+  "store_return.recorded": StoreReturnRecordedPayload;
 }
 
 export type DomainEventType = keyof DomainEventMap;
@@ -801,6 +853,7 @@ export const DOMAIN_EVENT_LABELS: Record<DomainEventType, string> = {
   "employee.exited": "Karyawan keluar",
   "order.created": "Pesanan dibuat",
   "order.status_changed": "Status pesanan berubah",
+  "store_return.recorded": "Retur barang toko tercatat",
 };
 
 export const DOMAIN_EVENT_TYPES = Object.keys(DOMAIN_EVENT_LABELS) as DomainEventType[];
