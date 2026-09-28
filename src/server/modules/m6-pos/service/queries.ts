@@ -673,6 +673,14 @@ export async function stockBalanceRows(tx: Tx, outletId: string) {
     .orderBy(asc(products.sortOrder));
 }
 
+/** Daftar outlet tenant pelaku (untuk filter laporan kantor). */
+export async function listTenantOutlets(ctx: ActorContext, opts: { tx?: Tx; kind?: "depot" | "store" } = {}): Promise<Pick<OutletRow, "id" | "code" | "name" | "kind" | "isActive">[]> {
+  await authorizeOutletRead(ctx, opts.tx);
+  const db = opts.tx ?? getDb();
+  const rows = await tenantOutlets(db, ctx, { kind: opts.kind });
+  return rows.map((o) => ({ id: o.id, code: o.code, name: o.name, kind: o.kind, isActive: o.isActive }));
+}
+
 export function defaultRange(ctx: ActorContext, days = 7): { from: BusinessDate; to: BusinessDate } {
   const to = ctxBusinessDate(ctx);
   return { from: addDays(to, -(days - 1)), to };

@@ -109,6 +109,7 @@ export {
   salesReport,
   stockCountReport,
   listShiftConflicts,
+  listTenantOutlets,
   salesAggregates,
   voidAggregates,
   defaultRange,
