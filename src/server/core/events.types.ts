@@ -47,6 +47,21 @@ export interface TripDepartedPayload {
   departedAt: string;
   lat?: number | null;
   lng?: number | null;
+  // --- Tambahan M3 (opsional, hanya tambah) ---
+  tripNumber?: string;
+  customerId?: string;
+  accuracyM?: number | null;
+  /** US-M3-02 KP-4: status tercatat tanpa lokasi (anomali untuk M12). */
+  noLocation?: boolean;
+  /** US-M3-02 KP-2: urutan aktual & penanda di luar urutan rencana. */
+  actualOrder?: number | null;
+  plannedOrder?: number | null;
+  outOfOrder?: boolean;
+  isInternal?: boolean;
+  destinationOutletId?: string | null;
+  businessDate?: string;
+  recordedByOffice?: boolean;
+  lateSync?: boolean;
 }
 export interface TripArrivedPayload {
   tripId: string;
@@ -54,6 +69,18 @@ export interface TripArrivedPayload {
   truckId: string;
   arrivedAt: string;
   distanceToAddressM?: number | null;
+  // --- Tambahan M3 (opsional, hanya tambah) ---
+  tripNumber?: string;
+  customerId?: string;
+  driverUserId?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  accuracyM?: number | null;
+  noLocation?: boolean;
+  isInternal?: boolean;
+  destinationOutletId?: string | null;
+  businessDate?: string;
+  lateSync?: boolean;
 }
 export interface TripCompletedPayload {
   tripId: string;
@@ -77,6 +104,39 @@ export interface TripCompletedPayload {
   locationDeviationM?: number | null;
   recordedByOffice: boolean;
   lateSync: boolean;
+  // --- Tambahan M3 (opsional, hanya tambah; payload mandiri PTB-47) ---
+  tripNumber?: string;
+  orderNumber?: string;
+  addressId?: string;
+  /** Pusat laba rit (air truk = L2). */
+  profitCenter?: ProfitCenter | null;
+  businessDate?: string;
+  /** Cara bayar pesanan bila diubah di lapangan (PTB-19). */
+  originalPaymentMethod?: PaymentMethod | null;
+  expectedAmount?: number;
+  underpaymentReason?: string | null;
+  tripPaymentId?: string | null;
+  depositId?: string | null;
+  plannedVolumeL?: number;
+  /** BR-22: volume ≠ PAR-15 → alasan. */
+  partialVolume?: boolean;
+  partialVolumeReason?: string | null;
+  recipientName?: string | null;
+  signatureSkipped?: boolean;
+  lat?: number | null;
+  lng?: number | null;
+  accuracyM?: number | null;
+  noLocation?: boolean;
+  /** Jarak Selesai → koordinat alamat hitungan SERVER (FR-M12-03); null bila alamat belum dikunci / tanpa lokasi. */
+  distanceToAddressM?: number | null;
+  locationDeviation?: "none" | "level1" | "level2";
+  locationReason?: string | null;
+  ownerReviewRequired?: boolean;
+  /** Alamat belum dikunci → lokasi Selesai diusulkan (M1). */
+  addressCoordinateLocked?: boolean;
+  photoAttachmentIds?: string[];
+  signatureAttachmentId?: string | null;
+  transferProofAttachmentId?: string | null;
 }
 export interface TripFailedPayload {
   tripId: string;
@@ -86,6 +146,23 @@ export interface TripFailedPayload {
   reason: TripFailReason;
   /** Jumlah rit gagal berturut untuk pelanggan (BR-24). */
   consecutiveFailures: number;
+  // --- Tambahan M3 (opsional, hanya tambah) ---
+  tripNumber?: string;
+  driverUserId?: string | null;
+  note?: string | null;
+  failedAt?: string;
+  lat?: number | null;
+  lng?: number | null;
+  noLocation?: boolean;
+  /** US-M3-06 KP-2: tindak lanjut air yang sudah dimuat (neraca air M8). */
+  loadedWaterDisposition?: "carried_to_next" | "returned_to_source" | "unloaded_at_depot" | null;
+  plannedVolumeL?: number;
+  isInternal?: boolean;
+  destinationOutletId?: string | null;
+  photoAttachmentId?: string | null;
+  businessDate?: string;
+  recordedByOffice?: boolean;
+  lateSync?: boolean;
 }
 export interface TripPaymentRecordedPayload {
   tripPaymentId: string;
@@ -94,6 +171,31 @@ export interface TripPaymentRecordedPayload {
   method: PaymentMethod;
   amount: number;
   driverUserId: string | null;
+  // --- Tambahan M3 (opsional, hanya tambah; payload mandiri PTB-47) ---
+  tripNumber?: string;
+  orderId?: string;
+  orderNumber?: string;
+  addressId?: string;
+  truckId?: string | null;
+  /** Harga pesanan (angka seharusnya). */
+  expectedAmount?: number;
+  /** Tunai diterima / jumlah transfer / 0 untuk tempo. */
+  receivedAmount?: number;
+  /** PTB-18: kurang bayar → faktur jatuh tempo H+0 (M5). */
+  underpaymentAmount?: number;
+  underpaymentReason?: string | null;
+  originalMethod?: PaymentMethod | null;
+  methodChangeApprovalId?: string | null;
+  transferProofAttachmentId?: string | null;
+  /** Rekening PT tujuan transfer yang ditampilkan ke pelanggan. */
+  bankAccountId?: string | null;
+  depositId?: string | null;
+  profitCenter?: ProfitCenter | null;
+  businessDate?: string;
+  /** Tempo: jatuh tempo faktur kirim dihitung M5 (PAR-08). */
+  isCredit?: boolean;
+  recordedByOffice?: boolean;
+  lateSync?: boolean;
 }
 export interface CollectionRecordedPayload {
   customerPaymentId: string;
@@ -113,6 +215,13 @@ export interface CollectionRecordedPayload {
   bankAccountId?: string | null;
   /** Transfer masuk yang dicocokkan (M4). */
   incomingTransferId?: string | null;
+  // --- Tambahan M3 (opsional, hanya tambah) ---
+  tripId?: string | null;
+  depositId?: string | null;
+  proofAttachmentId?: string | null;
+  businessDate?: string;
+  recordedByOffice?: boolean;
+  lateSync?: boolean;
 }
 export interface TripExpenseRecordedPayload {
   tripExpenseId: string;
@@ -121,6 +230,13 @@ export interface TripExpenseRecordedPayload {
   kind: TripExpenseKind;
   amount: number;
   fundingSource: "cash_on_hand" | "personal";
+  // --- Tambahan M3 (opsional, hanya tambah) ---
+  driverUserId?: string | null;
+  businessDate?: string;
+  receiptAttachmentId?: string | null;
+  depositId?: string | null;
+  note?: string | null;
+  lateSync?: boolean;
 }
 export interface ExpenseVerifiedPayload {
   tripExpenseId: string;
@@ -140,6 +256,16 @@ export interface DepositSubmittedPayload {
   truckId?: string | null;
   outletId?: string | null;
   expectedAmount: number;
+  // --- Tambahan M3 (opsional, hanya tambah) ---
+  depositNumber?: string;
+  businessDate?: string;
+  /** Kas seharusnya sebelum pengeluaran (tunai rit + pelunasan tunai). */
+  expectedCash?: number;
+  /** Pengeluaran rit dari kas di tangan yang diklaim (menunggu verifikasi M4). */
+  claimedCashExpenses?: number;
+  method?: DepositMethod | null;
+  submittedLate?: boolean;
+  lateSync?: boolean;
 }
 export interface DepositReceivedPayload {
   depositId: string;

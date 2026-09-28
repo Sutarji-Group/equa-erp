@@ -461,6 +461,34 @@ export const PARAM_REGISTRY = {
         "Jam tenggat persetujuan void pada tanggal bisnis shift (lewat → dianggap ditolak), lama riwayat shift yang dilihat operator, jumlah tombol produk di kisi POS, serta batas baris/jumlah per transaksi.",
     },
   }),
+
+  // --- Tambahan modul M3 (Aplikasi Sopir) — hanya tambah ---
+  /** Aturan aplikasi sopir yang bukan PAR Lampiran B (angka yang disebut PRD M3 tanpa nomor PAR). */
+  "m3.driver_rules": defineParam({
+    schema: z
+      .object({
+        /** US-M3-07 KP-6: riwayat setoran & selisih sopir sendiri (hari). */
+        history_days: int(1),
+        /** US-M3-02 KP-5: interval rekam GPS ponsel cadangan selama rit aktif (detik). */
+        gps_phone_interval_s: int(10),
+        /** PTB-19: tenggat keputusan Dispatcher atas permintaan tempo di lokasi (menit). */
+        field_credit_wait_minutes: int(1),
+        /** PTB-19 "hanya saat daring": permintaan yang tiba di server lebih lambat dari ini (menit) ditolak. */
+        field_credit_max_delay_minutes: int(1),
+        /** US-M3-03 KP-1: jumlah foto bukti kirim maksimal per rit. */
+        max_delivery_photos: int(1),
+      })
+      .strict(),
+    affectedRoles: ["driver", "helper", "dispatcher"],
+    fallback: { history_days: 90, gps_phone_interval_s: 60, field_credit_wait_minutes: 30, field_credit_max_delay_minutes: 10, max_delivery_photos: 3 },
+    meta: {
+      name: "Aturan aplikasi sopir (riwayat, GPS ponsel cadangan, permintaan tempo di lokasi, foto bukti)",
+      unit: null,
+      reference: "US-M3-02 KP-5, US-M3-03 KP-1, US-M3-04 KP-4, US-M3-07 KP-6, PTB-19",
+      description:
+        "Lama riwayat setoran sopir, interval rekam GPS ponsel cadangan, tenggat & batas keterlambatan permintaan tunai → tempo di lokasi, serta jumlah foto bukti kirim per rit.",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

@@ -1214,6 +1214,38 @@ export const LABELS = {
     responded: "Ditanggapi",
     done: "Selesai",
   },
+
+  // --- Tambahan modul M3 (Aplikasi Sopir) — hanya tambah; daftar alasan lapangan (bukan pgEnum) ---
+  /** Alasan kurang bayar tunai/transfer di lapangan (US-M3-04 KP-2, PTB-18). */
+  underpayment_reason: {
+    customer_short: "Uang pelanggan kurang",
+    customer_disputes: "Pelanggan keberatan / minta ditagih nanti",
+    credit_not_approved: "Tempo tidak disetujui / tanpa sinyal",
+    other: "Lainnya",
+  },
+  /** Tanda tangan penerima dilewati (US-M3-03 KP-1). */
+  signature_skip_reason: {
+    recipient_refused: "Penerima tidak bersedia",
+    recipient_absent: "Penerima tidak ada",
+  },
+  /** Struk WA dilewati (US-M3-03 KP-7). */
+  receipt_skip_reason: {
+    no_whatsapp: "Pelanggan tidak memakai WA",
+    declined: "Pelanggan tidak minta struk",
+    other: "Lainnya",
+  },
+  /** Jenis kunci tombol Berangkat di aplikasi sopir (BR-10, PTB-62/PAR-83, US-M3-07 KP-2). */
+  driver_deposit_lock: {
+    br10: "Setoran kemarin belum ditutup",
+    par83: "Menunggu keputusan pemilik atas selisih besar",
+    submitted: "Setoran hari ini sudah diajukan",
+  },
+  /** Peran pelaksana di aplikasi sopir (US-M3-01 KP-6, US-M2-11). */
+  driver_acting_role: {
+    driver: "Sopir",
+    substitute: "Kernet pengganti",
+    readonly: "Baca saja",
+  },
 } as const satisfies Record<string, Record<string, string>>;
 
 export type EnumName = keyof typeof LABELS;

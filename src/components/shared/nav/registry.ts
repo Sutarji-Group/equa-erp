@@ -225,6 +225,23 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         permission: "m3.office_entry.create",
         description: "Pencatatan darurat atas nama sopir (perangkat rusak/hilang).",
       },
+      // --- Tambahan modul M3 (hanya tambah) ---
+      {
+        id: "m3.incidents",
+        href: "/sopir-kantor/kendala",
+        label: "Kendala sopir",
+        icon: TriangleAlert,
+        permission: "m3.trip_incident.read",
+        description: "Kendala perjalanan & rit gagal dari aplikasi sopir; konfirmasi truk rusak → Perbaikan.",
+      },
+      {
+        id: "m3.reports",
+        href: "/sopir-kantor/laporan",
+        label: "Laporan sopir",
+        icon: FileSpreadsheet,
+        permission: ["m3.office_entry.read", "m3.payment_report.read"],
+        description: "Dicatat kantor (KPI-01), pembayaran rit, pelunasan, pengeluaran & setoran sopir.",
+      },
     ],
   },
   {
