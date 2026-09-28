@@ -186,7 +186,8 @@ describe("M4 — penerimaan setoran & selisih (US-M4-02)", () => {
     const fa = await createTestUser(t.db, { role: "finance_admin" });
     await t.db.update(deposits).set({ depositorUserId: fa.userId }).where(eq(deposits.id, d.depositId));
     const err = await m4.receiveDeposit({ ...fa.ctx, now: at(d.date) }, { depositId: d.depositId, receivedAmount: PRICE }).catch((e) => e);
-    expect(isDomainError(err) && (err as { details?: { rule?: string } }).message).toMatch(/setoran Anda sendiri/);
+    expect(isDomainError(err)).toBe(true);
+    expect((err as Error).message).toMatch(/setoran Anda sendiri/);
     await t.db.update(deposits).set({ depositorUserId: d.driver.userId }).where(eq(deposits.id, d.depositId));
     // Admin Keuangan cadangan menerima dengan peran yang sama.
     const res = await m4.receiveDeposit(finance2(at(d.date)), { depositId: d.depositId, receivedAmount: PRICE });

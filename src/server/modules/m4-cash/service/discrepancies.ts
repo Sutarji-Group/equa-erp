@@ -13,7 +13,7 @@ import "server-only";
 
 import { and, desc, eq, gte, inArray, lte, ne } from "drizzle-orm";
 
-import { approvalRequests, deposits, discrepancies, employees, outlets, restitutions, trucks } from "@/db/schema";
+import { approvalRequests, deposits, discrepancies, employees, outlets, restitutions, shifts, tripPayments, trips, trucks } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { addDays, firstDayOfMonth, formatTanggal, monthOf, type BusinessDate } from "@/lib/time";
@@ -79,9 +79,11 @@ export type FormDiscrepancyInput = {
  */
 export async function formDiscrepancy(tx: Tx, ctx: ActorContext, input: FormDiscrepancyInput): Promise<DiscrepancyRow> {
   const rules = await cashRules(tx, input.businessDate, input.tenantId);
-  const requiresOwnerDecision = Math.abs(input.amount) >= rules.discrepancyThreshold;
   const locksTrips =
     (input.source === "driver" || input.source === "pending_deposit") && input.amount < 0 && rules.tripLock.enabled && -input.amount >= rules.tripLock.amountGte;
+  // PAR-83 (PTB-62): kunci rit bertahan "sampai pemilik memutuskan" — selisih yang mengunci SELALU menunggu keputusan
+  // pemilik, juga bila ambang PAR-83 diatur di bawah PAR-01 (tidak ikut ditutup Admin Keuangan bersama setoran).
+  const requiresOwnerDecision = Math.abs(input.amount) >= rules.discrepancyThreshold || locksTrips;
   const explained = !!input.reason;
   const [row] = await tx
     .insert(discrepancies)
@@ -190,6 +192,25 @@ async function submitOwnerDecision(tx: Tx, ctx: ActorContext, disc: DiscrepancyR
   return req.id;
 }
 
+/** Rujukan kejadian ganti rugi (US-M4-03 KP-2 "rit/shift"): rit bertunai pada setoran sopir, atau shift outlet. */
+async function incidentReference(tx: Tx, disc: DiscrepancyRow): Promise<{ tripIds: string[]; text: string | null }> {
+  if (disc.shiftId) {
+    const s = (await tx.select({ code: outlets.code, date: shifts.businessDate }).from(shifts).innerJoin(outlets, eq(outlets.id, shifts.outletId)).where(eq(shifts.id, disc.shiftId)).limit(1))[0];
+    return { tripIds: [], text: s ? `shift ${s.code} ${formatTanggal(s.date, { weekday: false })}` : null };
+  }
+  if (!disc.depositId) return { tripIds: [], text: null };
+  const rows = await tx
+    .selectDistinct({ id: trips.id, number: trips.number })
+    .from(tripPayments)
+    .innerJoin(trips, eq(trips.id, tripPayments.tripId))
+    .where(eq(tripPayments.depositId, disc.depositId))
+    .orderBy(trips.number);
+  const dep = (await tx.select({ number: deposits.number }).from(deposits).where(eq(deposits.id, disc.depositId)).limit(1))[0];
+  const numbers = rows.map((r) => r.number);
+  const tripText = numbers.length ? `rit ${numbers.slice(0, 5).join(", ")}${numbers.length > 5 ? ` +${numbers.length - 5}` : ""}` : null;
+  return { tripIds: rows.map((r) => r.id), text: [dep ? `setoran ${dep.number}` : null, tripText].filter(Boolean).join(", ") || null };
+}
+
 async function sourceLabelOf(tx: Tx, disc: DiscrepancyRow): Promise<string> {
   if (disc.outletId) {
     const o = (await tx.select({ code: outlets.code, name: outlets.name }).from(outlets).where(eq(outlets.id, disc.outletId)).limit(1))[0];
@@ -237,7 +258,9 @@ export async function applyDiscrepancyDecision(tx: Tx, ctx: ActorContext, discre
   if (decision === "approved") {
     status = "done";
   } else if (restitutionActive && disc.amount < 0 && disc.employeeId) {
-    // BR-11c: beban ganti rugi karyawan per kejadian (sistem tidak memotong gaji).
+    // BR-11c: beban ganti rugi karyawan per kejadian (karyawan, tanggal, jumlah, rit/shift, alasan) — sistem tidak
+    // memotong gaji.
+    const ref = await incidentReference(tx, disc);
     const [rest] = await tx
       .insert(restitutions)
       .values({
@@ -246,8 +269,9 @@ export async function applyDiscrepancyDecision(tx: Tx, ctx: ActorContext, discre
         discrepancyId: disc.id,
         businessDate: disc.businessDate,
         amount: -disc.amount,
+        tripId: ref.tripIds.length === 1 ? ref.tripIds[0]! : null,
         shiftId: disc.shiftId,
-        reason: `${label("discrepancy_source", disc.source)} ${formatTanggal(disc.businessDate, { weekday: false })}: ${disc.reason ? label("discrepancy_reason", disc.reason) : "selisih kurang"}${reason ? ` — ditolak: ${reason}` : ""}`,
+        reason: `${label("discrepancy_source", disc.source)} ${formatTanggal(disc.businessDate, { weekday: false })}${ref.text ? ` (${ref.text})` : ""}: ${disc.reason ? label("discrepancy_reason", disc.reason) : "selisih kurang"}${reason ? ` — ditolak: ${reason}` : ""}`,
         createdBy: ctx.userId,
       })
       .returning();

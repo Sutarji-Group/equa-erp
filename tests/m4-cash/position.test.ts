@@ -88,10 +88,10 @@ describe("M4 — Kas hari ini (US-M4-01)", () => {
     const date = today();
     const d = await driverDay(t.db, { trips: 1, submit: false });
     const last = (await t.db.select().from(trips).where(eq(trips.id, d.tripIds[0]!)))[0]!.completedAt!;
-    const soon = await m4.getCashPosition(finance(new Date(last.getTime() + 30 * 60_000)));
+    const soon = await m4.getCashPosition(finance(new Date(last.getTime() + 30 * 60_000)), { date: d.date });
     expect(soon.rows.find((r) => r.userId === d.driver.userId)!.flags.map((f) => f.code)).not.toContain("driver_not_submitted");
     const later = new Date(last.getTime() + 2 * 3_600_000);
-    const pos = await m4.getCashPosition(finance(later));
+    const pos = await m4.getCashPosition(finance(later), { date: d.date });
     expect(pos.rows.find((r) => r.userId === d.driver.userId)!.flags.map((f) => f.code)).toContain("driver_not_submitted");
     // Job notifikasi Admin Keuangan (sekali per setoran).
     await m4.runDriverNotSubmittedCheck(later);

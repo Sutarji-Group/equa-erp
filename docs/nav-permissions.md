@@ -149,7 +149,6 @@ p3.support_request.read
 | Kas & setoran | `/kas/kas-kecil` | Kas kecil | `m4.petty_cash.read` |  |
 | Kas & setoran | `/kas/tutup` | Tutup kas | `m4.cash_day.read` |  |
 | Kas & setoran | `/kas/ganti-rugi` | Ganti rugi | `m4.restitution.read` |  |
-| Kas & setoran | `/kas/setoran/[id]` | Rincian setoran | `m4.deposit.read` | tidak tampil di sidebar |
 | Piutang | `/piutang` | Ringkasan piutang | `m5.receivable.read` |  |
 | Piutang | `/piutang/faktur` | Faktur | `m5.invoice.read` |  |
 | Piutang | `/piutang/pelunasan` | Pelunasan | `m5.customer_payment.read` |  |

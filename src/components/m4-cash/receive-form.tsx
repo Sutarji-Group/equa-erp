@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useMemo, useState, useTransition } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { formatRupiah, parseRupiah } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 import type { CashActionState } from "./action-state";
+import { prepareCashFormData } from "./prepare-form-data";
 
 export type PendingExpense = { id: string; label: string; amount: number; fundingSource: "cash_on_hand" | "personal" };
 
@@ -40,6 +41,14 @@ export function ReceiveDepositForm({
   threshold: number;
 }) {
   const [state, formAction, pending] = useActionState(action, {} as CashActionState);
+  const [preparing, startPreparing] = useTransition();
+  const busy = pending || preparing;
+  const submit = (fd: FormData) => {
+    startPreparing(async () => {
+      const prepared = await prepareCashFormData(fd);
+      startPreparing(() => formAction(prepared));
+    });
+  };
   const [received, setReceived] = useState<string>("");
   const [decisions, setDecisions] = useState<Record<string, "accept" | "reject" | undefined>>({});
   const [counts, setCounts] = useState<Record<number, string>>({});
@@ -54,7 +63,7 @@ export function ReceiveDepositForm({
   const hasInput = useDenominations ? denomTotal > 0 : received.trim() !== "";
 
   return (
-    <form action={formAction} className="grid gap-4" data-testid="form-terima-setoran">
+    <form action={submit} className="grid gap-4" data-testid="form-terima-setoran">
       {pendingExpenses.length ? (
         <fieldset className="grid gap-2 rounded-md border p-3">
           <legend className="px-1 text-sm font-medium">Verifikasi pengeluaran rit (PTB-20)</legend>
@@ -168,8 +177,8 @@ export function ReceiveDepositForm({
         </p>
       ) : null}
       <div>
-        <Button type="submit" disabled={pending}>
-          {pending ? <LoaderCircle className="animate-spin" aria-hidden /> : null}
+        <Button type="submit" disabled={busy}>
+          {busy ? <LoaderCircle className="animate-spin" aria-hidden /> : null}
           Terima setoran
         </Button>
       </div>

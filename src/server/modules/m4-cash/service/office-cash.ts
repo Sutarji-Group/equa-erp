@@ -25,7 +25,7 @@ import { authorize, runService } from "@/server/core/rbac";
 import { linkAttachment } from "@/server/core/storage";
 
 import { bankAccountSchema, bankDepositSchema, deactivateBankAccountSchema, openingBalanceSchema, reverseBankDepositSchema } from "../schemas";
-import { assertCashDayOpen, assertNotFuture, cashRules, officeCashBalance, postOfficeCash } from "./common";
+import { assertCashDayOpen, assertNotFuture, cashRules, officeCashBalance, openCashDate, postOfficeCash } from "./common";
 import { cancelTransferForSource, recordIncomingTransfer } from "./transfers";
 
 export type BankAccountRow = typeof bankAccounts.$inferSelect;
@@ -303,15 +303,17 @@ export async function applySupplierPaymentToOfficeCash(
   const origMovement = reversal && p.reversalOfId
     ? (await tx.select({ id: officeCashMovements.id }).from(officeCashMovements).where(and(eq(officeCashMovements.sourceObjectType, "supplier_payment"), eq(officeCashMovements.sourceObjectId, p.reversalOfId), isNull(officeCashMovements.reversalOfId))).limit(1))[0]
     : undefined;
+  // Hari kas yang sudah ditutup terkunci → mutasi masuk hari kas terbuka berikutnya (US-M4-06 KP-7).
+  const cashDate = await openCashDate(tx, ctx.tenantId, p.businessDate);
   const mv = await postOfficeCash(tx, ctx, {
     tenantId: ctx.tenantId,
-    businessDate: p.businessDate,
+    businessDate: cashDate.date,
     kind: "supplier_payment",
     direction: reversal ? "in" : "out",
     amount: Math.abs(p.amount),
     sourceObjectType: "supplier_payment",
     sourceObjectId: p.supplierPaymentId,
-    description: `${reversal ? "Pembalik pembayaran" : "Pembayaran"} pemasok${p.supplierName ? ` ${p.supplierName}` : ""}`,
+    description: `${reversal ? "Pembalik pembayaran" : "Pembayaran"} pemasok${p.supplierName ? ` ${p.supplierName}` : ""}${cashDate.shifted ? " (setelah kas ditutup)" : ""}`,
     reversalOfId: origMovement?.id ?? null,
   });
   if (mv) await tx.update(supplierPayments).set({ officeCashMovementId: mv.id }).where(and(eq(supplierPayments.id, p.supplierPaymentId), isNull(supplierPayments.officeCashMovementId)));

@@ -48,7 +48,15 @@ export {
 export type { DiscrepancyRow, DiscrepancyListRow, DiscrepancyHistoryRow, DiscrepancyStreak } from "./service/discrepancies";
 
 // --- Ganti rugi (US-M4-03 KP-2..KP-4) ---------------------------------------------------------------------------------
-export { settleRestitution, reverseRestitutionSettlement, listRestitutions, restitutionBalances, restitutionMonthlyRecap } from "./service/restitutions";
+export {
+  settleRestitution,
+  reverseRestitutionSettlement,
+  listRestitutions,
+  restitutionBalances,
+  restitutionMonthlyRecap,
+  getRestitutionActive,
+  setRestitutionActive,
+} from "./service/restitutions";
 export type { RestitutionListRow, RestitutionBalance, RestitutionRecapRow } from "./service/restitutions";
 
 // --- Transfer masuk & mutasi (US-M4-04) ------------------------------------------------------------------------------
@@ -81,7 +89,7 @@ export {
 export type { BankAccountRow, BankDepositRow, OfficeCashDay } from "./service/office-cash";
 
 // --- Kas kecil (US-M4-05 KP-2, S) --------------------------------------------------------------------------------------
-export { recordPettyCash, countPettyCash, getPettyCash } from "./service/petty-cash";
+export { recordPettyCash, countPettyCash, getPettyCash, pettyCashOutletOptions } from "./service/petty-cash";
 
 // --- Tutup kas (US-M4-06) ------------------------------------------------------------------------------------------
 export { getCashDayScreen, startCashClose, requestCloseException, closeCashDay, listCashDays, runPendingDepositDueCheck } from "./service/cash-day";

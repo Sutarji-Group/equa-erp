@@ -40,6 +40,7 @@ import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { emit } from "@/server/core/events";
 import { markActionedForObject, notify } from "@/server/core/notifications";
 import { authorize, runService } from "@/server/core/rbac";
+import { linkAttachment } from "@/server/core/storage";
 
 import { confirmMatchesSchema, importStatementSchema, markStatementLineSchema, matchTransferSchema } from "../schemas";
 import { cashRules, type DiscrepancyReason } from "./common";
@@ -282,6 +283,7 @@ async function matchCore(tx: Tx, ctx: ActorContext, transferId: string, ref: Mat
       discrepancyNote: ref.discrepancyNote ?? null,
       close: true,
       transferId: t.id,
+      bankAccountId: row!.bankAccountId,
     });
   }
   if (t.sourceObjectType === "bank_deposit" && t.sourceObjectId) {
@@ -381,6 +383,7 @@ export async function importBankStatement(ctx: ActorContext, input: unknown, opt
         createdBy: ctx.userId,
       })
       .returning();
+    if (data.fileAttachmentId) await linkAttachment(tx, data.fileAttachmentId, { type: "bank_statement_import", id: imp!.id });
     const inserted = await tx
       .insert(bankStatementLines)
       .values(parsed.lines.map((l) => ({ importId: imp!.id, bankAccountId: account.id, lineDate: l.lineDate, description: l.description, amount: l.amount, balance: l.balance, reference: l.reference, rowHash: l.rowHash })))

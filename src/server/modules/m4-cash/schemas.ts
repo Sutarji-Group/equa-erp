@@ -103,6 +103,14 @@ export const settleRestitutionSchema = z
 
 export const reverseSettlementSchema = z.object({ settlementId: uuid, reason: reasonText() }).strict();
 
+/** Parameter "ganti rugi aktif" (US-M4-03 KP-4) — pemilik, setelah Peraturan Perusahaan berlaku. */
+export const restitutionActiveSchema = z
+  .object({
+    enabled: z.boolean({ error: "Pilih aktif atau nonaktif." }),
+    reason: z.string().trim().min(5, { error: "Alasan wajib diisi (minimal 5 karakter), mis. nomor Peraturan Perusahaan." }).max(300),
+  })
+  .strict();
+
 // --- Transfer masuk & mutasi -------------------------------------------------------------------------------------------
 
 export const matchTransferSchema = z

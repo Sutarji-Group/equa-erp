@@ -8,7 +8,7 @@ import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import { cashDays, deposits, employees, officeCashMovements, outlets, trucks, users } from "@/db/schema";
 import type { EnumValue, ProfitCenter } from "@/lib/labels";
-import { formatTanggal, parseHourMinute, toBusinessDate, toWibParts, type BusinessDate } from "@/lib/time";
+import { addDays, formatTanggal, parseHourMinute, toBusinessDate, toWibParts, type BusinessDate } from "@/lib/time";
 
 import type { ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
@@ -276,6 +276,21 @@ export async function assertCashDayOpen(tx: Tx, tenantId: string, date: Business
       `Kas ${formatTanggal(date, { weekday: false })} sudah ditutup — ${what} tidak dapat dicatat pada tanggal itu. Catat pada hari kas yang masih terbuka; koreksi hanya lewat transaksi pembalik.`,
     );
   }
+}
+
+/**
+ * Tanggal kas pertama ≥ `from` yang belum ditutup. Bab 5.3 / US-M4-06 KP-7: uang yang diterima setelah hari kasnya
+ * ditutup (mis. setoran tertunda PTB-21, penggantian pengeluaran, pembayaran pemasok) masuk kas hari berikutnya —
+ * hari yang ditutup tetap terkunci.
+ */
+export async function openCashDate(tx: Tx, tenantId: string, from: BusinessDate): Promise<{ date: BusinessDate; shifted: boolean }> {
+  let date = from;
+  for (let i = 0; i < 31; i++) {
+    const day = await cashDayOf(tx, tenantId, date);
+    if (day?.status !== "closed") return { date, shifted: date !== from };
+    date = addDays(date, 1);
+  }
+  return { date, shifted: true };
 }
 
 /** Tanggal bisnis masukan (bawaan hari ini) tidak boleh di masa depan. */

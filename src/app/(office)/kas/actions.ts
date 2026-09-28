@@ -1,8 +1,8 @@
 "use server";
 
 /**
- * Server Action layar Kas & Setoran (/kas/*). Semua mutasi lewat layanan M4 (authorize → validasi → aturan + pemisahan
- * tugas → transaksi → audit → event); galat tampil sebagai pesan tindakan berbahasa Indonesia.
+ * Server Action layar Kas & Setoran (/kas/*). Tipis: sesi kantor → layanan M4 (authorize → validasi → aturan +
+ * pemisahan tugas → transaksi → audit → event) → revalidasi. Galat tampil sebagai pesan tindakan berbahasa Indonesia.
  */
 import { revalidatePath } from "next/cache";
 
@@ -22,7 +22,7 @@ function str(fd: FormData, name: string): string | null {
   return t === "" ? null : t;
 }
 
-/** Rupiah bulat (titik ribuan & "Rp" dibuang). `null` bila kosong, NaN bila tidak valid. */
+/** Rupiah bulat ("Rp" & titik ribuan dibuang). `null` bila kosong, NaN bila tidak valid (ditolak skema layanan). */
 function int(fd: FormData, name: string): number | null {
   const s = str(fd, name);
   if (s === null) return null;
@@ -40,12 +40,17 @@ async function attempt(fn: () => Promise<string | void>, message: string, extraP
   }
 }
 
-async function uploadFile(fd: FormData, name: string, kind: string): Promise<string | null> {
+const IMAGE_OR_PDF = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+
+/** Unggah lampiran formulir (foto slip/bukti) → id lampiran (dikaitkan ke objek oleh layanan). */
+async function uploadFile(fd: FormData, name: string, kind: string, allowed: ReadonlySet<string> = IMAGE_OR_PDF): Promise<string | null> {
   const file = fd.get(name);
   if (!(file instanceof File) || file.size === 0) return null;
+  const type = (file.type || "image/jpeg").toLowerCase();
+  if (!allowed.has(type)) throw new DomainError("FILE_TYPE", "Jenis berkas tidak didukung. Lampirkan foto JPEG/PNG/WEBP atau PDF.");
   const { ctx } = await requireOfficeSession();
   const buf = Buffer.from(await file.arrayBuffer());
-  const att = await withTx((tx) => put(tx, ctx, { blob: buf, contentType: file.type || "image/jpeg", kind, originalName: file.name }));
+  const att = await withTx((tx) => put(tx, ctx, { blob: buf, contentType: type, kind, originalName: file.name }));
   return att.id;
 }
 
@@ -79,76 +84,93 @@ export async function receiveDepositAction(depositId: string, _prev: CashActionS
         evidenceAttachmentId,
         close: fd.get("close") === "on",
       });
-      if (res.discrepancy?.requiresOwnerDecision) return `Setoran diterima${res.closed ? " & ditutup" : ""}. Selisih diteruskan ke pemilik untuk diputuskan.`;
-      return `Setoran diterima${res.closed ? " & ditutup" : ""}.`;
+      const head = `Setoran ${res.deposit.number} diterima${res.closed ? " & ditutup" : ""}.`;
+      if (res.discrepancy?.requiresOwnerDecision) return `${head} Selisih diteruskan ke pemilik untuk diputuskan (setoran tidak menunggu keputusan).`;
+      if (res.discrepancy) return `${head} Selisih tercatat dengan alasan.`;
+      return `${head} Tanpa selisih.`;
     },
     "Setoran diterima.",
     [`/kas/setoran/${depositId}`],
   );
 }
 
-export async function closeDepositAction(depositId: string, _prev: CashActionState): Promise<CashActionState> {
+export async function closeDepositAction(depositId: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  return attempt(async () => void (await m4.closeDeposit(ctx, { depositId })), "Setoran ditutup — kunci rit hari berikutnya terbuka.", [`/kas/setoran/${depositId}`]);
+  return attempt(async () => void (await m4.closeDeposit(ctx, { depositId })), "Setoran ditutup — hasilnya tampil di aplikasi penyetor.", [`/kas/setoran/${depositId}`]);
 }
 
-export async function verifyExpenseAction(depositId: string, expenseId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+export async function verifyExpenseAction(depositId: string, expenseId: string, accept: boolean, reason: string | null = null): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  const accept = str(fd, "decision") !== "reject";
-  return attempt(async () => void (await m4.verifyExpense(ctx, { expenseId, accept, reason: str(fd, "reason") })), accept ? "Pengeluaran diterima." : "Pengeluaran ditolak.", [`/kas/setoran/${depositId}`]);
+  return attempt(async () => void (await m4.verifyExpense(ctx, { expenseId, accept, reason })), accept ? "Pengeluaran diterima." : "Pengeluaran ditolak.", [`/kas/setoran/${depositId}`]);
 }
 
-export async function reopenDepositAction(depositId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+export async function reopenDepositAction(depositId: string, reason: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  return attempt(async () => void (await m4.reopenDeposit(ctx, { depositId, reason: str(fd, "reason") ?? "" })), "Setoran dibuka kembali — sopir dapat melanjutkan rit.", [`/kas/setoran/${depositId}`]);
+  return attempt(async () => void (await m4.reopenDeposit(ctx, { depositId, reason })), "Setoran dibuka kembali — sopir dapat melanjutkan rit lalu Setor lagi.", [`/kas/setoran/${depositId}`]);
 }
 
-// --- Selisih (US-M4-03) ---------------------------------------------------------------------------------------------------
+// --- Selisih (US-M4-03, US-M4-06 KP-6) -------------------------------------------------------------------------------------
 
-export async function decideDiscrepancyAction(discrepancyId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+export async function approveDiscrepancyAction(discrepancyId: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  const decision = str(fd, "decision") === "reject" ? "reject" : "approve";
-  return attempt(async () => void (await m4.decideDiscrepancy(ctx, discrepancyId, { decision, reason: str(fd, "reason") })), decision === "approve" ? "Selisih disetujui." : "Selisih ditolak — dikembalikan ke Admin Keuangan.", ["/persetujuan"]);
+  return attempt(async () => void (await m4.decideDiscrepancy(ctx, discrepancyId, { decision: "approve" })), "Selisih disetujui — dibebankan ke pusat laba sumbernya.", ["/persetujuan"]);
+}
+
+export async function rejectDiscrepancyAction(discrepancyId: string, reason: string): Promise<CashActionState> {
+  const { ctx } = await requireOfficeSession();
+  return attempt(async () => void (await m4.decideDiscrepancy(ctx, discrepancyId, { decision: "reject", reason })), "Selisih ditolak — dikembalikan ke Admin Keuangan untuk ditindaklanjuti.", ["/persetujuan"]);
 }
 
 export async function explainDiscrepancyAction(discrepancyId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  return attempt(async () => void (await m4.explainDiscrepancy(ctx, { discrepancyId, reason: str(fd, "reason"), explanation: str(fd, "explanation") ?? "" })), "Penjelasan selisih tersimpan.");
+  return attempt(
+    async () => void (await m4.explainDiscrepancy(ctx, { discrepancyId, reason: str(fd, "reason"), explanation: str(fd, "explanation") ?? "" })),
+    "Penjelasan selisih tersimpan.",
+    ["/persetujuan"],
+  );
 }
 
-export async function completeFollowUpAction(discrepancyId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+export async function completeFollowUpAction(discrepancyId: string, note: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  return attempt(async () => void (await m4.completeDiscrepancyFollowUp(ctx, { discrepancyId, note: str(fd, "note") ?? "" })), "Tindak lanjut selesai.");
+  return attempt(async () => void (await m4.completeDiscrepancyFollowUp(ctx, { discrepancyId, note })), "Tindak lanjut selesai — selisih berstatus Selesai.");
 }
 
-export async function reopenDiscrepancyAction(discrepancyId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+export async function reopenDiscrepancyAction(discrepancyId: string, reason: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  return attempt(async () => void (await m4.reopenDiscrepancy(ctx, { discrepancyId, reason: str(fd, "reason") ?? "" })), "Selisih dibuka kembali — putuskan di bawah.");
+  return attempt(async () => void (await m4.reopenDiscrepancy(ctx, { discrepancyId, reason })), "Selisih dibuka kembali — putuskan setujui atau tolak.");
 }
 
-// --- Ganti rugi (US-M4-03 KP-3) ---------------------------------------------------------------------------------------------
+// --- Ganti rugi (US-M4-03 KP-3/KP-4) -------------------------------------------------------------------------------------------
 
 export async function settleRestitutionAction(restitutionId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(
-    async () =>
-      void (await m4.settleRestitution(ctx, {
+    async () => {
+      const r = await m4.settleRestitution(ctx, {
         restitutionId,
         amount: int(fd, "amount") ?? Number.NaN,
         method: str(fd, "method") === "payroll_deduction" ? "payroll_deduction" : "cash",
         settledOn: str(fd, "settledOn"),
         reference: str(fd, "reference"),
-      })),
+      });
+      return r.restitution.status === "settled" ? "Ganti rugi lunas." : "Pelunasan sebagian tercatat.";
+    },
     "Pelunasan ganti rugi tercatat.",
   );
 }
 
-export async function reverseSettlementAction(settlementId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+export async function reverseSettlementAction(settlementId: string, reason: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(async () => {
-    const r = await m4.reverseRestitutionSettlement(ctx, { settlementId, reason: str(fd, "reason") ?? "" });
-    if (r.status === "pending_approval") return "Pembalik di atas batas — menunggu persetujuan pemilik.";
-  }, "Pelunasan dibalik.");
+    const r = await m4.reverseRestitutionSettlement(ctx, { settlementId, reason });
+    if (r.status === "pending_approval") return "Pembalik di atas batas koreksi — menunggu persetujuan pemilik.";
+  }, "Pelunasan dibalik.", ["/persetujuan"]);
+}
+
+export async function setRestitutionActiveAction(_prev: CashActionState, fd: FormData): Promise<CashActionState> {
+  const { ctx } = await requireOfficeSession();
+  const enabled = str(fd, "enabled") === "true";
+  return attempt(async () => void (await m4.setRestitutionActive(ctx, { enabled, reason: str(fd, "reason") ?? "" })), enabled ? "Ganti rugi karyawan diaktifkan." : "Ganti rugi karyawan dinonaktifkan.");
 }
 
 // --- Transfer masuk & mutasi (US-M4-04) -------------------------------------------------------------------------------------
@@ -169,15 +191,32 @@ export async function matchTransferAction(transferId: string, _prev: CashActionS
   );
 }
 
+const STATEMENT_TYPES = new Set(["text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]);
+
 export async function importStatementAction(_prev: CashActionState, fd: FormData): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(async () => {
     const file = fd.get("file");
-    if (!(file instanceof File) || file.size === 0) throw new DomainError("FILE_REQUIRED", "Pilih berkas mutasi (CSV atau Excel).");
+    if (!(file instanceof File) || file.size === 0) throw new DomainError("FILE_REQUIRED", "Pilih berkas mutasi (CSV atau Excel .xlsx) dari internet banking.");
     const bytes = new Uint8Array(await file.arrayBuffer());
     const isXlsx = file.name.toLowerCase().endsWith(".xlsx");
-    const res = await m4.importBankStatement(ctx, { bankAccountId: str(fd, "bankAccountId") ?? "", fileName: file.name, content: isXlsx ? bytes : new TextDecoder("utf-8").decode(bytes) });
-    return `${res.inserted} mutasi baru (${res.duplicates} sudah pernah diimpor). ${res.proposals.length} usulan pasangan, ${res.unpaired.length} tanpa pasangan.`;
+    const contentType = isXlsx ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "text/csv";
+    // Berkas asli disimpan sebagai lampiran impor (jejak NFR-22); gagal simpan tidak menghalangi impor.
+    let fileAttachmentId: string | null = null;
+    if (STATEMENT_TYPES.has(contentType)) {
+      try {
+        fileAttachmentId = (await withTx((tx) => put(tx, ctx, { blob: Buffer.from(bytes), contentType, kind: "bank_statement", originalName: file.name }))).id;
+      } catch {
+        fileAttachmentId = null;
+      }
+    }
+    const res = await m4.importBankStatement(ctx, {
+      bankAccountId: str(fd, "bankAccountId") ?? "",
+      fileName: file.name,
+      content: isXlsx ? bytes : new TextDecoder("utf-8").decode(bytes),
+      fileAttachmentId,
+    });
+    return `${res.inserted} mutasi baru dibaca (${res.duplicates} sudah pernah diimpor${res.skipped ? `, ${res.skipped} baris dilewati` : ""}). ${res.proposals.length} usulan pasangan, ${res.unpaired.length} mutasi tanpa pasangan.`;
   }, "Mutasi diimpor.");
 }
 
@@ -189,16 +228,17 @@ export async function confirmMatchesAction(_prev: CashActionState, fd: FormData)
       .filter((v): v is string => typeof v === "string")
       .map((v) => {
         const [lineId, transferId] = v.split(":");
-        return { lineId: lineId!, transferId: transferId! };
+        return { lineId: lineId ?? "", transferId: transferId ?? "" };
       });
     const res = await m4.confirmStatementMatches(ctx, { pairs });
-    return `${res.matched} transfer dicocokkan.`;
+    return `${res.matched} transfer dicocokkan dengan mutasi.`;
   }, "Pasangan dikonfirmasi.");
 }
 
 export async function markStatementLineAction(lineId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  return attempt(async () => void (await m4.markStatementLine(ctx, { lineId, status: str(fd, "status") === "ignored" ? "ignored" : "follow_up", note: str(fd, "note") ?? "" })), "Mutasi ditandai.");
+  const status = str(fd, "status") === "ignored" ? "ignored" : "follow_up";
+  return attempt(async () => void (await m4.markStatementLine(ctx, { lineId, status, note: str(fd, "note") ?? "" })), status === "ignored" ? "Mutasi ditandai diabaikan." : "Mutasi masuk daftar tindak lanjut.");
 }
 
 // --- Kas kantor & setor bank (US-M4-05 KP-1) -----------------------------------------------------------------------------------
@@ -209,15 +249,15 @@ export async function bankDepositAction(_prev: CashActionState, fd: FormData): P
     const slipAttachmentId = await uploadFile(fd, "slip", "bank_slip");
     if (!slipAttachmentId) throw new DomainError("SLIP_REQUIRED", "Foto slip setoran bank wajib dilampirkan.");
     await m4.recordBankDeposit(ctx, { bankAccountId: str(fd, "bankAccountId") ?? "", amount: int(fd, "amount") ?? Number.NaN, businessDate: str(fd, "businessDate"), slipAttachmentId, notes: str(fd, "notes") });
-  }, "Setor ke bank tercatat — cocokkan dengan mutasi di Transfer masuk.");
+  }, "Setor ke bank tercatat — cocokkan dengan mutasi di menu Transfer masuk.");
 }
 
-export async function reverseBankDepositAction(bankDepositId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+export async function reverseBankDepositAction(bankDepositId: string, reason: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(async () => {
-    const r = await m4.reverseBankDeposit(ctx, { bankDepositId, reason: str(fd, "reason") ?? "" });
-    if (r.status === "pending_approval") return "Pembalik di atas batas — menunggu persetujuan pemilik.";
-  }, "Setor bank dibalik.");
+    const r = await m4.reverseBankDeposit(ctx, { bankDepositId, reason });
+    if (r.status === "pending_approval") return "Pembalik di atas batas koreksi — menunggu persetujuan pemilik.";
+  }, "Setor bank dibalik; kas kantor dikembalikan.", ["/persetujuan"]);
 }
 
 export async function openingBalanceAction(_prev: CashActionState, fd: FormData): Promise<CashActionState> {
@@ -240,9 +280,9 @@ export async function createBankAccountAction(_prev: CashActionState, fd: FormDa
   );
 }
 
-export async function deactivateBankAccountAction(bankAccountId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+export async function deactivateBankAccountAction(bankAccountId: string, reason: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  return attempt(async () => void (await m4.deactivateBankAccount(ctx, { bankAccountId, reason: str(fd, "reason") ?? "" })), "Rekening dinonaktifkan.");
+  return attempt(async () => void (await m4.deactivateBankAccount(ctx, { bankAccountId, reason })), "Rekening dinonaktifkan.");
 }
 
 // --- Kas kecil (US-M4-05 KP-2) ---------------------------------------------------------------------------------------------------
@@ -256,52 +296,51 @@ export async function pettyCashAction(_prev: CashActionState, fd: FormData): Pro
       kind,
       amount: int(fd, "amount") ?? Number.NaN,
       businessDate: str(fd, "businessDate"),
-      category: kind === "expense" ? (str(fd, "category") as never) : null,
-      profitCenter: kind === "expense" ? (str(fd, "profitCenter") as never) : null,
+      category: kind === "expense" ? str(fd, "category") : null,
+      profitCenter: kind === "expense" ? str(fd, "profitCenter") : null,
+      outletId: kind === "expense" ? str(fd, "outletId") : null,
       description: str(fd, "description") ?? "",
       receiptAttachmentId,
     });
-    if (row.status === "pending_approval") return "Di atas batas — menunggu persetujuan pemilik.";
-  }, "Kas kecil tercatat.");
+    if (row.status === "pending_approval") return "Di atas batas kas kecil — menunggu persetujuan pemilik (belum berlaku).";
+  }, "Kas kecil tercatat.", ["/persetujuan"]);
 }
 
 export async function pettyCashCountAction(_prev: CashActionState, fd: FormData): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(async () => {
     const r = await m4.countPettyCash(ctx, { physicalAmount: int(fd, "physicalAmount") ?? Number.NaN, reason: str(fd, "reason") });
-    if (r.difference !== 0) return "Hitung fisik tercatat — selisih masuk alur Selisih.";
-  }, "Hitung fisik cocok dengan sistem.");
+    if (r.difference !== 0) return "Hitung fisik tercatat — selisih masuk alur Selisih dan saldo disesuaikan.";
+  }, "Hitung fisik cocok dengan saldo sistem.");
 }
 
 // --- Tutup kas (US-M4-06) --------------------------------------------------------------------------------------------------------
 
-export async function startCloseAction(date: string, _prev: CashActionState): Promise<CashActionState> {
+export async function startCloseAction(date: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(async () => {
     const r = await m4.startCashClose(ctx, { date });
-    if (r.blockers.length) return `Mulai tutup kas dicatat. ${r.blockers.length} sumber masih menghalangi.`;
+    if (r.blockers.length) return `Mulai tutup kas dicatat. ${r.blockers.length} sumber masih menghalangi — hubungi atau ajukan pengecualian.`;
   }, "Mulai tutup kas dicatat.");
 }
 
-export async function requestExceptionAction(date: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+export async function requestExceptionAction(date: string, depositId: string | null, shiftId: string | null, reason: string): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
-  return attempt(
-    async () => void (await m4.requestCloseException(ctx, { date, depositId: str(fd, "depositId"), shiftId: str(fd, "shiftId"), reason: str(fd, "reason") ?? "" })),
-    "Pengecualian diajukan ke pemilik.",
-    ["/persetujuan"],
-  );
+  return attempt(async () => void (await m4.requestCloseException(ctx, { date, depositId, shiftId, reason })), "Pengecualian diajukan ke pemilik (per kejadian).", ["/persetujuan"]);
 }
 
 export async function closeCashDayAction(date: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(
-    async () =>
-      void (await m4.closeCashDay(ctx, {
+    async () => {
+      const day = await m4.closeCashDay(ctx, {
         date,
         officeCashPhysical: int(fd, "officeCashPhysical") ?? Number.NaN,
-        officeCashReason: str(fd, "officeCashReason") as never,
+        officeCashReason: str(fd, "officeCashReason"),
         officeCashNote: str(fd, "officeCashNote"),
-      })),
-    "Kas harian ditutup — ringkasan H+0 menyusul.",
+      });
+      return `Kas ditutup${day.closedLate ? " (terlambat)" : ""} — ringkasan H+0 terbit untuk pemilik.`;
+    },
+    "Kas harian ditutup.",
   );
 }

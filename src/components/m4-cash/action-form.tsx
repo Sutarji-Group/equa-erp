@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { type ReactNode, useActionState, useEffect, useRef } from "react";
+import { type ReactNode, useActionState, useEffect, useRef, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { CashActionState } from "./action-state";
+import { prepareCashFormData } from "./prepare-form-data";
 
 /**
  * Formulir Server Action layar kas (/kas/*): galat layanan berbahasa Indonesia tampil apa adanya; toast saat berhasil.
- * Tetap berfungsi tanpa JavaScript (form action).
+ * Foto dikompresi di perangkat sebelum dikirim (≤ 300 KB, PAR-38).
  */
 export function CashActionForm({
   action,
@@ -23,6 +24,7 @@ export function CashActionForm({
   testId,
   inline = false,
   resetOnSuccess = true,
+  disabled = false,
 }: {
   action: (state: CashActionState, formData: FormData) => Promise<CashActionState>;
   children?: ReactNode;
@@ -32,8 +34,10 @@ export function CashActionForm({
   testId?: string;
   inline?: boolean;
   resetOnSuccess?: boolean;
+  disabled?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {} as CashActionState);
+  const [preparing, startPreparing] = useTransition();
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (state.ok) {
@@ -41,8 +45,15 @@ export function CashActionForm({
       if (resetOnSuccess) ref.current?.reset();
     }
   }, [state, resetOnSuccess]);
+  const busy = pending || preparing;
+  const submit = (fd: FormData) => {
+    startPreparing(async () => {
+      const prepared = await prepareCashFormData(fd);
+      startPreparing(() => formAction(prepared));
+    });
+  };
   return (
-    <form ref={ref} action={formAction} className={cn(inline ? "flex flex-wrap items-end gap-2" : "grid gap-3", className)} data-testid={testId}>
+    <form ref={ref} action={submit} className={cn(inline ? "flex flex-wrap items-end gap-2" : "grid gap-3", className)} data-testid={testId}>
       {children}
       {state.error ? (
         <Alert variant="destructive" role="alert" className={inline ? "basis-full" : undefined}>
@@ -55,8 +66,8 @@ export function CashActionForm({
         </p>
       ) : null}
       <div>
-        <Button type="submit" variant={variant} disabled={pending} size={inline ? "sm" : "default"}>
-          {pending ? <LoaderCircle className="animate-spin" aria-hidden /> : null}
+        <Button type="submit" variant={variant} disabled={busy || disabled} size={inline ? "sm" : "default"}>
+          {busy ? <LoaderCircle className="animate-spin" aria-hidden /> : null}
           {submitLabel}
         </Button>
       </div>

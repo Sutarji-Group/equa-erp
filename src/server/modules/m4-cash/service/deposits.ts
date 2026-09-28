@@ -39,6 +39,7 @@ import {
   depositSourceInfo,
   isAfterCutoff,
   loadDeposit,
+  openCashDate,
   postOfficeCash,
   profitCenterFor,
   userNames,
@@ -72,6 +73,8 @@ export type DepositExpense = {
 export type DepositFigures = {
   /** Tunai seharusnya tanggal setoran (tunai rit + pelunasan tunai). */
   sameDayCash: number;
+  /** Rincian tunai seharusnya per rit/pelunasan tanggal setoran (US-M4-02 KP-1) — dari data tersinkron. */
+  sameDayItems: CarryOverItem[];
   /** Tunai terlambat sinkron dari tanggal lain yang dibawa ke setoran ini (Bab 5.3). */
   carryOverCash: number;
   carryOverItems: CarryOverItem[];
@@ -105,6 +108,7 @@ export async function depositFigures(tx: Tx, dep: DepositRow, decisions: Readonl
   if (dep.sourceType !== "driver") {
     return {
       sameDayCash: dep.expectedCash,
+      sameDayItems: [],
       carryOverCash: 0,
       carryOverItems: [],
       expectedCash: dep.expectedCash,
@@ -133,19 +137,26 @@ export async function depositFigures(tx: Tx, dep: DepositRow, decisions: Readonl
   const liveCols = cols.filter((c) => !c.reversalOfId && !reversedCols.has(c.id));
   let sameDayCash = 0;
   let carryOverCash = 0;
+  const sameDayItems: CarryOverItem[] = [];
   const carryOverItems: CarryOverItem[] = [];
   for (const p of livePays) {
-    if (p.businessDate === dep.businessDate) sameDayCash += p.amount;
-    else {
+    const item: CarryOverItem = { kind: "trip_payment", id: p.id, label: `Rit ${p.tripNumber} — ${p.customerName}`, amount: p.amount, businessDate: p.businessDate };
+    if (p.businessDate === dep.businessDate) {
+      sameDayCash += p.amount;
+      sameDayItems.push(item);
+    } else {
       carryOverCash += p.amount;
-      carryOverItems.push({ kind: "trip_payment", id: p.id, label: `Rit ${p.tripNumber} — ${p.customerName}`, amount: p.amount, businessDate: p.businessDate });
+      carryOverItems.push(item);
     }
   }
   for (const c of liveCols) {
-    if (c.businessDate === dep.businessDate) sameDayCash += c.amount;
-    else {
+    const item: CarryOverItem = { kind: "collection", id: c.id, label: `Pelunasan — ${c.customerName}`, amount: c.amount, businessDate: c.businessDate };
+    if (c.businessDate === dep.businessDate) {
+      sameDayCash += c.amount;
+      sameDayItems.push(item);
+    } else {
       carryOverCash += c.amount;
-      carryOverItems.push({ kind: "collection", id: c.id, label: `Pelunasan — ${c.customerName}`, amount: c.amount, businessDate: c.businessDate });
+      carryOverItems.push(item);
     }
   }
   // Setoran lama/demo tanpa item tertaut: pakai angka ringkasan terkunci saat Diajukan.
@@ -173,6 +184,7 @@ export async function depositFigures(tx: Tx, dep: DepositRow, decisions: Readonl
   const expectedCash = sameDayCash + carryOverCash;
   return {
     sameDayCash,
+    sameDayItems,
     carryOverCash,
     carryOverItems,
     expectedCash,
@@ -389,19 +401,20 @@ async function applyExpenseDecision(tx: Tx, ctx: ActorContext, dep: DepositRow, 
   // SOD-01: pencatat pengeluaran tidak memverifikasi pengeluarannya sendiri.
   sod.assertNotSelf(expense.driverUserId ?? expense.createdBy, ctx.userId, "pengeluaran rit", { objectType: "trip_expense", objectId: expense.id });
   if (!accept && (!reason || reason.length < 3)) throw new DomainError("REASON_REQUIRED", "Alasan penolakan pengeluaran wajib diisi (minimal 3 karakter).");
-  const today = ctxBusinessDate(ctx);
   let movementId: string | null = null;
   if (accept && expense.fundingSource === "personal") {
-    // Uang pribadi sopir diganti dari kas kantor (penggantian pengeluaran rit, US-M4-01 KP-3).
+    // Uang pribadi sopir diganti dari kas kantor (penggantian pengeluaran rit, US-M4-01 KP-3); hari kas yang sudah
+    // ditutup tidak berubah — penggantian masuk hari kas terbuka berikutnya (US-M4-06 KP-7).
+    const cashDate = await openCashDate(tx, dep.tenantId, ctxBusinessDate(ctx));
     const mv = await postOfficeCash(tx, ctx, {
       tenantId: dep.tenantId,
-      businessDate: today,
+      businessDate: cashDate.date,
       kind: "expense_reimbursement",
       direction: "out",
       amount: expense.amount,
       sourceObjectType: "trip_expense",
       sourceObjectId: expense.id,
-      description: `Penggantian ${label("trip_expense_kind", expense.kind)} ${dep.number}`,
+      description: `Penggantian ${label("trip_expense_kind", expense.kind)} ${dep.number}${cashDate.shifted ? " (setelah kas ditutup)" : ""}`,
     });
     movementId = mv?.id ?? null;
   }
@@ -467,6 +480,8 @@ type ReceiveCore = {
   close: boolean;
   /** Transfer masuk yang dicocokkan (setor bank dengan slip). */
   transferId?: string | null;
+  /** Rekening PT penerima setor bank dengan slip (dari transfer/mutasi yang dicocokkan). */
+  bankAccountId?: string | null;
 };
 
 /**
@@ -548,17 +563,19 @@ export async function receiveDepositCore(tx: Tx, ctx: ActorContext, depositId: s
     .where(eq(deposits.id, dep.id))
     .returning();
   let deposit = updated!;
-  // Kas kantor bertambah sebesar uang fisik yang diterima (setor bank tidak melewati kas kantor).
+  // Kas kantor bertambah sebesar uang fisik yang diterima (setor bank tidak melewati kas kantor). Diterima setelah hari
+  // kas hari ini ditutup (setoran tertunda PTB-21) → masuk kas hari berikutnya bertanda (Bab 5.3, US-M4-06 KP-7).
   if (input.via === "physical") {
+    const cashDate = await openCashDate(tx, dep.tenantId, today);
     await postOfficeCash(tx, ctx, {
       tenantId: dep.tenantId,
-      businessDate: today,
+      businessDate: cashDate.date,
       kind: "deposit_received",
       direction: "in",
       amount: input.receivedAmount,
       sourceObjectType: "deposit",
       sourceObjectId: dep.id,
-      description: `Setoran ${dep.number} (${label("deposit_source_type", dep.sourceType)})`,
+      description: `Setoran ${dep.number} (${label("deposit_source_type", dep.sourceType)})${cashDate.shifted ? " — diterima setelah kas ditutup" : ""}`,
     });
   }
   const source = await depositSourceInfo(tx, dep);
@@ -619,7 +636,7 @@ export async function receiveDepositCore(tx: Tx, ctx: ActorContext, depositId: s
       profitCenter: profitCenterFor(dep.sourceType),
       late,
       method: dep.method,
-      bankAccountId: ((dep.summarySnapshot as { bankAccountId?: string | null } | null)?.bankAccountId ?? null) as string | null,
+      bankAccountId: input.bankAccountId ?? (((dep.summarySnapshot as { bankAccountId?: string | null } | null)?.bankAccountId ?? null) as string | null),
       isPartial: dep.isPartial,
       depositNumber: dep.number,
       businessDate: dep.businessDate,

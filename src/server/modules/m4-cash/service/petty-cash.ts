@@ -8,7 +8,7 @@ import "server-only";
 
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
-import { pettyCashCounts, pettyCashTransactions } from "@/db/schema";
+import { outlets, pettyCashCounts, pettyCashTransactions } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { addDays, daysBetween, formatTanggal, type BusinessDate } from "@/lib/time";
@@ -210,6 +210,17 @@ export async function countPettyCash(ctx: ActorContext, input: unknown, opts: { 
     await auditRecord(tx, { ctx, objectType: "petty_cash_count", objectId: row!.id, action: "count", after: { systemBalance, physicalAmount: data.physicalAmount, difference }, reason: data.reason, rule: "US-M4-05 KP-2", businessDate: date });
     return { ...row!, discrepancyId };
   });
+}
+
+/** Pilihan outlet aktif tenant untuk pengeluaran kas kecil yang dibebankan ke unit tertentu (pusat laba per outlet). */
+export async function pettyCashOutletOptions(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<{ id: string; code: string; name: string }[]> {
+  await authorize(ctx, "m4.petty_cash.read", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  return tx
+    .select({ id: outlets.id, code: outlets.code, name: outlets.name })
+    .from(outlets)
+    .where(and(eq(outlets.tenantId, ctx.tenantId), eq(outlets.isActive, true)))
+    .orderBy(outlets.code);
 }
 
 export async function getPettyCash(ctx: ActorContext, filter: { from?: string | null; to?: string | null } = {}, opts: { tx?: Tx } = {}) {

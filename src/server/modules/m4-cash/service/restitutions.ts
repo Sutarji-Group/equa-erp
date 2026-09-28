@@ -8,7 +8,7 @@ import "server-only";
 
 import { and, asc, desc, eq, inArray, lte, ne, sql } from "drizzle-orm";
 
-import { discrepancies, employees, restitutionSettlements, restitutions } from "@/db/schema";
+import { deposits, discrepancies, employees, restitutionSettlements, restitutions } from "@/db/schema";
 import { formatRupiah } from "@/lib/money";
 import { firstDayOfMonth, lastDayOfMonth, type BusinessDate } from "@/lib/time";
 
@@ -18,14 +18,53 @@ import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { emit } from "@/server/core/events";
-import { markActionedForObject } from "@/server/core/notifications";
+import * as flags from "@/server/core/flags";
+import { isEnabled } from "@/server/core/flags";
+import { markActionedForObject, notify } from "@/server/core/notifications";
 import { authorize, runService, sod } from "@/server/core/rbac";
 
-import { reverseSettlementSchema, settleRestitutionSchema } from "../schemas";
+import { restitutionActiveSchema, reverseSettlementSchema, settleRestitutionSchema } from "../schemas";
 import { assertCashDayOpen, cashRules, officeCashOf, postOfficeCash, userIdOfEmployee } from "./common";
 
 export type RestitutionRow = typeof restitutions.$inferSelect;
 export type RestitutionSettlementRow = typeof restitutionSettlements.$inferSelect;
+
+// =====================================================================================================================
+// Parameter "ganti rugi aktif" (US-M4-03 KP-4; BR-11a/b, R08, PTB-22) — keputusan langsung pemilik (6.2b)
+// =====================================================================================================================
+
+const RESTITUTION_FLAG = "cash.restitution_active" as const;
+
+/** Status "ganti rugi aktif" untuk tenant pelaku (bawaan nonaktif sampai Peraturan Perusahaan berlaku). */
+export async function getRestitutionActive(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<boolean> {
+  await authorize(ctx, "m4.restitution.read", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  return isEnabled(tx, RESTITUTION_FLAG, { tenantId: ctx.tenantId });
+}
+
+/**
+ * Pemilik mengaktifkan/menonaktifkan ganti rugi karyawan setelah Peraturan Perusahaan berlaku (US-M4-03 KP-4).
+ * `flags.set` menegakkan penyetel (hanya pemilik; peran lain ditolak + log akses), alasan wajib, dan jejak audit;
+ * Admin Keuangan diberi tahu (6.2b). Sebelum aktif, selisih Ditolak tercatat tanpa beban ganti rugi.
+ */
+export async function setRestitutionActive(ctx: ActorContext, input: unknown, opts: { tx?: Tx } = {}): Promise<{ enabled: boolean }> {
+  const data = parseInput(restitutionActiveSchema, input, { enabled: "Ganti rugi aktif", reason: "Alasan" });
+  return runService(ctx, opts, async (tx) => {
+    await flags.set(ctx, RESTITUTION_FLAG, data.enabled, { scope: { type: "tenant", refId: ctx.tenantId }, reason: data.reason }, { tx });
+    await notify(tx, {
+      event: "parameter.changed",
+      tenantId: ctx.tenantId,
+      recipients: { roles: ["finance_admin"] },
+      title: data.enabled ? "Ganti rugi karyawan diaktifkan pemilik" : "Ganti rugi karyawan dinonaktifkan pemilik",
+      body: `${data.enabled ? "Selisih kurang yang ditolak pemilik mulai dicatat sebagai ganti rugi karyawan per kejadian." : "Selisih yang ditolak tercatat tanpa beban ganti rugi."} Alasan: ${data.reason}`,
+      objectType: "feature_flag",
+      objectId: RESTITUTION_FLAG,
+      link: "/kas/ganti-rugi",
+      now: ctx.now,
+    });
+    return { enabled: data.enabled };
+  });
+}
 
 function statusFor(amount: number, settled: number): RestitutionRow["status"] {
   if (settled <= 0) return "recorded";
@@ -163,7 +202,18 @@ export async function reverseRestitutionSettlement(ctx: ActorContext, input: unk
 // Daftar, saldo, rekap bulanan (US-M4-03 KP-3)
 // =====================================================================================================================
 
-export type RestitutionListRow = RestitutionRow & { employeeName: string; employeeNo: string; outstanding: number; settlements: RestitutionSettlementRow[] };
+export type RestitutionListRow = RestitutionRow & {
+  employeeName: string;
+  employeeNo: string;
+  outstanding: number;
+  settlements: RestitutionSettlementRow[];
+  /** Setoran asal selisih (rit/shift kejadian, US-M4-03 KP-2). */
+  depositId: string | null;
+  depositNumber: string | null;
+  discrepancyAmount: number | null;
+  /** Pembalik pelunasan yang sudah ada (tidak dapat dibalik dua kali). */
+  reversedSettlementIds: string[];
+};
 
 export async function listRestitutions(ctx: ActorContext, filter: { employeeId?: string | null; view?: "open" | "all" } = {}, opts: { tx?: Tx } = {}): Promise<RestitutionListRow[]> {
   await authorize(ctx, "m4.restitution.read", { tx: opts.tx });
@@ -172,15 +222,31 @@ export async function listRestitutions(ctx: ActorContext, filter: { employeeId?:
   if (filter.employeeId) conds.push(eq(restitutions.employeeId, filter.employeeId));
   if ((filter.view ?? "open") === "open") conds.push(ne(restitutions.status, "settled"));
   const rows = await tx
-    .select({ r: restitutions, name: employees.fullName, no: employees.employeeNo })
+    .select({ r: restitutions, name: employees.fullName, no: employees.employeeNo, depositId: discrepancies.depositId, depositNumber: deposits.number, discrepancyAmount: discrepancies.amount })
     .from(restitutions)
     .innerJoin(employees, eq(employees.id, restitutions.employeeId))
+    .leftJoin(discrepancies, eq(discrepancies.id, restitutions.discrepancyId))
+    .leftJoin(deposits, eq(deposits.id, discrepancies.depositId))
     .where(and(...conds))
-    .orderBy(desc(restitutions.businessDate))
+    .orderBy(desc(restitutions.businessDate), desc(restitutions.createdAt))
     .limit(1000);
   const ids = rows.map((r) => r.r.id);
   const settlements = ids.length ? await tx.select().from(restitutionSettlements).where(inArray(restitutionSettlements.restitutionId, ids)).orderBy(asc(restitutionSettlements.createdAt)) : [];
-  return rows.map(({ r, name, no }) => ({ ...r, employeeName: name, employeeNo: no, outstanding: r.amount - r.settledAmount, settlements: settlements.filter((s) => s.restitutionId === r.id) }));
+  const reversed = new Set(settlements.map((s) => s.reversalOfId).filter((x): x is string => !!x));
+  return rows.map(({ r, name, no, depositId, depositNumber, discrepancyAmount }) => {
+    const mine = settlements.filter((s) => s.restitutionId === r.id);
+    return {
+      ...r,
+      employeeName: name,
+      employeeNo: no,
+      outstanding: r.amount - r.settledAmount,
+      settlements: mine,
+      depositId: depositId ?? null,
+      depositNumber: depositNumber ?? null,
+      discrepancyAmount: discrepancyAmount ?? null,
+      reversedSettlementIds: mine.filter((s) => reversed.has(s.id)).map((s) => s.id),
+    };
+  });
 }
 
 export type RestitutionBalance = { employeeId: string; employeeName: string; employeeNo: string; recorded: number; settled: number; outstanding: number; count: number };

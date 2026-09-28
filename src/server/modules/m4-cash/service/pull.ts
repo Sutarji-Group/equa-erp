@@ -10,28 +10,11 @@ import { and, desc, eq, gte, max, or } from "drizzle-orm";
 import { deposits, discrepancies, restitutions } from "@/db/schema";
 import { addDays, toBusinessDate } from "@/lib/time";
 
+import type { MyCashReference } from "@/client/m4-cash/contract";
 import type { ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
 
-export type MyCashReference = {
-  employeeId: string | null;
-  restitution: { outstanding: number; recorded: number; settled: number; items: { id: string; businessDate: string; amount: number; settledAmount: number; status: string; reason: string }[] };
-  deposits: {
-    id: string;
-    number: string;
-    businessDate: string;
-    sourceType: string;
-    status: string;
-    expectedNet: number;
-    receivedAmount: number | null;
-    discrepancyAmount: number | null;
-    discrepancyReason: string | null;
-    receivedAt: string | null;
-    closedAt: string | null;
-    decision: string | null;
-    decisionReason: string | null;
-  }[];
-};
+export type { MyCashReference } from "@/client/m4-cash/contract";
 
 const HISTORY_DAYS = 30;
 
