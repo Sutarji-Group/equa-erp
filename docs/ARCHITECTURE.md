@@ -244,6 +244,12 @@ sebagai insiden.
 Tambahan modul (integrasi ronde 1): `employee.exited` (dipancarkan M1 saat tanggal keluar karyawan diisi/diubah dan saat
 tercapai; ditangani M10 → akun dinonaktifkan pada tanggal keluar, BR-37).
 
+Tambahan modul (integrasi ronde 2): `order.created` (dipancarkan M2 saat pesanan dibuat dari kantor atau langganan;
+payload mandiri: harga terkunci, cara bayar, asal — US-M2-01, US-M2-06) · `order.status_changed` (transisi status pesanan
+dari alur kantor: Menunggu persetujuan, Dibatalkan, keputusan persetujuan — US-M2-02 KP-2). M6 menambah field OPSIONAL
+(tanpa mengubah yang ada) pada payload `shift.closed`, `pos_sale.recorded`, `pos_sale.voided`, `water_supply.confirmed`
+(payload mandiri PTB-47; rincian di `docs/dev/modules/m6-pos.md`).
+
 Payload tiap event diketik di `src/server/core/events.types.ts`. Modul menambah event baru hanya dengan menambah entri
 di berkas itu (tambahan, tidak mengubah yang ada). M11 berlangganan event keuangan untuk jurnal otomatis (PRD 7.11.4);
 M9 membaca data, tidak berlangganan.

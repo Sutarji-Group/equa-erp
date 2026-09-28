@@ -6,18 +6,18 @@
 
 ## Ringkasan
 
-- **Prioritas M:** 134/490 KP (27.3%) · story: 13 lengkap, 37 sebagian, 44 belum
-- **Semua prioritas:** 143/554 KP (25.8%) · story: 13 lengkap, 42 sebagian, 59 belum
-- Uji dipindai: 498 judul di 60 berkas; 316 judul merujuk user story.
+- **Prioritas M:** 195/490 KP (39.8%) · story: 28 lengkap, 27 sebagian, 39 belum
+- **Semua prioritas:** 211/554 KP (38.1%) · story: 31 lengkap, 30 sebagian, 53 belum
+- Uji dipindai: 621 judul di 77 berkas; 430 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
 | M1 — Master Data | 6 | 6 | 0 | 0 | 36/36 | 100.0 |
-| M2 — Pesanan & Penjadwalan Rit | 11 | 0 | 5 | 6 | 8/51 | 15.7 |
+| M2 — Pesanan & Penjadwalan Rit | 11 | 11 | 0 | 0 | 51/51 | 100.0 |
 | M3 — Aplikasi Sopir | 10 | 0 | 6 | 4 | 8/55 | 14.5 |
 | M4 — Kas & Setoran | 6 | 0 | 2 | 4 | 2/36 | 5.6 |
 | M5 — Piutang & Penagihan | 7 | 0 | 3 | 4 | 4/32 | 12.5 |
-| M6 — Penjualan Depot (POS) | 7 | 0 | 7 | 0 | 17/42 | 40.5 |
+| M6 — Penjualan Depot (POS) | 7 | 7 | 0 | 0 | 42/42 | 100.0 |
 | M7 — Penjualan Toko & Stok | 9 | 0 | 4 | 5 | 5/37 | 13.5 |
 | M8 — Produksi & Stok Air | 7 | 0 | 2 | 5 | 3/29 | 10.3 |
 | M9 — Laporan & Dashboard Pemilik | 7 | 0 | 2 | 5 | 6/31 | 19.4 |
@@ -45,21 +45,21 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M2 — Pesanan & Penjadwalan Rit
 
-8/51 KP (15.7%) · story: 0 lengkap, 5 sebagian, 6 belum
+51/51 KP (100.0%) · story: 11 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M2-01 | Membuat pesanan dalam kurang dari 60 detik | M | 2/8 | sebagian | 2, 4, 5, 6, 7, 8 | 2 |
-| US-M2-02 | Nomor dan status pesanan | M | 1/4 | sebagian | 2, 3, 4 | 2 |
-| US-M2-03 | Papan jadwal rit harian | M | 0/7 | belum | 1, 2, 3, 4, 5, 6, 7 | 0 |
-| US-M2-04 | Peringatan pesanan dobel | M | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M2-05 | Kontrol kredit pada pesanan tempo | M | 1/6 | sebagian | 1, 2, 3, 4, 5 | 1 |
-| US-M2-06 | Pesanan berulang / langganan | S | 2/4 | sebagian | 1, 4 | 1 |
-| US-M2-07 | Konfirmasi pesanan ke pelanggan lewat WA | S | 2/3 | sebagian | 3 | 2 |
-| US-M2-08 | Riwayat dan catatan khusus pelanggan | M | 0/3 | belum | 1, 2, 3 | 0 |
-| US-M2-09 | Pembatalan, penjadwalan ulang, dan rit gagal | M | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M2-10 | Jadwal kerja kru dan ketersediaan truk | S | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M2-11 | Penetapan pengemudi pengganti harian | M | 0/5 | belum | 1, 2, 3, 4, 5 | 5 |
+| US-M2-01 | Membuat pesanan dalam kurang dari 60 detik | M | 8/8 | lengkap | — | 14 |
+| US-M2-02 | Nomor dan status pesanan | M | 4/4 | lengkap | — | 8 |
+| US-M2-03 | Papan jadwal rit harian | M | 7/7 | lengkap | — | 11 |
+| US-M2-04 | Peringatan pesanan dobel | M | 3/3 | lengkap | — | 3 |
+| US-M2-05 | Kontrol kredit pada pesanan tempo | M | 6/6 | lengkap | — | 9 |
+| US-M2-06 | Pesanan berulang / langganan | S | 4/4 | lengkap | — | 5 |
+| US-M2-07 | Konfirmasi pesanan ke pelanggan lewat WA | S | 3/3 | lengkap | — | 5 |
+| US-M2-08 | Riwayat dan catatan khusus pelanggan | M | 3/3 | lengkap | — | 3 |
+| US-M2-09 | Pembatalan, penjadwalan ulang, dan rit gagal | M | 4/4 | lengkap | — | 4 |
+| US-M2-10 | Jadwal kerja kru dan ketersediaan truk | S | 4/4 | lengkap | — | 4 |
+| US-M2-11 | Penetapan pengemudi pengganti harian | M | 5/5 | lengkap | — | 11 |
 
 ## M3 — Aplikasi Sopir
 
@@ -107,17 +107,17 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M6 — Penjualan Depot (POS)
 
-17/42 KP (40.5%) · story: 0 lengkap, 7 sebagian, 0 belum
+42/42 KP (100.0%) · story: 7 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M6-01 | Transaksi cepat di POS depot | M | 3/7 | sebagian | 3, 5, 6, 7 | 3 |
-| US-M6-02 | Buka dan tutup shift dengan kas dan stok fisik; setoran outlet | M | 4/7 | sebagian | 3, 6, 7 | 3 |
-| US-M6-03 | Void dengan alasan | M | 2/5 | sebagian | 3, 4, 5 | 3 |
-| US-M6-04 | Stok bahan habis pakai dan opname mingguan | M | 1/6 | sebagian | 2, 3, 4, 5, 6 | 2 |
-| US-M6-05 | Menerima pasokan air dan neraca air outlet | M | 2/6 | sebagian | 2, 4, 5, 6 | 2 |
-| US-M6-06 | Bekerja tanpa sinyal | M | 3/5 | sebagian | 4, 5 | 3 |
-| US-M6-07 | Paket standar multi-tenant | M | 2/6 | sebagian | 1, 4, 5, 6 | 3 |
+| US-M6-01 | Transaksi cepat di POS depot | M | 7/7 | lengkap | — | 12 |
+| US-M6-02 | Buka dan tutup shift dengan kas dan stok fisik; setoran outlet | M | 7/7 | lengkap | — | 13 |
+| US-M6-03 | Void dengan alasan | M | 5/5 | lengkap | — | 10 |
+| US-M6-04 | Stok bahan habis pakai dan opname mingguan | M | 6/6 | lengkap | — | 8 |
+| US-M6-05 | Menerima pasokan air dan neraca air outlet | M | 6/6 | lengkap | — | 8 |
+| US-M6-06 | Bekerja tanpa sinyal | M | 5/5 | lengkap | — | 12 |
+| US-M6-07 | Paket standar multi-tenant | M | 6/6 | lengkap | — | 13 |
 
 ## M7 — Penjualan Toko & Stok
 
