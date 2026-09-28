@@ -45,6 +45,8 @@ export type ReceivableRules = {
   aging_second_bucket_days: number;
   hold_warning_days: number;
   statement_default_days: number;
+  /** KPI-04: sasaran % piutang lewat tempo (bawaan 5). */
+  kpi04_target_percent: number;
 };
 
 /** Aturan piutang non-PAR (params `m5.receivable_rules`). */

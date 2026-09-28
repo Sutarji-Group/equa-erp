@@ -77,12 +77,26 @@ async function candidates(tx: Tx, tenantId: string, date: BusinessDate): Promise
   return out;
 }
 
+export type ReminderList = {
+  date: BusinessDate;
+  groups: ReminderGroup[];
+  /** PAR-13: pengingat H-n sebelum dan H+n sesudah jatuh tempo (untuk label layar). */
+  daysBeforeDue: number;
+  daysAfterDue: number;
+};
+
+/** Label jenis pengingat mengikuti PAR-13 (mis. "H-3 sebelum jatuh tempo"). */
+export function reminderKindLabel(kind: ReminderKind, list: Pick<ReminderList, "daysBeforeDue" | "daysAfterDue">): string {
+  return kind === "before_due" ? `H-${list.daysBeforeDue} sebelum jatuh tempo` : `H+${list.daysAfterDue} sesudah jatuh tempo`;
+}
+
 /** Daftar pengingat harian per pelanggan (KP-1) — gabungan kandidat & status "dibuka" yang tercatat. */
-export async function listReminders(ctx: ActorContext, input: { date?: BusinessDate | null } = {}, opts: { tx?: Tx } = {}): Promise<{ date: BusinessDate; groups: ReminderGroup[] }> {
+export async function listReminders(ctx: ActorContext, input: { date?: BusinessDate | null } = {}, opts: { tx?: Tx } = {}): Promise<ReminderList> {
   await authorize(ctx, "m5.reminder.read", { tx: opts.tx });
   const tx = opts.tx ?? getDb();
   const date = input.date && isBusinessDate(input.date) ? input.date : ctxBusinessDate(ctx);
-  return { date, groups: await reminderGroups(tx, ctx.tenantId, date) };
+  const par13 = await params.get(tx, "PAR-13", date);
+  return { date, groups: await reminderGroups(tx, ctx.tenantId, date), daysBeforeDue: par13.days_before_due, daysAfterDue: par13.days_after_due };
 }
 
 async function reminderGroups(tx: Tx, tenantId: string, date: BusinessDate): Promise<ReminderGroup[]> {

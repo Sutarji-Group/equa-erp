@@ -56,6 +56,8 @@ export type AgingReport = {
   bySegment: AgingGroupRow[];
   byLine: AgingGroupRow[];
   totals: Buckets & { unbilled: number; total: number; overdue: number; overduePct: number };
+  /** Sasaran KPI-04 (% lewat tempo) dari `m5.receivable_rules`. */
+  kpi04TargetPercent: number;
 };
 
 function bucketLabels(rules: { aging_first_bucket_days: number; aging_second_bucket_days: number }): Record<AgingBucket, string> {
@@ -139,6 +141,7 @@ export async function computeAging(tx: Tx, tenantId: string, asOf: BusinessDate,
     bySegment: [...bySegment.values()].sort((a, b) => b.total - a.total),
     byLine: [...byLine.values()].sort((a, b) => b.total - a.total),
     totals,
+    kpi04TargetPercent: rules.kpi04_target_percent,
   };
 }
 
@@ -352,6 +355,8 @@ export async function dailyActionList(ctx: ActorContext, opts: { tx?: Tx; date?:
   const board = await creditStatusBoard(ctx, { tx, date });
   return {
     date,
+    daysBeforeDue: reminders.daysBeforeDue,
+    daysAfterDue: reminders.daysAfterDue,
     remind: reminders.groups.filter((g) => g.status !== "skipped"),
     willHold: board.willHold,
     onHold: board.onHold,
@@ -363,8 +368,10 @@ export async function dailyActionList(ctx: ActorContext, opts: { tx?: Tx; date?:
 /** Ringkasan umur piutang mingguan ke pemilik (PAR-40, Senin pagi). */
 export async function sendWeeklyAgingSummary(tx: Tx, ctx: ActorContext, tenantId: string, date: BusinessDate): Promise<{ total: number; overduePct: number }> {
   const aging = await computeAging(tx, tenantId, date);
+  const rules = await receivableRules(tx, date, tenantId);
   const top = aging.customers.filter((c) => c.overdue > 0).slice(0, 5);
   const t = aging.totals;
+  const onTarget = t.overduePct < rules.kpi04_target_percent;
   await notify(tx, {
     event: "receivable.weekly_aging",
     tenantId,
@@ -372,7 +379,7 @@ export async function sendWeeklyAgingSummary(tx: Tx, ctx: ActorContext, tenantId
     body: [
       `Total piutang ${formatRupiah(t.total)} (belum jatuh tempo ${formatRupiah(t.not_due)}, ${aging.bucketLabels.d1_7} ${formatRupiah(t.d1_7)}, ${aging.bucketLabels.d8_30} ${formatRupiah(t.d8_30)}, ${aging.bucketLabels.over_30} ${formatRupiah(t.over_30)}, belum ditagih ${formatRupiah(t.unbilled)}).`,
       top.length ? `Lewat tempo terbesar: ${top.map((c) => `${c.name} ${formatRupiah(c.overdue)}`).join("; ")}.` : "Tidak ada piutang lewat tempo.",
-      "KPI-04: lewat tempo di bawah 5%.",
+      `Sasaran KPI-04: lewat tempo di bawah ${rules.kpi04_target_percent.toLocaleString("id-ID")}% — ${onTarget ? "tercapai" : "belum tercapai, prioritaskan penagihan"}.`,
     ].join(" "),
     valueAmount: t.overdue,
     valueText: `${t.overduePct}%`,

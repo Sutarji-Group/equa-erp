@@ -313,6 +313,32 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: Archive,
         permission: "m5.opening_balance.read",
       },
+      // --- Tambahan modul M5 (hanya tambah) ---
+      {
+        id: "m5.credit_status",
+        href: "/piutang/status-kredit",
+        label: "Status kredit",
+        icon: Gauge,
+        permission: "m5.credit_exposure.read",
+        description: "Ditahan, akan Ditahan, masa transisi, layak diajukan Tempo, dan eksposur per pelanggan (US-M5-03).",
+      },
+      { id: "m5.invoices.detail", href: "/piutang/faktur/[id]", label: "Rincian faktur", icon: FileText, permission: "m5.invoice.read", hidden: true },
+      {
+        id: "m5.payments.detail",
+        href: "/piutang/pelunasan/[id]",
+        label: "Rincian pelunasan",
+        icon: CreditCard,
+        permission: "m5.customer_payment.read",
+        hidden: true,
+      },
+      {
+        id: "m5.customer_card",
+        href: "/piutang/pelanggan/[id]",
+        label: "Kartu piutang",
+        icon: IdCard,
+        permission: ["m5.aging.read", "m5.credit_exposure.read"],
+        hidden: true,
+      },
     ],
   },
   {

@@ -40,17 +40,29 @@ export { pendingTransferInvoice } from "./service/sources";
 // --- Pelunasan & uang muka (US-M5-02, 7.5.6) -------------------------------------------------------------------------
 export {
   applyAdvance,
+  getPaymentDetail,
   listAdvances,
   listPayments,
   paymentReceipt,
   reallocateCustomerPayment,
+  reclassCandidates,
   reclassifyTripCash,
   recordOfficePayment,
   requestAdvanceRefund,
   reverseCustomerPayment,
   sendPaymentReceipt,
 } from "./service/payments";
-export type { AdvanceListRow, OfficePaymentResult, PaymentListRow, PaymentReceipt, ReallocationResult, ReclassResult, ReversalResult } from "./service/payments";
+export type {
+  AdvanceListRow,
+  OfficePaymentResult,
+  PaymentDetail,
+  PaymentListRow,
+  PaymentReceipt,
+  ReallocationResult,
+  ReclassCandidate,
+  ReclassResult,
+  ReversalResult,
+} from "./service/payments";
 
 // --- Status kredit & Ditahan (US-M5-03) ------------------------------------------------------------------------------
 export {
@@ -59,6 +71,7 @@ export {
   creditStatusBoard,
   deferCreditHold,
   endCreditHoldDeferral,
+  holdDeferralLimit,
   releaseCreditHold,
   requestCreditHoldRelease,
   runHoldEvaluationNow,
@@ -71,8 +84,8 @@ export { agingReport, customerStatement, dailyActionList, receivableOverview, se
 export type { AgingCustomerRow, AgingGroupRow, AgingReport, CustomerStatement, ReceivableOverview, StatementEntry } from "./service/aging";
 
 // --- Pengingat & template (US-M5-05) ---------------------------------------------------------------------------------
-export { listReminders, openReminder } from "./service/reminders";
-export type { ReminderGroup } from "./service/reminders";
+export { listReminders, openReminder, reminderKindLabel } from "./service/reminders";
+export type { ReminderGroup, ReminderKind, ReminderList } from "./service/reminders";
 export { listReceivableTemplates, M5_TEMPLATE_KINDS, TEMPLATE_REQUIRED_VARIABLES, updateReceivableTemplate } from "./service/templates";
 export type { ActiveTemplate, M5TemplateKind } from "./service/templates";
 

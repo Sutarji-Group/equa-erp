@@ -540,16 +540,25 @@ export const PARAM_REGISTRY = {
         hold_warning_days: int(0),
         /** US-M5-04 KP-2: rentang bawaan kartu piutang (hari ke belakang). */
         statement_default_days: int(1),
+        /** KPI-04: sasaran % piutang lewat tempo terhadap total piutang (ditampilkan di umur piutang & ringkasan mingguan). */
+        kpi04_target_percent: z.number().min(0).max(100),
       })
       .strict(),
     affectedRoles: ["finance_admin", "dispatcher"],
-    fallback: { underpayment_due_days: 0, aging_first_bucket_days: 7, aging_second_bucket_days: 30, hold_warning_days: 3, statement_default_days: 90 },
+    fallback: {
+      underpayment_due_days: 0,
+      aging_first_bucket_days: 7,
+      aging_second_bucket_days: 30,
+      hold_warning_days: 3,
+      statement_default_days: 90,
+      kpi04_target_percent: 5,
+    },
     meta: {
-      name: "Aturan piutang (jatuh tempo kurang bayar, kelompok umur, peringatan Ditahan, kartu piutang)",
+      name: "Aturan piutang (jatuh tempo kurang bayar, kelompok umur, peringatan Ditahan, kartu piutang, sasaran KPI-04)",
       unit: null,
-      reference: "PTB-18, FR-M5-04, US-M5-04 KP-2/KP-3",
+      reference: "PTB-18, FR-M5-04, US-M5-04 KP-1/KP-2/KP-3, KPI-04",
       description:
-        "Jatuh tempo faktur kurang bayar lapangan (H+N), batas kelompok umur piutang (1–7 / 8–30 / > 30 hari), jendela hari \"akan Ditahan\" pada daftar tindakan harian, dan rentang bawaan kartu piutang.",
+        "Jatuh tempo faktur kurang bayar lapangan (H+N), batas kelompok umur piutang (1–7 / 8–30 / > 30 hari), jendela hari \"akan Ditahan\" pada daftar tindakan harian, rentang bawaan kartu piutang, dan sasaran % piutang lewat tempo (KPI-04, bawaan < 5%).",
     },
   }),
 } as const satisfies Record<string, ParamDef>;

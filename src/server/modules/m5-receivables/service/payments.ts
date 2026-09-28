@@ -13,7 +13,7 @@
  */
 import "server-only";
 
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, like, lte, sql, sum } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lte, sql, sum } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -29,7 +29,7 @@ import {
 } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { formatRupiah, zRupiahPositive } from "@/lib/money";
-import { formatTanggal, isBusinessDate, type BusinessDate } from "@/lib/time";
+import { addDays, formatTanggal, isBusinessDate, type BusinessDate } from "@/lib/time";
 
 import * as approvals from "@/server/core/approvals";
 import { record as auditRecord } from "@/server/core/audit";
@@ -901,4 +901,129 @@ export async function sendPaymentReceipt(ctx: ActorContext, input: { paymentId: 
     await auditRecord(tx, { ctx, objectType: "customer_payment", objectId: r.payment.id, action: "receipt_sent", after: { via: "wa" }, rule: "US-M5-02 KP-5" });
     return { link, text };
   });
+}
+
+// =====================================================================================================================
+// Rincian pelunasan (layar /piutang/pelunasan/[id]) & kandidat reklasifikasi tunai rit (7.5.6)
+// =====================================================================================================================
+
+export type PaymentDetail = {
+  payment: PaymentRow;
+  customer: { id: string; name: string; code: string | null; waPhone: string; creditStatus: string };
+  /** Alokasi hidup per faktur (Σ baris + pembalik). */
+  allocations: { invoiceId: string; number: string; amount: number; status: string; outstanding: number }[];
+  /** Riwayat baris alokasi (termasuk pembalik negatif). */
+  allocationRows: (typeof paymentAllocations.$inferSelect & { number: string })[];
+  reversal: PaymentRow | null;
+  reversalOf: PaymentRow | null;
+  advances: (typeof customerAdvances.$inferSelect)[];
+  /** Faktur terbuka pelanggan (untuk realokasi). */
+  openInvoices: { id: string; number: string; kind: string; dueDate: string; outstanding: number; disputed: boolean }[];
+  pendingApprovals: { id: string; number: string; status: string; amount: number | null; reason: string; createdAt: Date }[];
+  tripNumber: string | null;
+};
+
+/** Rincian satu pelunasan (izin `m5.customer_payment.read`). */
+export async function getPaymentDetail(ctx: ActorContext, paymentId: string, opts: { tx?: Tx } = {}): Promise<PaymentDetail> {
+  await authorize(ctx, "m5.customer_payment.read", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const payment = await loadPayment(tx, paymentId, { ctx });
+  const customer = await loadCustomer(tx, payment.customerId);
+  const rows = await tx
+    .select({ a: paymentAllocations, number: invoices.number })
+    .from(paymentAllocations)
+    .innerJoin(invoices, eq(invoices.id, paymentAllocations.invoiceId))
+    .where(eq(paymentAllocations.customerPaymentId, payment.id))
+    .orderBy(asc(paymentAllocations.allocatedAt), asc(paymentAllocations.createdAt));
+  const live = await liveAllocations(tx, { paymentId: payment.id });
+  const invRows = live.length ? await tx.select().from(invoices).where(inArray(invoices.id, live.map((l) => l.invoiceId))) : [];
+  const [reversal] = await tx.select().from(customerPayments).where(eq(customerPayments.reversalOfId, payment.id)).limit(1);
+  const reversalOf = payment.reversalOfId ? ((await tx.select().from(customerPayments).where(eq(customerPayments.id, payment.reversalOfId)).limit(1))[0] ?? null) : null;
+  const advances = await tx.select().from(customerAdvances).where(eq(customerAdvances.sourcePaymentId, payment.id)).orderBy(asc(customerAdvances.createdAt));
+  const open = await openInvoicesOldestFirst(tx, customer.id, { includeDisputed: true });
+  const approvalRows = await tx
+    .select()
+    .from(approvalRequests)
+    .where(and(eq(approvalRequests.objectType, "customer_payment"), eq(approvalRequests.objectId, payment.id)))
+    .orderBy(desc(approvalRequests.createdAt));
+  const trip = payment.tripId ? ((await tx.select({ number: trips.number }).from(trips).where(eq(trips.id, payment.tripId)).limit(1))[0] ?? null) : null;
+  return {
+    payment,
+    customer: { id: customer.id, name: customer.name, code: customer.code, waPhone: customer.waPhone, creditStatus: customer.creditStatus },
+    allocations: live.map((l) => {
+      const inv = invRows.find((i) => i.id === l.invoiceId);
+      return { invoiceId: l.invoiceId, number: inv?.number ?? "", amount: l.amount, status: inv?.status ?? "open", outstanding: inv?.outstandingAmount ?? 0 };
+    }),
+    allocationRows: rows.map((r) => ({ ...r.a, number: r.number })),
+    reversal: reversal ?? null,
+    reversalOf,
+    advances,
+    openInvoices: open.map((i) => ({ id: i.id, number: i.number, kind: i.kind, dueDate: i.dueDate, outstanding: i.outstandingAmount, disputed: i.disputeStatus === "disputed" })),
+    pendingApprovals: approvalRows.map((r) => ({ id: r.id, number: r.number, status: r.status, amount: r.amount, reason: r.reason, createdAt: r.createdAt })),
+    tripNumber: trip?.number ?? null,
+  };
+}
+
+export type ReclassCandidate = {
+  tripId: string;
+  tripNumber: string;
+  tripPaymentId: string;
+  customerId: string;
+  customerName: string;
+  businessDate: string;
+  amount: number;
+  /** Sisa faktur terbuka pelanggan (di luar rit ini). */
+  otherOutstanding: number;
+};
+
+/**
+ * Tunai rit yang dapat direklasifikasi menjadi pelunasan (7.5.6): pembayaran rit tunai yang belum dibalik, pelanggan
+ * masih memiliki faktur terbuka, rit belum berfaktur kirim, dalam rentang `statement_default_days` terakhir.
+ */
+export async function reclassCandidates(ctx: ActorContext, input: { customerId?: string | null } = {}, opts: { tx?: Tx } = {}): Promise<ReclassCandidate[]> {
+  await authorize(ctx, "m5.customer_payment.reallocate", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const today = ctxBusinessDate(ctx);
+  const rules = (await params.get(tx, "m5.receivable_rules", today, { tenantId: ctx.tenantId })) as { statement_default_days: number };
+  const from = addDays(today, -rules.statement_default_days);
+  const conds = [
+    eq(trips.tenantId, ctx.tenantId),
+    eq(tripPayments.method, "cash"),
+    gt(tripPayments.receivedAmount, 0),
+    isNull(tripPayments.reversalOfId),
+    isNull(tripPayments.reversedAt),
+    gte(tripPayments.businessDate, from),
+    sql`not exists (select 1 from ${invoices} where ${invoices.tripId} = ${trips.id} and ${invoices.kind} = 'delivery')`,
+    sql`exists (select 1 from ${invoices} where ${invoices.customerId} = ${tripPayments.customerId} and ${invoices.outstandingAmount} > 0)`,
+  ];
+  if (input.customerId) conds.push(eq(tripPayments.customerId, input.customerId));
+  const rows = await tx
+    .select({ p: tripPayments, number: trips.number, customerName: customers.name })
+    .from(tripPayments)
+    .innerJoin(trips, eq(trips.id, tripPayments.tripId))
+    .innerJoin(customers, eq(customers.id, tripPayments.customerId))
+    .where(and(...conds))
+    .orderBy(desc(tripPayments.businessDate), desc(tripPayments.createdAt))
+    .limit(100);
+  const out: ReclassCandidate[] = [];
+  for (const r of rows) {
+    const [dup] = await tx
+      .select({ id: customerPayments.id })
+      .from(customerPayments)
+      .where(and(eq(customerPayments.tripId, r.p.tripId), like(customerPayments.notes, `%${RECLASS_TAG(r.p.id)}%`), isNull(customerPayments.reversalOfId)))
+      .limit(1);
+    if (dup) continue;
+    const [bal] = await tx.select({ total: sum(invoices.outstandingAmount) }).from(invoices).where(and(eq(invoices.customerId, r.p.customerId), gt(invoices.outstandingAmount, 0)));
+    out.push({
+      tripId: r.p.tripId,
+      tripNumber: r.number,
+      tripPaymentId: r.p.id,
+      customerId: r.p.customerId,
+      customerName: r.customerName,
+      businessDate: r.p.businessDate,
+      amount: r.p.receivedAmount,
+      otherOutstanding: Number(bal?.total ?? 0),
+    });
+  }
+  return out;
 }

@@ -187,7 +187,8 @@ describe("7.5.6 Pengecualian pelunasan", () => {
     const trip = await w.addTrip({ paymentMethod: "credit" });
     await departArrive(w, trip.id);
     expectApplied(await completeCash(w, trip.id)); // sopir mencatat tunai rit penuh
-    const cashBefore = (await w.today()).cash;
+    const cashBefore = (await w.today()).deposit;
+    expect(cashBefore?.expectedCash).toBe(PRICE);
     const res = await m5.reclassifyTripCash(finance(), { tripId: trip.id, reason: "Pelanggan membayar faktur lama lewat sopir" });
     expect(res.status).toBe("reclassified");
     if (res.status !== "reclassified") throw new Error("unexpected");
@@ -195,8 +196,8 @@ describe("7.5.6 Pengecualian pelunasan", () => {
     expect(await invoiceRow(t.db, res.invoiceId)).toMatchObject({ kind: "delivery", tripId: trip.id, amount: PRICE, outstandingAmount: PRICE });
     const [p] = await t.db.select().from(customerPayments).where(eq(customerPayments.id, res.paymentId));
     expect(p).toMatchObject({ method: "internal", channel: "office", amount: PRICE });
-    const cashAfter = (await w.today()).cash;
-    expect(cashAfter).toEqual(cashBefore);
+    const cashAfter = (await w.today()).deposit;
+    expect(cashAfter).toMatchObject({ expectedCash: cashBefore!.expectedCash, expectedNet: cashBefore!.expectedNet });
     const [ev] = await eventsOf(t.db, "collection.recorded", res.paymentId);
     expect(ev!.payload).toMatchObject({ method: "internal", reclassifiedFromTripPaymentId: expect.any(String) });
     await expect(m5.reclassifyTripCash(finance(), { tripId: trip.id, reason: "Ulang lagi" })).rejects.toThrow(/sudah/);

@@ -93,6 +93,7 @@ m4.office_cash.read
 m4.petty_cash.read
 m4.restitution.read
 m5.aging.read
+m5.credit_exposure.read
 m5.customer_payment.read
 m5.invoice.read
 m5.monthly_invoice.read
@@ -156,6 +157,10 @@ p3.support_request.read
 | Piutang | `/piutang/pengingat` | Pengingat jatuh tempo | `m5.reminder.read` |  |
 | Piutang | `/piutang/faktur-bulanan` | Faktur bulanan | `m5.monthly_invoice.read` |  |
 | Piutang | `/piutang/saldo-awal` | Saldo awal piutang | `m5.opening_balance.read` |  |
+| Piutang | `/piutang/status-kredit` | Status kredit | `m5.credit_exposure.read` |  |
+| Piutang | `/piutang/faktur/[id]` | Rincian faktur | `m5.invoice.read` | tidak tampil di sidebar |
+| Piutang | `/piutang/pelunasan/[id]` | Rincian pelunasan | `m5.customer_payment.read` | tidak tampil di sidebar |
+| Piutang | `/piutang/pelanggan/[id]` | Kartu piutang | `m5.aging.read` / `m5.credit_exposure.read` | tidak tampil di sidebar |
 | Depot & toko | `/outlet` | Pemantauan outlet | `m6.outlet.read` |  |
 | Depot & toko | `/outlet/[id]` | Rincian outlet | `m6.outlet.read` | tidak tampil di sidebar |
 | Depot & toko | `/outlet/shift/[id]` | Rincian shift | `m6.outlet.read` | tidak tampil di sidebar |

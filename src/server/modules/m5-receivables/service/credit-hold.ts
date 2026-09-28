@@ -365,6 +365,14 @@ export async function transitionLimit(tx: Tx, date: BusinessDate): Promise<{ goL
   return { goLive, maxUntil: addMonthsDate(goLive ?? date, par41.max_months_since_go_live), months: par41.max_months_since_go_live };
 }
 
+/** Batas masa transisi untuk layar (izin `m5.credit_exposure.read`). */
+export async function holdDeferralLimit(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<{ goLive: BusinessDate | null; maxUntil: BusinessDate; months: number; today: BusinessDate }> {
+  await authorize(ctx, "m5.credit_exposure.read", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const today = ctxBusinessDate(ctx);
+  return { ...(await transitionLimit(tx, today)), today };
+}
+
 /** Pemilik menunda penahanan otomatis per pelanggan sampai tanggal tertentu (≤ go-live + PAR-41). */
 export async function deferCreditHold(ctx: ActorContext, input: unknown, opts: { tx?: Tx } = {}) {
   await authorize(ctx, "m5.credit_hold.defer", { tx: opts.tx });

@@ -17,6 +17,8 @@
  */
 import "server-only";
 
+import { toBusinessDate } from "@/lib/time";
+
 import { EQUA_TENANT_ID, systemContext, type ActorContext } from "@/server/core/context";
 import { on, type DomainEvent } from "@/server/core/events";
 
@@ -51,7 +53,7 @@ export function registerEvents(): void {
     "cash_day.closed",
     async (event, tx) => {
       const ctx = systemFor(event);
-      const date = event.businessDate ?? event.occurredAt.toISOString().slice(0, 10);
+      const date = event.businessDate ?? toBusinessDate(event.occurredAt);
       await evaluateCreditHolds(tx, { ...ctx, businessDate: date }, ctx.tenantId, date);
     },
     { name: "m5-receivables:hold_after_cash_close" },

@@ -34,7 +34,7 @@ import { getDb, type Tx } from "@/server/core/db";
 import { ConflictError, DomainError, ValidationError, parseInput } from "@/server/core/errors";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
-import { authorize, runService } from "@/server/core/rbac";
+import { authorize, authorizeAny, runService } from "@/server/core/rbac";
 import { buildWaLink, recordWaOpened, renderTemplate } from "@/server/core/wa";
 
 import { agingBucket, customerCardLink, invoiceLink, lineOfKind, loadCustomer, loadInvoice, receivableRules, type InvoiceRow } from "./common";
@@ -201,6 +201,7 @@ export async function sendInvoice(ctx: ActorContext, input: unknown, opts: { tx?
     const bank = await customerBankAccount(tx, inv.tenantId);
     const kind = inv.kind === "monthly" ? "monthly_invoice" : "invoice";
     const tpl = await activeTemplate(tx, inv.tenantId, kind);
+    const company = await companyName(tx, inv.tenantId, ctxBusinessDate(ctx));
     const { text } = renderTemplate(tpl.body, {
       nama_pelanggan: customer.name,
       nomor_faktur: inv.number,
@@ -212,12 +213,16 @@ export async function sendInvoice(ctx: ActorContext, input: unknown, opts: { tx?
       rekening: bank?.text ?? "",
       nama_rekening: bank?.accountName ?? "",
       tautan_pdf: opts.pdfUrl ?? "",
-      nama_usaha: await companyName(tx, inv.tenantId, ctxBusinessDate(ctx)),
+      nama_usaha: company,
     });
     let link: string | null = null;
     if (data.via === "wa") {
       link = buildWaLink(customer.waPhone, text);
       await recordWaOpened(tx, ctx, { kind, toPhone: customer.waPhone, renderedText: text, templateId: tpl.id, customerId: customer.id, objectType: "invoice", objectId: inv.id });
+    } else {
+      // E-mail: draf e-mail terisi (PDF faktur dilampirkan Admin Keuangan dari tombol unduh); pengiriman tercatat.
+      const subject = `${inv.kind === "monthly" ? "Faktur bulanan" : "Faktur"} ${inv.number} — ${company}`;
+      link = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
     }
     await tx.update(invoices).set({ sentAt: ctx.now, sentVia: data.via, updatedAt: ctx.now }).where(eq(invoices.id, inv.id));
     await auditRecord(tx, { ctx, objectType: "invoice", objectId: inv.id, action: "send", after: { via: data.via, sentAt: ctx.now }, rule: "US-M5-01 KP-5" });
@@ -337,6 +342,12 @@ export async function requestCreditNote(ctx: ActorContext, input: unknown, opts:
     await recomputeInvoice(tx, ctx, data.invoiceId);
     const inv = await loadInvoice(tx, data.invoiceId, { ctx, forUpdate: true });
     if (inv.status === "paid") throw new DomainError("INVOICE_LOCKED", `Faktur ${inv.number} sudah Lunas dan terkunci. Balik pelunasannya dulu (BR-38).`);
+    if (inv.isOpeningBalance) {
+      throw new DomainError("OPENING_CORRECTION", `Faktur ${inv.number} adalah saldo awal — koreksi lewat menu Saldo awal piutang (pembatalan sebelum ditandatangani, atau penyesuaian berjejak setelahnya).`);
+    }
+    if (inv.disputeStatus === "disputed") {
+      throw new DomainError("INVOICE_DISPUTED", `Faktur ${inv.number} sedang bersengketa — koreksi lewat keputusan sengketa oleh pemilik (7.5.6).`);
+    }
     if (data.amount > inv.outstandingAmount) {
       throw ValidationError.field("amount", `Nota kredit ${formatRupiah(data.amount)} melebihi sisa faktur ${formatRupiah(inv.outstandingAmount)}.`);
     }
@@ -441,12 +452,20 @@ export async function writeOffInvoice(
   return inv;
 }
 
-/** Lookup cepat pelanggan untuk pilihan formulir. */
+/** Lookup cepat pelanggan untuk pilihan formulir (layar piutang, pelunasan, status kredit, saldo awal). */
 export async function customerOptions(ctx: ActorContext, opts: { tx?: Tx; withOpenOnly?: boolean } = {}) {
-  await authorize(ctx, "m5.invoice.read", { tx: opts.tx });
+  await authorizeAny(ctx, ["m5.invoice.read", "m5.customer_payment.read", "m5.credit_exposure.read", "m5.opening_balance.read"], { tx: opts.tx });
   const tx = opts.tx ?? getDb();
   const rows = await tx
-    .select({ id: customers.id, code: customers.code, name: customers.name, creditStatus: customers.creditStatus })
+    .select({
+      id: customers.id,
+      code: customers.code,
+      name: customers.name,
+      creditStatus: customers.creditStatus,
+      segment: customers.segment,
+      monthlyBilling: customers.monthlyBilling,
+      isActive: customers.isActive,
+    })
     .from(customers)
     .where(and(eq(customers.tenantId, ctx.tenantId), sql`${customers.internalOutletId} is null`))
     .orderBy(asc(customers.name));

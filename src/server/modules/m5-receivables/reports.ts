@@ -18,7 +18,7 @@ import { listInvoices } from "./service/invoices";
 import { monthlyBoard } from "./service/monthly";
 import { openingBoard } from "./service/opening";
 import { listAdvances, listPayments } from "./service/payments";
-import { listReminders } from "./service/reminders";
+import { listReminders, reminderKindLabel } from "./service/reminders";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional();
 const uuid = z.string().uuid().optional();
@@ -200,14 +200,17 @@ export function registerReports(): void {
     containsPii: true,
     filtersSchema: z.object({ date }),
     columns: [
-      { key: "kind", header: "Jenis", value: (r: { kind: string }) => (r.kind === "before_due" ? "H-3 sebelum jatuh tempo" : "H+1 sesudah jatuh tempo") },
+      { key: "kindLabel", header: "Jenis" },
       { key: "customerName", header: "Pelanggan", width: 24 },
       { key: "waPhone", header: "WA", pii: "phone" },
       { key: "invoiceNumbers", header: "Faktur", width: 26, value: (r: { invoices: { number: string }[] }) => r.invoices.map((i) => i.number).join(", ") },
       { key: "total", header: "Total sisa", type: "rupiah", total: true },
       { key: "status", header: "Status", type: "enum", enumName: "reminder_status" },
     ],
-    fetch: async (ctx, f, { tx }) => ({ rows: (await listReminders(ctx, { date: f.date ?? null }, { tx })).groups }),
+    fetch: async (ctx, f, { tx }) => {
+      const list = await listReminders(ctx, { date: f.date ?? null }, { tx });
+      return { rows: list.groups.map((g) => ({ ...g, kindLabel: reminderKindLabel(g.kind, list) })) };
+    },
   });
 
   registerReport({
