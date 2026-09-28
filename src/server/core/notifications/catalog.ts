@@ -117,6 +117,9 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("anonymization.executed", "Anonimisasi data pribadi dijalankan", "info", ["owner", "system_admin"], "Informasi", "US-M10-06 KP-2"),
   e("backup.failed", "Pencadangan gagal", "high", ["system_admin", "owner"], "Ulangi pencadangan & catat hasilnya", "US-M10-06 KP-4, NFR-13"),
   e("support.ticket_answered", "Laporan kendala Anda dijawab", "normal", [], "Baca jawaban; tandai selesai bila sudah beres", "US-M10-07 KP-3"),
+  // --- Tambahan modul M2 (hanya tambah) ---
+  e("order.recurring_failed", "Pesanan langganan gagal dibuat", "normal", ["dispatcher"], "Tindak lanjuti: tagih/ajukan persetujuan atau buat pesanan manual", "US-M2-06 KP-4"),
+  e("order.credit_hold_trips", "Rit tempo pelanggan Ditahan belum berangkat", "high", ["dispatcher"], "Ubah ke tunai atau tarik rit dari jadwal", "US-M5-03 KP-2, PTB-27"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */
