@@ -1,30 +1,23 @@
 /**
- * M2 — handler perintah sinkron lapangan (outbox offline, docs/ARCHITECTURE.md §7).
+ * M2 — sinkron lapangan. M2 tidak punya perintah lapangan (Dispatcher bekerja daring, 7.2.6); M2 menyediakan data
+ * referensi offline untuk aplikasi sopir (M3):
  *
- * Registri sinkron tersedia di `@/server/core/sync` (F3c). Pola:
- * ```ts
- * import { z } from "zod";
- * import { registerPullProvider, registerSyncHandler } from "@/server/core/sync";
- * export function registerSync(): void {
- *   registerSyncHandler("<modul>.<objek>.<aksi>", {
- *     permission: "<modul>.<sumberdaya>.<aksi>",        // atau null (semua pengguna lapangan)
- *     // Izin bersyarat (kernet pengganti US-M2-11) — WAJIB untuk izin m3.* yang ada di CONDITIONAL_GRANTS:
- *     conditions: async (ctx, payload, { tx }) => substituteDriverConditions(tx, ctx, truckIdDari(payload), ctxBusinessDate(ctx)),
- *     schema: z.object({ … }),                           // payload divalidasi (pesan Indonesia)
- *     handle: async (ctx, payload, meta) => {
- *       // tulis dengan meta.tx; kolom fieldMeta(): { ...fieldMetaValues(meta) } (device_id, device_time, synced_at,
- *       // sync_command_id, late_sync, clock_skew_flagged); lampiran = meta.attachments (sudah diverifikasi pemiliknya).
- *       // DomainError = ditolak FINAL (disimpan); galat lain = retry. Nomor resmi dokumen perangkat:
- *       // assignOfficialNumber(meta.tx, "pos_sale", { tenantId: meta.device.tenantId, businessDate: meta.command.businessDate, outletCode }).
- *       return { objectType: "…", objectId: "…" };       // atau { status: "conflict", message: "…" } (tabrakan kantor)
- *     },
- *   });
- *   registerPullProvider("<modul>.<nama>", async ({ ctx, tx, since, device }) => ({ … }));
- * }
- * ```
+ * - pull `m2.schedule` (sopir, kernet): rit TERBIT truk-truk dalam lingkup harian pelaku (jadwal kru US-M2-10/11) untuk
+ *   hari ini, urut rencana BR-21, dengan catatan khusus pelanggan/alamat/pesanan (US-M2-08 KP-2), tagih kurang bayar
+ *   (PTB-18), penanda kunci BR-10 (rit tampil tetapi terkunci), dan revisi jadwal (US-M2-03 KP-5). `undefined` bila
+ *   tidak berubah sejak `since`. Rit yang ditarik kantor hilang dari daftar pada pull berikutnya; bila sudah dikerjakan
+ *   offline, perintah M3 tetap sah dan M2 menandainya konflik (Bab 6.4).
  */
 import "server-only";
 
+import { ctxBusinessDate } from "@/server/core/context";
+import { registerPullProvider } from "@/server/core/sync";
+
+import { driverSchedule } from "./service/field";
+
 export function registerSync(): void {
-  // Belum ada handler — diisi agen modul M2 (registri sinkron F3c tersedia: @/server/core/sync).
+  registerPullProvider("m2.schedule", {
+    roles: ["driver", "helper"],
+    fetch: ({ ctx, tx, since }) => driverSchedule(tx, ctx, ctxBusinessDate(ctx), since),
+  });
 }

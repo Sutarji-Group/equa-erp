@@ -27,6 +27,8 @@ const ARCHITECTURE_EVENTS = [
   "customer_advance.refunded", "discrepancy.reopened",
   // Tambahan modul: karyawan keluar (M1 → M10, BR-37).
   "employee.exited",
+  // Tambahan modul M2: pesanan dibuat & transisi status pesanan (US-M2-01, US-M2-02 KP-2).
+  "order.created", "order.status_changed",
 ];
 
 const payload = {

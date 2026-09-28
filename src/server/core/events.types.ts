@@ -585,6 +585,35 @@ export interface EmployeeExitedPayload {
   tenantId: string;
 }
 
+// --- Tambahan modul M2 (pesanan) — hanya tambah ---------------------------------------------------------------------
+/** Pesanan dibuat (kantor / langganan). Payload mandiri: harga terkunci, cara bayar, asal (US-M2-01, US-M2-06). */
+export interface OrderCreatedPayload {
+  orderId: string;
+  number: string;
+  customerId: string;
+  addressId: string;
+  requestedDate: string;
+  tankCount: number;
+  pricePerTrip: number;
+  totalAmount: number;
+  paymentMethod: PaymentMethod;
+  source: EnumValue<"order_source">;
+  isInternal: boolean;
+  internalOutletId?: string | null;
+  recurringOrderId?: string | null;
+  status: EnumValue<"order_status">;
+}
+/** Transisi status pesanan dari alur kantor (Menunggu persetujuan, Dibatalkan, keputusan persetujuan) — US-M2-02 KP-2. */
+export interface OrderStatusChangedPayload {
+  orderId: string;
+  number: string;
+  customerId: string;
+  from: EnumValue<"order_status">;
+  to: EnumValue<"order_status">;
+  reason?: string | null;
+  cancelReason?: EnumValue<"order_cancel_reason"> | null;
+}
+
 /** Peta tipe event → payload. */
 export interface DomainEventMap {
   "trip.published": TripPublishedPayload;
@@ -647,6 +676,8 @@ export interface DomainEventMap {
   "customer_advance.refunded": CustomerAdvanceRefundedPayload;
   "discrepancy.reopened": DiscrepancyReopenedPayload;
   "employee.exited": EmployeeExitedPayload;
+  "order.created": OrderCreatedPayload;
+  "order.status_changed": OrderStatusChangedPayload;
 }
 
 export type DomainEventType = keyof DomainEventMap;
@@ -713,6 +744,8 @@ export const DOMAIN_EVENT_LABELS: Record<DomainEventType, string> = {
   "customer_advance.refunded": "Uang muka dikembalikan",
   "discrepancy.reopened": "Selisih dibuka kembali",
   "employee.exited": "Karyawan keluar",
+  "order.created": "Pesanan dibuat",
+  "order.status_changed": "Status pesanan berubah",
 };
 
 export const DOMAIN_EVENT_TYPES = Object.keys(DOMAIN_EVENT_LABELS) as DomainEventType[];
