@@ -548,6 +548,15 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       },
       { id: "m9.trend", href: "/laporan/tren", label: "Tren", icon: TrendingUp, permission: "m9.trend.read" },
       { id: "m9.kpi", href: "/laporan/kpi", label: "KPI program", icon: Target, permission: "m9.kpi.read" },
+      // --- Tambahan modul M9 (hanya tambah) ---
+      {
+        id: "m9.parallel",
+        href: "/laporan/periode-paralel",
+        label: "Periode paralel",
+        icon: ClipboardCheck,
+        permission: "m9.parallel_run.read",
+        description: "Lembar pencocokan harian nota kertas vs sistem & penarikan nota kertas per unit (NFR-35).",
+      },
     ],
   },
   {

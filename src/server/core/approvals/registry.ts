@@ -468,6 +468,21 @@ export const APPROVAL_TYPES: readonly ApprovalTypeDef[] = [
     objectType: "partner_sanction",
     ref: "US-P3-07",
   }),
+  // --- Tambahan modul M9 (hanya tambah) ---
+  T({
+    type: "paper_withdrawal_early",
+    label: "Tarik nota kertas lebih awal (periode paralel)",
+    requesterRoles: ["system_admin", "finance_admin"],
+    approverRole: "owner",
+    thresholdParam: "PAR-84",
+    thresholdNote: "Sebelum hari ke-14 periode paralel; syarat PAR-84 (5 hari operasi terakhir 100% tercatat di sumber, 0 selisih tak terjelaskan)",
+    deadline: { kind: "explicit", description: "Sebelum hari ke-14 periode paralel unit (batas NFR-35)" },
+    onExpire: "expire",
+    expireNote: "Nota kertas ditarik pada hari ke-14 sesuai batas NFR-35",
+    severity: "normal",
+    objectType: "unit_paper_withdrawal",
+    ref: "NFR-35, 11.5 butir 2, US-M9-07 KP-2",
+  }),
   // --- Tambahan modul M7 (hanya tambah) ---
   T({
     type: "store_credit_sale",

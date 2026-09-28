@@ -1,22 +1,25 @@
 /**
  * M9 — handler jenis persetujuan milik modul ini (PRD 6.2a; registri `src/server/core/approvals/registry.ts`).
  *
- * ```ts
- * import { registerApprovalHandler } from "@/server/core/approvals";
- * export function registerApprovals(): void {
- *   registerApprovalHandler("<jenis>", {
- *     onApproved: async ({ tx, request, ctx }) => { … ubah objek sumber … },
- *     onRejected: async ({ tx, request, reason }) => { … },
- *     onExpired: async ({ tx, request }) => { … perilaku "bila lewat tenggat" … },
- *   });
- * }
- * ```
- * PERHATIAN: `ctx` handler = pelaku KEPUTUSAN (pemilik/penyetuju), bukan pemohon. Jangan memanggil layanan modul yang
- * `authorize` izin harian (pemilik ditolak SOD-08). Tulis langsung dengan `tx` + `audit.record(tx, { ctx, … })`, atau
- * panggil fungsi internal modul tanpa `authorize` (atau `systemContext({ tenantId: request.tenantId })` + `rule: "6.2a"`).
+ * `paper_withdrawal_early` (NFR-35, 11.5 butir 2): penarikan nota kertas unit SEBELUM hari ke-14 periode paralel —
+ * pemohon Admin Keuangan/manajer proyek (admin sistem), penyetuju pemilik, syarat PAR-84 diperiksa saat diajukan.
+ * - Disetujui → nota kertas ditarik pada tanggal yang diajukan (`unit_paper_withdrawals.withdrawn_date`,
+ *   `early_withdrawal_approved_by` = pemilik) — masukan KPI-11.
+ * - Ditolak / dibatalkan → periode paralel berlanjut (tanpa perubahan data).
+ * - Lewat tenggat (hari ke-14) → kedaluwarsa: nota kertas ditarik pada hari ke-14 sesuai batas NFR-35 lewat jalur biasa.
+ * Handler menulis dengan `tx` + `audit.record` (ctx penyetuju) — tidak memanggil layanan berizin harian (SOD-08).
  */
 import "server-only";
 
+import { registerApprovalHandler } from "@/server/core/approvals";
+
+import { applyEarlyWithdrawal } from "./service/parallel";
+
 export function registerApprovals(): void {
-  // Belum ada handler — diisi agen modul M9.
+  registerApprovalHandler("paper_withdrawal_early", {
+    onApproved: async ({ tx, request, ctx }) => applyEarlyWithdrawal(tx, ctx, { id: request.id, objectId: request.objectId, payload: request.payload as Record<string, unknown> | null }),
+    onRejected: async () => ({ note: "Periode paralel berlanjut; nota kertas ditarik pada hari ke-14 (NFR-35)." }),
+    onExpired: async () => ({ note: "Lewat tenggat: nota kertas ditarik pada hari ke-14 sesuai batas NFR-35." }),
+    onCancelled: async () => ({ note: "Pengajuan dibatalkan; periode paralel berlanjut." }),
+  });
 }
