@@ -5,6 +5,8 @@ import { approvalRequests, customerAdvances, customerPayments, domainEvents, inv
 import { newId } from "@/lib/ids";
 import { addDays } from "@/lib/time";
 import * as approvals from "@/server/core/approvals";
+import { withTx } from "@/server/core/db";
+import { dayFigures } from "@/server/modules/m3-driver";
 import * as m5 from "@/server/modules/m5-receivables";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
@@ -187,8 +189,13 @@ describe("7.5.6 Pengecualian pelunasan", () => {
     const trip = await w.addTrip({ paymentMethod: "credit" });
     await departArrive(w, trip.id);
     expectApplied(await completeCash(w, trip.id)); // sopir mencatat tunai rit penuh
-    const cashBefore = (await w.today()).deposit;
-    expect(cashBefore?.expectedCash).toBe(PRICE);
+    // Kas sopir hari itu (tunai seharusnya & kas di tangan) dihitung M3 dari rit/pelunasan/pengeluaran.
+    const cashOf = async () => {
+      const f = await withTx((tx) => dayFigures(tx, w.driver.userId, w.date));
+      return { expectedCash: f.expectedCash, cashOnHand: f.cashOnHand };
+    };
+    const cashBefore = await cashOf();
+    expect(cashBefore.expectedCash).toBe(PRICE);
     const res = await m5.reclassifyTripCash(finance(), { tripId: trip.id, reason: "Pelanggan membayar faktur lama lewat sopir" });
     expect(res.status).toBe("reclassified");
     if (res.status !== "reclassified") throw new Error("unexpected");
@@ -196,8 +203,7 @@ describe("7.5.6 Pengecualian pelunasan", () => {
     expect(await invoiceRow(t.db, res.invoiceId)).toMatchObject({ kind: "delivery", tripId: trip.id, amount: PRICE, outstandingAmount: PRICE });
     const [p] = await t.db.select().from(customerPayments).where(eq(customerPayments.id, res.paymentId));
     expect(p).toMatchObject({ method: "internal", channel: "office", amount: PRICE });
-    const cashAfter = (await w.today()).deposit;
-    expect(cashAfter).toMatchObject({ expectedCash: cashBefore!.expectedCash, expectedNet: cashBefore!.expectedNet });
+    expect(await cashOf()).toEqual(cashBefore);
     const [ev] = await eventsOf(t.db, "collection.recorded", res.paymentId);
     expect(ev!.payload).toMatchObject({ method: "internal", reclassifiedFromTripPaymentId: expect.any(String) });
     await expect(m5.reclassifyTripCash(finance(), { tripId: trip.id, reason: "Ulang lagi" })).rejects.toThrow(/sudah/);

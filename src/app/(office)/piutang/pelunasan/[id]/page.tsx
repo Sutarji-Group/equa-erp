@@ -82,7 +82,7 @@ export default async function PaymentDetailPage({ params }: { params: Promise<{ 
                 Bukti PDF
               </a>
             </Button>
-            {canSend && active ? <M5ActionButton label="Kirim bukti WA" icon={MessageCircle} action={sendReceiptAction.bind(null, p.id)} testId="kirim-bukti-wa" /> : null}
+            {canSend && active ? <M5ActionButton label="Kirim bukti WA" icon={<MessageCircle aria-hidden />} action={sendReceiptAction.bind(null, p.id)} testId="kirim-bukti-wa" /> : null}
           </div>
         }
       />

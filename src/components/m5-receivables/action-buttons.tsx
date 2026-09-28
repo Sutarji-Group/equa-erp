@@ -1,7 +1,7 @@
 "use client";
 
-import { LoaderCircle, type LucideIcon } from "lucide-react";
-import { useTransition } from "react";
+import { LoaderCircle } from "lucide-react";
+import { type ReactNode, useTransition } from "react";
 import { toast } from "sonner";
 
 import { ConfirmWithReasonDialog } from "@/components/shared/confirm-with-reason-dialog";
@@ -21,13 +21,16 @@ function afterAction(r: M5ActionState): void {
   if (r.message) toast.success(r.message);
 }
 
-/** Tombol aksi tanpa isian (kirim WA, jalankan evaluasi, dsb.). */
+/**
+ * Tombol aksi tanpa isian (kirim WA, jalankan evaluasi, dsb.). `icon` berupa ELEMEN (mis. `<MessageCircle aria-hidden />`)
+ * — komponen ikon (fungsi) tidak dapat dikirim dari Server Component ke Client Component.
+ */
 export function M5ActionButton({
   label,
   action,
   variant = "outline",
   size = "sm",
-  icon: Icon,
+  icon,
   disabled,
   testId,
 }: {
@@ -35,7 +38,7 @@ export function M5ActionButton({
   action: () => Promise<M5ActionState>;
   variant?: Variant;
   size?: "sm" | "default";
-  icon?: LucideIcon;
+  icon?: ReactNode;
   disabled?: boolean;
   testId?: string;
 }) {
@@ -49,7 +52,7 @@ export function M5ActionButton({
       data-testid={testId}
       onClick={() => start(async () => afterAction(await action()))}
     >
-      {pending ? <LoaderCircle className="animate-spin" aria-hidden /> : Icon ? <Icon aria-hidden /> : null}
+      {pending ? <LoaderCircle className="animate-spin" aria-hidden /> : (icon ?? null)}
       {label}
     </Button>
   );

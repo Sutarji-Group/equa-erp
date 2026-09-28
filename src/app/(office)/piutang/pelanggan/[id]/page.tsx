@@ -72,7 +72,7 @@ export default async function CustomerCardPage({ params, searchParams }: { param
             {statement?.customer.monthlyBilling ? <ToneBadge tone="info">Tagihan bulanan</ToneBadge> : null}
           </div>
         }
-        actions={canSend && statement ? <M5ActionButton label="Kirim pernyataan piutang (WA)" icon={MessageCircle} action={sendStatementAction.bind(null, id)} testId="kirim-pernyataan" /> : null}
+        actions={canSend && statement ? <M5ActionButton label="Kirim pernyataan piutang (WA)" icon={<MessageCircle aria-hidden />} action={sendStatementAction.bind(null, id)} testId="kirim-pernyataan" /> : null}
       />
 
       {exposure ? (

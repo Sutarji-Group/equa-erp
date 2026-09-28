@@ -88,8 +88,8 @@ export default async function MonthlyInvoicesPage() {
                         </Button>
                         {canSend ? (
                           <>
-                            <M5ActionButton label="WA" icon={MessageCircle} action={sendInvoiceAction.bind(null, inv.id, "wa")} testId={`kirim-wa-${inv.number}`} />
-                            <M5ActionButton label="E-mail" icon={Mail} action={sendInvoiceAction.bind(null, inv.id, "email")} />
+                            <M5ActionButton label="WA" icon={<MessageCircle aria-hidden />} action={sendInvoiceAction.bind(null, inv.id, "wa")} testId={`kirim-wa-${inv.number}`} />
+                            <M5ActionButton label="E-mail" icon={<Mail aria-hidden />} action={sendInvoiceAction.bind(null, inv.id, "email")} />
                           </>
                         ) : null}
                       </div>

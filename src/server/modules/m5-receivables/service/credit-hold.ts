@@ -499,6 +499,8 @@ export async function creditStatusBoard(ctx: ActorContext, opts: { tx?: Tx; date
   const date = opts.date ?? ctxBusinessDate(ctx);
   const par09 = await params.get(tx, "PAR-09", date);
   const rules = (await params.get(tx, "m5.receivable_rules", date)) as { hold_warning_days: number };
+  // Saldo awal yang belum ditandatangani pemilik tidak memicu penahanan (US-M5-07 KP-3) — begitu pula di papan ini.
+  const openingSigned = (await openingSignoff(tx, ctx.tenantId))?.status === "signed";
   const list = await tx
     .select()
     .from(customers)
@@ -536,7 +538,12 @@ export async function creditStatusBoard(ctx: ActorContext, opts: { tx?: Tx; date
         continue;
       }
       // "Akan Ditahan": faktur yang melewati PAR-09 dalam `hold_warning_days` hari (atau sudah, menunggu evaluasi malam).
-      const soon = overdue.filter((i) => !(c.holdReleaseCoversDueUntil && i.dueDate <= c.holdReleaseCoversDueUntil) && i.daysPastDue > par09.days - rules.hold_warning_days);
+      const soon = overdue.filter(
+        (i) =>
+          !(c.holdReleaseCoversDueUntil && i.dueDate <= c.holdReleaseCoversDueUntil) &&
+          !(i.isOpeningBalance && !openingSigned) &&
+          i.daysPastDue > par09.days - rules.hold_warning_days,
+      );
       if (soon.length) {
         const worst = soon.reduce((m, i) => (i.daysPastDue > m.daysPastDue ? i : m), soon[0]!);
         willHold.push({ ...row, holdOn: addDays(worst.dueDate, par09.days + 1) });

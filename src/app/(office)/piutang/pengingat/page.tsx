@@ -67,7 +67,7 @@ export default async function RemindersPage({ searchParams }: { searchParams: Pr
               </TableHeader>
               <TableBody>
                 {list.groups.map((g) => (
-                  <TableRow key={g.key} className="align-top" data-testid={`pengingat-${g.customerCode ?? g.customerId}`}>
+                  <TableRow key={g.key} className="align-top" data-testid={`pengingat-${g.customerCode ?? g.customerId}-${g.kind}`}>
                     <TableCell>
                       {canCard ? (
                         <Link href={`/piutang/pelanggan/${g.customerId}`} className="font-medium text-primary hover:underline">
@@ -102,10 +102,10 @@ export default async function RemindersPage({ searchParams }: { searchParams: Pr
                         {g.status !== "skipped" ? (
                           <M5ActionButton
                             label={g.status === "opened" ? "Buka lagi" : "Buka WhatsApp"}
-                            icon={MessageCircle}
+                            icon={<MessageCircle aria-hidden />}
                             variant={g.status === "opened" ? "outline" : "default"}
                             action={openReminderAction.bind(null, g.customerId, g.kind, list.date)}
-                            testId={`buka-wa-${g.customerCode ?? g.customerId}`}
+                            testId={`buka-wa-${g.customerCode ?? g.customerId}-${g.kind}`}
                           />
                         ) : (
                           <ToneBadge tone="muted">Ditunda (sengketa)</ToneBadge>

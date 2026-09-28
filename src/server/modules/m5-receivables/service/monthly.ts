@@ -97,13 +97,16 @@ export async function issueMonthlyInvoices(tx: Tx, ctx: ActorContext, tenantId: 
       .for("update");
     if (!charges.length) continue;
     const lateLines = charges.filter((c) => c.lateSync || c.serviceDate < period.serviceMonth).length;
+    // Terbit pada tanggal PAR-12 (job). Bila diterbitkan susulan setelah tanggal jatuh tempo PAR-12 (job gagal),
+    // jatuh tempo tidak boleh sebelum tanggal faktur.
+    const issueDate = date < period.issueDate ? period.issueDate : date;
     const inv = await issueInvoice(tx, ctx, {
       tenantId,
       customerId,
       kind: "monthly",
       periodMonth: period.serviceMonth,
-      issueDate: date < period.issueDate ? period.issueDate : date,
-      dueDate: period.dueDate,
+      issueDate,
+      dueDate: period.dueDate < issueDate ? issueDate : period.dueDate,
       description: `Faktur bulanan layanan ${formatTanggal(period.serviceMonth, { weekday: false }).replace(/^\d+ /, "")}`,
       lines: charges.map((c) => ({
         component: "trip" as const,

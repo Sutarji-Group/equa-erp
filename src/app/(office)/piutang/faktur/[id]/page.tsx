@@ -85,8 +85,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             </Button>
             {canSend ? (
               <>
-                <M5ActionButton label="Kirim WA" icon={MessageCircle} action={sendInvoiceAction.bind(null, inv.id, "wa")} testId="kirim-wa-faktur" />
-                <M5ActionButton label="Kirim e-mail" icon={Mail} action={sendInvoiceAction.bind(null, inv.id, "email")} testId="kirim-email-faktur" />
+                <M5ActionButton label="Kirim WA" icon={<MessageCircle aria-hidden />} action={sendInvoiceAction.bind(null, inv.id, "wa")} testId="kirim-wa-faktur" />
+                <M5ActionButton label="Kirim e-mail" icon={<Mail aria-hidden />} action={sendInvoiceAction.bind(null, inv.id, "email")} testId="kirim-email-faktur" />
               </>
             ) : null}
           </div>
