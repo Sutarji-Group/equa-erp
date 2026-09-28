@@ -11,7 +11,7 @@ import { requireOfficeSession } from "@/server/core/auth/office";
 import * as m1 from "@/server/modules/m1-master";
 import * as m2 from "@/server/modules/m2-orders";
 
-import { attempt, failure, int, str } from "./_lib/form";
+import { attempt, failure, str } from "./_lib/form";
 
 function revalidateOrder(id?: string) {
   revalidatePath("/pesanan");
@@ -188,7 +188,7 @@ export async function sendWaAction(orderId: string): Promise<ActionState> {
 // Rincian pesanan
 // =====================================================================================================================
 
-export async function cancelOrderAction(orderId: string, reasonCode: string | null, reasonText: string): Promise<ActionState> {
+export async function cancelOrderAction(orderId: string, _reason: string, reasonCode: string | null, reasonText: string): Promise<ActionState> {
   const { ctx } = await requireOfficeSession();
   const res = await attempt(async () => {
     await m2.cancelOrder(ctx, orderId, { reason: (reasonCode ?? "other") as EnumValue<"order_cancel_reason">, note: reasonText || null });
@@ -280,9 +280,4 @@ export async function updateTemplateAction(_prev: ActionState, fd: FormData): Pr
   });
   revalidatePath("/pesanan");
   return { ...res, ok: res.ok && !res.error };
-}
-
-/** Nilai tangki dari formulir (untuk uji). */
-export async function _tankCount(fd: FormData): Promise<number | null> {
-  return int(fd, "tankCount");
 }

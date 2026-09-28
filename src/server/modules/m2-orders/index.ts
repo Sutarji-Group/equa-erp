@@ -31,6 +31,7 @@ export {
   getOrderDetail,
   listOrders,
   orderFormDefaults,
+  orderFormOptions,
   previewOrder,
   reconfirmOrder,
   refreshOrderPrice,
@@ -39,7 +40,7 @@ export {
   rescheduleOrder,
   updateOrderNotes,
 } from "./service/orders";
-export type { CreateOrderResult, CustomerHistoryRow, DuplicateOrderView, OrderDetail, OrderFormDefaults, OrderListRow, OrderPreview, OrderPrice } from "./service/orders";
+export type { CreateOrderResult, CustomerHistoryRow, DuplicateOrderView, OrderDetail, OrderFormDefaults, OrderFormOptions, OrderListRow, OrderPreview, OrderPrice } from "./service/orders";
 export type { CancelOrderInput, ChangePaymentInput, CreateOrderInput, ListOrdersFilter, ReconfirmInput, RecurringInput, RescheduleOrderInput } from "./schemas";
 
 // --- Siklus status (Bab 5.2) -------------------------------------------------------------------------------------------
@@ -84,6 +85,7 @@ export {
   listRecurringOrders,
   nextOccurrences,
   occursOn,
+  recurringDaysBefore,
   resolveRecurringFailure,
   runRecurringGenerationNow,
   setRecurringStatus,

@@ -23,6 +23,7 @@ import {
   dailySchedules,
   orderDateHistory,
   orders,
+  outlets,
   products,
   scheduleChangeLogs,
   trips,
@@ -42,7 +43,7 @@ import { emit } from "@/server/core/events";
 import { notify } from "@/server/core/notifications";
 import { nextNumber, tripNumber } from "@/server/core/numbering";
 import { authorize, runService, sod } from "@/server/core/rbac";
-import { detectTruckPriceChange, resolveInternalTransferPrice, resolveTruckWaterPrice, type TruckWaterPrice } from "@/server/modules/m1-master";
+import { detectTruckPriceChange, resolveInternalTransferPrice, resolveTruckWaterPrice, zoneTableAt, type TruckWaterPrice } from "@/server/modules/m1-master";
 
 import {
   cancelOrderSchema,
@@ -183,6 +184,30 @@ export async function orderFormDefaults(ctx: ActorContext, opts: { tx?: Tx } = {
   const rules = await orderRules(tx, today);
   const d = defaultRequestedDate(ctx.now, rules.sameDayCutoff);
   return { today, nowTime: toWibParts(ctx.now).time, sameDayCutoff: rules.sameDayCutoff, afterCutoff: d.afterCutoff, defaultDate: d.date };
+}
+
+export type OrderFormOptions = {
+  /** Tujuan pesanan internal pasokan depot (PTB-01): pelanggan internal tiap depot + alamatnya. */
+  internalTargets: { outletId: string; outletCode: string; outletName: string; customerId: string; addressId: string }[];
+  /** Zona tarif berlaku (untuk pelanggan baru tanpa koordinat). */
+  zones: { id: string; code: string; name: string }[];
+};
+
+/** Pilihan layar pesanan baru. */
+export async function orderFormOptions(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<OrderFormOptions> {
+  await authorize(ctx, "m2.order.read", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  const rows = await tx
+    .select({ outletId: outlets.id, outletCode: outlets.code, outletName: outlets.name, customerId: customers.id, addressId: customerAddresses.id })
+    .from(customers)
+    .innerJoin(outlets, eq(outlets.id, customers.internalOutletId))
+    .innerJoin(customerAddresses, and(eq(customerAddresses.customerId, customers.id), eq(customerAddresses.isActive, true)))
+    .where(and(eq(customers.tenantId, ctx.tenantId), eq(customers.isActive, true), eq(outlets.isActive, true)))
+    .orderBy(asc(outlets.code), asc(customerAddresses.createdAt));
+  const seen = new Set<string>();
+  const internalTargets = rows.filter((r) => (seen.has(r.customerId) ? false : (seen.add(r.customerId), true)));
+  const zones = (await zoneTableAt(tx, ctx.tenantId, ctxBusinessDate(ctx))).map((z) => ({ id: z.zoneId, code: z.code, name: z.name }));
+  return { internalTargets, zones };
 }
 
 export type DuplicateOrderView = {

@@ -150,14 +150,25 @@ export async function setRecurringStatus(ctx: ActorContext, id: string, input: {
   });
 }
 
-export type RecurringListRow = RecurringRow & { customerName: string; addressLabel: string; addressText: string; nextDates: BusinessDate[]; generatedCount: number; createdByName: string | null };
+export type RecurringListRow = RecurringRow & {
+  customerName: string;
+  customerCode: string | null;
+  customerCreditStatus: EnumValue<"credit_status">;
+  addressLabel: string;
+  addressText: string;
+  /** Alamat aktif pelanggan (untuk mengubah pola). */
+  customerAddresses: { id: string; label: string; addressText: string }[];
+  nextDates: BusinessDate[];
+  generatedCount: number;
+  createdByName: string | null;
+};
 
 /** Daftar pola langganan + tanggal kirim berikutnya. */
 export async function listRecurringOrders(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<RecurringListRow[]> {
   await authorize(ctx, "m2.recurring_order.read", { tx: opts.tx });
   const tx = opts.tx ?? getDb();
   const rows = await tx
-    .select({ r: recurringOrders, customerName: customers.name, addressLabel: customerAddresses.label, addressText: customerAddresses.addressText })
+    .select({ r: recurringOrders, customerName: customers.name, customerCode: customers.code, customerCreditStatus: customers.creditStatus, addressLabel: customerAddresses.label, addressText: customerAddresses.addressText })
     .from(recurringOrders)
     .innerJoin(customers, eq(customers.id, recurringOrders.customerId))
     .innerJoin(customerAddresses, eq(customerAddresses.id, recurringOrders.addressId))
@@ -171,12 +182,21 @@ export async function listRecurringOrders(ctx: ActorContext, opts: { tx?: Tx } =
         .groupBy(orders.recurringOrderId)
     : [];
   const names = await userNames(tx, rows.map((r) => r.r.createdBy));
+  const addrs = rows.length
+    ? await tx
+        .select({ id: customerAddresses.id, customerId: customerAddresses.customerId, label: customerAddresses.label, addressText: customerAddresses.addressText })
+        .from(customerAddresses)
+        .where(and(inArray(customerAddresses.customerId, [...new Set(rows.map((r) => r.r.customerId))]), eq(customerAddresses.isActive, true)))
+    : [];
   const today = ctxBusinessDate(ctx);
-  return rows.map(({ r, customerName, addressLabel, addressText }) => ({
+  return rows.map(({ r, customerName, customerCode, customerCreditStatus, addressLabel, addressText }) => ({
     ...r,
     customerName,
+    customerCode,
+    customerCreditStatus,
     addressLabel,
     addressText,
+    customerAddresses: addrs.filter((a) => a.customerId === r.customerId).map((a) => ({ id: a.id, label: a.label, addressText: a.addressText })),
     nextDates: r.status === "active" ? nextOccurrences(r, today) : [],
     generatedCount: Number(counts.find((c) => c.id === r.id)?.n ?? 0),
     createdByName: r.createdBy ? (names.get(r.createdBy) ?? null) : null,
@@ -366,6 +386,12 @@ export async function generateRecurringOrders(now: Date, opts: { db?: Db; tenant
     }
   }
   return result;
+}
+
+/** PAR-34: berapa hari sebelum tanggal kirim pesanan langganan dibuat (untuk layar). */
+export async function recurringDaysBefore(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<number> {
+  await authorize(ctx, "m2.recurring_order.read", { tx: opts.tx });
+  return (await orderRules(opts.tx ?? getDb(), ctxBusinessDate(ctx))).recurringDaysBefore;
 }
 
 /** Jalankan pembangkitan sekarang dari layar (Dispatcher) — sama dengan job, hanya tenant pelaku. */
