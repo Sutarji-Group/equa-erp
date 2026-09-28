@@ -16,13 +16,13 @@ import { EQUA_TENANT_ID, SEED_DEMO_PIN } from "@/db/seed";
 import { newId } from "@/lib/ids";
 import { addDays, wibToUtc } from "@/lib/time";
 import type { FieldLoginResult } from "@/server/core/auth";
-import type { PushResult } from "@/server/core/sync";
+import { processUpload, type PushResult } from "@/server/core/sync";
 
 import type { M8Today } from "@/client/m8-production/contract";
 
 import { seededContext } from "../helpers/context";
 import { createTestUser, type TestUser } from "../helpers/factories";
-import { fieldDevice, type FieldDevice, type SignedCommandOptions } from "../helpers/field";
+import { fieldDevice, sha256Hex, type FieldDevice, type SignedCommandOptions } from "../helpers/field";
 import { createCustomer, createOrder, createScheduledTrip, createTruck, type CustomerFixture, type TruckFixture } from "../helpers/fixtures";
 
 export const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x10, 0x20, 0x30, 0x40, 0x50]);
@@ -123,9 +123,19 @@ export async function productionWorld(db: Db, opts: { date?: string; capacityL?:
     const attachmentIds: string[] = [];
     const attachmentHashes: string[] = [];
     for (const a of o.attach ?? []) {
-      const up = await hp.upload(actor, { bytes: a.bytes ?? JPEG, contentType: a.contentType, kind: a.kind, commandId: id, capturedAt: deviceTime });
+      // Unggah dengan jam uji (bukan jam dinding) agar sesi PIN dunia uji tetap berlaku untuk tanggal lampau.
+      const attachmentId = newId();
+      const bytes = a.bytes ?? JPEG;
+      const form = new FormData();
+      form.set("file", new Blob([new Uint8Array(bytes)], { type: a.contentType ?? "image/jpeg" }), "berkas");
+      form.set("attachmentId", attachmentId);
+      form.set("userId", actor.user.id);
+      form.set("kind", a.kind);
+      form.set("capturedAt", deviceTime.toISOString());
+      form.set("commandId", id);
+      const up = await processUpload(await hp.auth({ now }), form);
       attachmentIds.push(up.attachmentId);
-      attachmentHashes.push(up.sha256);
+      attachmentHashes.push(sha256Hex(bytes));
     }
     const res = await hp.push(
       [hp.command(actor, type, payload, { ...o, id, deviceTime, attachmentIds: o.attachmentIds ?? attachmentIds, attachmentHashes: o.attachmentHashes ?? attachmentHashes })],
