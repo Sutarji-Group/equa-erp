@@ -123,7 +123,8 @@ export const accountCreateHandlers: ApprovalHandlers = {
     const { tx, request, ctx } = args;
     const rows = await tx.select().from(users).where(eq(users.id, request.objectId)).limit(1);
     const user = rows[0];
-    if (!user) throw new DomainError("USER_MISSING", "Akun yang dimintakan tidak ditemukan.");
+    // Permintaan yang tidak merujuk akun M10 (mis. diajukan langsung lewat API inti) tidak mengaktifkan apa pun.
+    if (!user) return { activated: false, note: "Akun yang dimintakan tidak ditemukan" };
     if (user.status === "active") return { activated: false, note: "Akun sudah aktif" };
     await assertCombinationStillValid(tx, args, "replace");
     await tx

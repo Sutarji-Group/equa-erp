@@ -257,25 +257,25 @@ export async function executeAnonymization(tx: Tx, ctx: ActorContext, row: Anony
   return { executed: true, touched };
 }
 
-async function loadByApproval(tx: Tx, objectId: string): Promise<AnonymizationRow> {
+async function loadByApproval(tx: Tx, objectId: string): Promise<AnonymizationRow | null> {
   const rows = await tx.select().from(anonymizationRequests).where(eq(anonymizationRequests.id, objectId)).limit(1);
-  if (!rows[0]) throw new NotFoundError("Permintaan anonimisasi tidak ditemukan.");
-  return rows[0];
+  return rows[0] ?? null;
 }
 
 export const anonymizationHandlers: ApprovalHandlers = {
   onApproved: async ({ tx, request, ctx }) => {
     const row = await loadByApproval(tx, request.objectId);
+    if (!row) return { executed: false, note: "Permintaan anonimisasi tidak ditemukan" };
     await tx.update(anonymizationRequests).set({ status: "approved", updatedAt: ctx.now }).where(eq(anonymizationRequests.id, row.id));
     return executeAnonymization(tx, ctx, { ...row, status: "approved" });
   },
   onRejected: async ({ tx, request, ctx, reason }) => {
     const row = await loadByApproval(tx, request.objectId);
-    await tx.update(anonymizationRequests).set({ status: "rejected", blockedReason: reason, updatedAt: ctx.now }).where(eq(anonymizationRequests.id, row.id));
+    if (row) await tx.update(anonymizationRequests).set({ status: "rejected", blockedReason: reason, updatedAt: ctx.now }).where(eq(anonymizationRequests.id, row.id));
   },
   onCancelled: async ({ tx, request, ctx, reason }) => {
     const row = await loadByApproval(tx, request.objectId);
-    await tx.update(anonymizationRequests).set({ status: "rejected", blockedReason: reason ?? "Dibatalkan", updatedAt: ctx.now }).where(eq(anonymizationRequests.id, row.id));
+    if (row) await tx.update(anonymizationRequests).set({ status: "rejected", blockedReason: reason ?? "Dibatalkan", updatedAt: ctx.now }).where(eq(anonymizationRequests.id, row.id));
   },
 };
 
