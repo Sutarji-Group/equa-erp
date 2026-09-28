@@ -14,7 +14,8 @@
     "test:e2e": "playwright test",
     "db:push": "tsx scripts/db-push.ts",
     "db:seed": "tsx scripts/db-seed.ts",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "tsx scripts/db-generate.ts",
+    "db:migrate": "tsx scripts/db-migrate.ts",
     "trace": "tsx tools/trace-check.ts"
   },
   "packageManager": "pnpm@10.33.0",

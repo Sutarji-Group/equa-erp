@@ -16,6 +16,8 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     setupFiles: ["tests/setup.ts"],
+    // Menyiapkan snapshot DB uji (skema + hardening [+ seed]) sekali per run — lihat tests/helpers/db.ts.
+    globalSetup: ["tests/global-setup.ts"],
     testTimeout: 30_000,
     hookTimeout: 60_000,
     // Mesin berbagi CPU dengan agen lain; PGlite in-memory per berkas cukup berat.
