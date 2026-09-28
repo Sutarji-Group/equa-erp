@@ -158,6 +158,9 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("production.supply_difference", "Selisih pasokan depot di luar toleransi (diisi vs diterima)", "normal", ["dispatcher", "owner"], "Periksa pengisian, catatan sopir & konfirmasi depot; masuk neraca air", "US-M8-03 KP-2, PAR-69"),
   e("water.loss_explained", "Penjelasan susut air menunggu keputusan pemilik", "normal", ["owner"], "Terima penjelasan atau kembalikan ke operator", "US-M8-04 KP-2, BR-26"),
   e("water.loss_explanation_returned", "Penjelasan susut dikembalikan pemilik", "normal", ["production_operator"], "Lengkapi penjelasan susut dari aplikasi produksi", "US-M8-04 KP-2"),
+  // --- Tambahan modul M9 (Laporan & Dashboard) — hanya tambah ---
+  e("monthly_report.final", "Laporan laba kotor bulanan Final", "info", ["owner", "accountant"], "Baca laporan bulanan Final (periode dikunci)", "US-M9-02 KP-2, BR-32"),
+  e("inbox.explanation_requested", "Pemilik meminta keterangan", "normal", [], "Beri keterangan atas pengecualian yang ditanyakan pemilik", "US-M9-04 KP-2", 24),
   // --- Tambahan modul M12 (Pelacakan Armada / GPS) — hanya tambah ---
   e("gps.device_restored", "Perangkat GPS aktif kembali", "info", ["system_admin", "dispatcher"], "Informasi; kejadian ditutup dengan lama mati", "US-M12-08 KP-3"),
   e("gps.vendor_outage", "Gangguan layanan vendor GPS (semua truk basi)", "high", ["system_admin"], "Hubungi vendor GPS; peringatan per truk tidak dikirim selama gangguan", "7.12.6, NFR-28"),

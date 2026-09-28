@@ -121,6 +121,7 @@ m9.daily_summary.read
 m9.inbox.read
 m9.kpi.read
 m9.monthly_report.read
+m9.parallel_run.read
 m9.performance.read
 m9.report.read
 m9.trend.read
@@ -198,6 +199,7 @@ p3.support_request.read
 | Laporan | `/laporan/kinerja` | Kinerja sopir & depot | `m9.performance.read` |  |
 | Laporan | `/laporan/tren` | Tren | `m9.trend.read` |  |
 | Laporan | `/laporan/kpi` | KPI program | `m9.kpi.read` |  |
+| Laporan | `/laporan/periode-paralel` | Periode paralel | `m9.parallel_run.read` |  |
 | Akuntansi | `/akuntansi/akun` | Bagan akun | `m11.account.read` |  |
 | Akuntansi | `/akuntansi/pemetaan` | Pemetaan jurnal otomatis | `m11.journal_mapping.read` |  |
 | Akuntansi | `/akuntansi/jurnal` | Jurnal | `m11.journal.read` |  |

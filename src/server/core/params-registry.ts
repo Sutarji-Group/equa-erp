@@ -348,6 +348,75 @@ export const PARAM_REGISTRY = {
       description: "Daftar alamat e-mail pemilik yang menerima ringkasan harian setelah tutup kas.",
     },
   }),
+  /** Aturan laporan M9 yang bukan PAR Lampiran B (tambahan agen M9, hanya tambah). */
+  "m9.report_rules": defineParam({
+    schema: z
+      .object({
+        /** NFR-04 / KPI-08: H+0 terbit paling lambat N menit setelah kas ditutup; lewat → penanda terlambat. */
+        h0_publish_minutes: int(1),
+        /** Job cadangan menerbitkan H+0 untuk hari kas yang sudah ditutup dalam N hari terakhir. */
+        h0_catch_up_days: int(1),
+        /** US-M9-06 KP-1: jumlah periode tren (minggu/bulan). */
+        trend_periods: int(2),
+        /** US-M9-05 KP-1 [USULAN]: rit tepat waktu = Selesai dalam ± N menit dari jam diminta. */
+        on_time_window_minutes: int(1),
+        /** US-M9-04 KP-2: jendela rit gagal & kejadian yang tampil di kotak masuk (hari). */
+        inbox_lookback_days: int(1),
+        /** US-M9-02 KP-6: jumlah bulan tren biaya produksi air per liter. */
+        water_cost_trend_months: int(1),
+        /** US-M9-07 KP-1: awal riwayat KPI (tanggal mulai pilot); kosong → 12 bulan terakhir. */
+        pilot_start_date: businessDateOrNull,
+      })
+      .strict(),
+    fallback: {
+      h0_publish_minutes: 30,
+      h0_catch_up_days: 7,
+      trend_periods: 13,
+      on_time_window_minutes: 60,
+      inbox_lookback_days: 7,
+      water_cost_trend_months: 6,
+      pilot_start_date: null,
+    },
+    affectedRoles: ["owner"],
+    meta: {
+      name: "Aturan laporan & dashboard (terbit H+0, tren, tepat waktu, kotak masuk, awal pilot)",
+      unit: null,
+      reference: "US-M9-01 KP-2, US-M9-02 KP-6, US-M9-04 KP-2, US-M9-05 KP-1, US-M9-06 KP-1, US-M9-07 KP-1, NFR-04",
+      description:
+        "Batas terbit H+0 setelah tutup kas (KPI-08), jangka job cadangan penerbitan, jumlah periode tren, jendela ketepatan waktu rit, jangka kotak masuk, bulan tren biaya air per liter, dan tanggal mulai pilot untuk riwayat KPI.",
+    },
+  }),
+  /** Target KPI program BRD 2.3 (US-M9-07 KP-1) — KPI-04 memakai `m5.receivable_rules.kpi04_target_percent`. */
+  "m9.kpi_targets": defineParam({
+    schema: z
+      .object({
+        kpi01_min_percent: pct,
+        kpi02_max_minutes: int(0),
+        kpi03_max_count: int(0),
+        kpi05_min_percent: pct,
+        kpi06_max_count: int(0),
+        kpi08_min_percent: pct,
+        kpi11_min_percent: pct,
+      })
+      .strict(),
+    fallback: {
+      kpi01_min_percent: 100,
+      kpi02_max_minutes: 15,
+      kpi03_max_count: 0,
+      kpi05_min_percent: 100,
+      kpi06_max_count: 0,
+      kpi08_min_percent: 100,
+      kpi11_min_percent: 100,
+    },
+    affectedRoles: ["owner"],
+    meta: {
+      name: "Target KPI program (KPI-01–KPI-11)",
+      unit: null,
+      reference: "BRD 2.3, PRD 1.3, US-M9-07 KP-1",
+      description:
+        "Target KPI-01 (100% tercatat di sumber), KPI-02 (≤ 15 menit), KPI-03 (0/bulan), KPI-05 (100%), KPI-06 (0/bulan), KPI-08 (100% hari H+0 ≤ batas terbit), KPI-11 (100% adopsi). KPI-07 & KPI-10 baseline; KPI-04 dari aturan piutang M5; KPI-09 dari PAR-23.",
+    },
+  }),
   /** Aturan data master M1 yang ditandai [USULAN] di PRD tetapi bukan PAR Lampiran B (tambahan agen M1). */
   "m1.master_rules": defineParam({
     schema: z

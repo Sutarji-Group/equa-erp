@@ -351,6 +351,9 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   p("m9.kpi.read", "Melihat laporan KPI program", [O], { ref: "US-M9-07" }),
   p("m9.kpi_input.create", "Mengisi KPI manual (KPI-10/KPI-11)", [O, SA], { ref: "US-M9-07 KP-2" }),
   p("m9.inbox.read", "Melihat kotak masuk pengecualian", [O, FA], { ref: "US-M9-04" }),
+  // --- Tambahan modul M9 (hanya tambah) ---
+  p("m9.parallel_run.read", "Melihat lembar pencocokan periode paralel & penarikan nota kertas", [O, FA, SA], { ref: "NFR-35, 11.5, US-M9-07 KP-2" }),
+  p("m9.parallel_run.create", "Mengisi lembar pencocokan harian periode paralel (nota kertas vs sistem)", [FA, SA], { ref: "NFR-35, 11.5 butir 1" }),
 
   // ===================================================================================================================
   // M10 — Pengguna, hak akses, jejak audit, platform

@@ -401,6 +401,8 @@ export const LABELS = {
     partner_prospect: "Persetujuan calon mitra",
     partner_contract: "Kontrak mitra",
     partner_sanction: "Sanksi mitra",
+    // --- Tambahan modul M9 (hanya tambah) ---
+    paper_withdrawal_early: "Tarik nota kertas lebih awal (periode paralel)",
     // --- Tambahan modul M7 (hanya tambah) ---
     store_credit_sale: "Penjualan tempo toko di luar kontrol kredit",
   },
@@ -960,6 +962,8 @@ export const LABELS = {
   summary_addendum_kind: {
     late_sync: "Terlambat sinkron",
     correction: "Koreksi",
+    // --- Tambahan modul M9 (hanya tambah) ---
+    late_deposit: "Setoran tertunda diterima",
   },
   report_status: {
     provisional: "Sementara",
@@ -968,6 +972,44 @@ export const LABELS = {
   unit_type: {
     truck: "Truk",
     outlet: "Outlet",
+  },
+  // --- Tambahan modul M9 (Laporan & Dashboard) — hanya tambah; daftar tampilan (bukan pgEnum) ---
+  /** Rentang tampilan dashboard H+0 (US-M9-01 KP-7). */
+  h0_range: {
+    today: "Hari ini",
+    yesterday: "Kemarin",
+    last7: "7 hari",
+    month: "Bulan berjalan",
+  },
+  /** Status KPI program terhadap target BRD 2.3 (US-M9-07 KP-1). */
+  kpi_status: {
+    met: "Tercapai",
+    not_met: "Belum tercapai",
+    baseline: "Baseline (tanpa target)",
+    no_data: "Belum ada data",
+    pending: "Belum jatuh tempo",
+  },
+  /** Kelompok kotak masuk pemilik (US-M9-04 KP-2). */
+  inbox_group: {
+    approval: "Persetujuan menunggu",
+    discrepancy: "Selisih setoran ≥ ambang",
+    failed_trip: "Rit gagal",
+    gps: "Anomali GPS",
+    water_loss: "Susut air",
+    info: "Info",
+  },
+  /** Tingkat pembanding kinerja (US-M9-05 KP-3): peringkat hanya antar peran yang sebanding. */
+  performance_group: {
+    driver: "Sopir / truk",
+    depot_operator: "Operator depot",
+    store_cashier: "Kasir toko",
+  },
+  /** Status periode paralel nota kertas per unit (NFR-35, 11.5). */
+  parallel_status: {
+    running: "Paralel berjalan",
+    withdrawn: "Nota kertas ditarik",
+    early_pending: "Menunggu persetujuan tarik lebih awal",
+    overdue: "Lewat batas paralel",
   },
 
   // --- M11 Akuntansi ---
