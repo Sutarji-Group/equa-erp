@@ -3,11 +3,12 @@
  * pengeluaran, Setor) dan shift depot nyata lewat perintah sinkron M6 (buka, jual, tutup), sehingga setoran M4 lahir
  * dari jalur yang sama dengan produksi. Waktu kantor dikendalikan lewat `ctx.now`.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { expect } from "vitest";
 
 import type { Db } from "@/db/client";
-import { deposits, notifications, shifts } from "@/db/schema";
+import { cashDays, deposits, notifications, shifts, trips } from "@/db/schema";
+import { EQUA_TENANT_ID } from "@/db/seed";
 import { newId } from "@/lib/ids";
 import { wibToUtc } from "@/lib/time";
 import { withNow, type ActorContext } from "@/server/core/context";
@@ -122,4 +123,18 @@ export async function depositRow(db: Db, id: string) {
 
 export function expectDomainError(p: Promise<unknown>, re: RegExp) {
   return expect(p).rejects.toThrow(re);
+}
+
+/**
+ * Netralkan data demo M6/M7 (shift & setoran bertanggal relatif snapshot) agar uji tutup kas terisolasi: setoran lama
+ * Ditutup, shift terbuka Ditutup, rit berjalan Selesai, dan hari kas sebelum `closeBefore` ditutup.
+ */
+export async function isolateCashDays(db: Db, closeBefore: string): Promise<void> {
+  await db.update(deposits).set({ status: "closed", updatedAt: new Date() }).where(inArray(deposits.status, ["running", "submitted", "received"]));
+  await db.update(shifts).set({ status: "closed", closedAt: new Date() }).where(eq(shifts.status, "open"));
+  await db.update(trips).set({ status: "completed" }).where(inArray(trips.status, ["departed", "arrived"]));
+  const dates = [...new Set((await db.select({ d: deposits.businessDate }).from(deposits)).map((r) => r.d))].filter((d) => d < closeBefore);
+  for (const d of dates) {
+    await db.insert(cashDays).values({ tenantId: EQUA_TENANT_ID, businessDate: d, status: "closed", closedAt: new Date() }).onConflictDoNothing();
+  }
 }

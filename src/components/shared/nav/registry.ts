@@ -275,6 +275,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: Undo2,
         permission: "m4.restitution.read",
       },
+      // --- Tambahan modul M4 (hanya tambah) ---
+      { id: "m4.deposits.detail", href: "/kas/setoran/[id]", label: "Rincian setoran", icon: HandCoins, permission: "m4.deposit.read", hidden: true },
     ],
   },
   {
