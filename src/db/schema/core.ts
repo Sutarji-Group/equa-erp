@@ -1136,3 +1136,35 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
 export const dataSignoffsRelations = relations(dataSignoffs, ({ one }) => ({
   signer: one(users, { fields: [dataSignoffs.signedBy], references: [users.id] }),
 }));
+
+// =====================================================================================================================
+// Tambahan F3c (autentikasi lapangan) — hanya tambah.
+// =====================================================================================================================
+
+/**
+ * Kode aktivasi akun lapangan sekali pakai (US-M10-02 KP-3): admin sistem membuat kode untuk pengguna lapangan
+ * ("di hadapan admin sistem"); pengguna memasukkannya di perangkat terdaftar lalu menetapkan PIN 6 digit sendiri.
+ * Dipakai juga untuk reset PIN (`purpose = 'reset'`). Kode disimpan sebagai HMAC (bukan teks), berlaku terbatas,
+ * sekali pakai; tidak pernah dihapus (dicabut/terpakai ditandai).
+ */
+export const pinEnrollments = pgTable(
+  "pin_enrollments",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    userId: uuid("user_id")
+      .notNull()
+      .references((): AnyPgColumn => users.id),
+    /** initial | reset */
+    purpose: text("purpose").notNull().default("initial"),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: tstz("expires_at").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    usedAt: tstz("used_at"),
+    usedDeviceId: deviceRef("used_device_id"),
+    revokedAt: tstz("revoked_at"),
+    ...createdAtOnly(),
+    createdBy: createdBy(),
+  },
+  (t) => [index("pin_enrollments_code_idx").on(t.codeHash), index("pin_enrollments_user_idx").on(t.userId)],
+);

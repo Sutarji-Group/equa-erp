@@ -1,0 +1,177 @@
+/**
+ * Sesi web kantor untuk Server Component / Server Action / route handler (Next.js 16). Bergantung `next/headers` &
+ * `next/navigation` — JANGAN diimpor dari uji Vitest atau skrip; logika murni ada di `./session.ts` & `./web-login.ts`.
+ *
+ * ```ts
+ * // Halaman (Server Component)
+ * const { ctx, user, permissions } = await requirePermission("m10.audit_log.read");
+ * // Server Action
+ * "use server";
+ * export async function simpan(formData: FormData) {
+ *   const { ctx } = await requireOfficeSession();
+ *   await layananModul(ctx, { … });   // authorize di dalam layanan
+ *   revalidatePath("/…");
+ * }
+ * ```
+ */
+import "server-only";
+
+import { eq } from "drizzle-orm";
+import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { cache } from "react";
+
+import { employees, users } from "@/db/schema";
+import { serverEnv } from "@/lib/env";
+import { label, type RoleCode } from "@/lib/labels";
+
+import { buildActorContext } from "../actor";
+import type { ActorContext } from "../context";
+import { getDb } from "../db";
+import { can, recordDenial, permissionDenied } from "../rbac/authorize";
+import { permissionsForRoles } from "../rbac/matrix";
+import { ROLE_CATALOG } from "../rbac/roles";
+import { requestIp } from "./device-auth";
+import { isPending2fa } from "./resolver";
+import { SESSION_COOKIE, validateSession, type SessionInvalidReason, type SessionRow } from "./session";
+import type { RequestMeta } from "./web-login";
+
+export type OfficeUser = {
+  id: string;
+  username: string;
+  name: string;
+  roles: RoleCode[];
+  roleLabels: string[];
+};
+
+export type ActiveOfficeSession = {
+  state: "active";
+  ctx: ActorContext;
+  session: SessionRow;
+  user: OfficeUser;
+  /** Izin dari matriks RBAC untuk peran aktif (menu kantor, tombol). */
+  permissions: string[];
+};
+
+export type OfficeSessionState =
+  | ActiveOfficeSession
+  | { state: "totp" | "totp_enroll"; session: SessionRow; user: OfficeUser }
+  | { state: "none"; reason: SessionInvalidReason };
+
+/** Alasan (query `?alasan=`) di halaman masuk. */
+export const LOGIN_REASON_MESSAGES: Record<string, string> = {
+  "sesi-habis": "Sesi Anda berakhir karena tidak aktif. Silakan masuk lagi.",
+  "sesi-maksimal": "Sesi Anda sudah mencapai batas waktu maksimal. Silakan masuk lagi.",
+  "sesi-dicabut": "Sesi Anda diakhiri. Silakan masuk lagi.",
+  "akun-nonaktif": "Akun Anda tidak aktif. Hubungi admin sistem.",
+  keluar: "Anda sudah keluar. Sampai jumpa.",
+  "perlu-masuk": "Silakan masuk untuk melanjutkan.",
+};
+
+function reasonParam(reason: SessionInvalidReason): string | null {
+  switch (reason) {
+    case "expired_idle":
+      return "sesi-habis";
+    case "expired_max":
+      return "sesi-maksimal";
+    case "revoked":
+      return "sesi-dicabut";
+    case "user_inactive":
+      return "akun-nonaktif";
+    default:
+      return null;
+  }
+}
+
+/** URL halaman masuk dengan alasan (Bahasa Indonesia di `LOGIN_REASON_MESSAGES`). */
+export function loginUrl(reason?: string | null): string {
+  return reason ? `/masuk?alasan=${encodeURIComponent(reason)}` : "/masuk";
+}
+
+async function officeUser(userId: string, roles: RoleCode[]): Promise<OfficeUser> {
+  const rows = await getDb()
+    .select({ username: users.username, fullName: employees.fullName })
+    .from(users)
+    .innerJoin(employees, eq(employees.id, users.employeeId))
+    .where(eq(users.id, userId))
+    .limit(1);
+  return {
+    id: userId,
+    username: rows[0]?.username ?? "",
+    name: rows[0]?.fullName ?? "Pengguna",
+    roles,
+    roleLabels: roles.map((r) => label("role", r)),
+  };
+}
+
+/** Status sesi web kantor untuk permintaan ini (di-cache per permintaan). */
+export const getOfficeSession = cache(async (): Promise<OfficeSessionState> => {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  const db = getDb();
+  const v = await validateSession(db, token, { kind: "web" });
+  if (!v.ok) return { state: "none", reason: v.reason };
+  let ctx: ActorContext;
+  try {
+    ctx = await buildActorContext(db, v.user.id, { source: "web" });
+  } catch {
+    return { state: "none", reason: "user_inactive" };
+  }
+  const user = await officeUser(v.user.id, ctx.roles);
+  if (isPending2fa(ctx, v.session)) {
+    const rows = await db.select({ totpEnabled: users.totpEnabled }).from(users).where(eq(users.id, v.user.id)).limit(1);
+    return { state: rows[0]?.totpEnabled ? "totp" : "totp_enroll", session: v.session, user };
+  }
+  if (ctx.roles.length === 0 || ctx.roles.every((r) => ROLE_CATALOG[r]?.isFieldRole)) return { state: "none", reason: "user_inactive" };
+  return { state: "active", ctx, session: v.session, user, permissions: permissionsForRoles(ctx.roles) };
+});
+
+/** Wajib sesi aktif; bila tidak → redirect ke /masuk (dengan alasan) atau langkah 2FA. */
+export async function requireOfficeSession(): Promise<ActiveOfficeSession> {
+  const s = await getOfficeSession();
+  if (s.state === "active") return s;
+  if (s.state === "none") return redirect(loginUrl(reasonParam(s.reason)));
+  return redirect(s.state === "totp" ? "/masuk/2fa" : "/masuk/atur-2fa");
+}
+
+/**
+ * Wajib sesi aktif + izin (salah satu bila array). Ditolak → dicatat di log akses dan diarahkan ke /beranda dengan
+ * pesan (bukan halaman galat).
+ */
+export async function requirePermission(permission: string | readonly string[]): Promise<ActiveOfficeSession> {
+  const s = await requireOfficeSession();
+  const perms = typeof permission === "string" ? [permission] : permission;
+  if (perms.some((p) => can(s.ctx, p))) return s;
+  await recordDenial(s.ctx, permissionDenied(s.ctx, perms[0]!));
+  return redirect("/beranda?ditolak=1");
+}
+
+/** IP & user-agent permintaan (untuk log akses). */
+export async function getRequestMeta(): Promise<RequestMeta> {
+  const h = await headers();
+  return { ip: requestIp(h), userAgent: h.get("user-agent")?.slice(0, 500) ?? null };
+}
+
+/** Pasang cookie sesi (Server Action / route handler). */
+export async function setSessionCookie(token: string): Promise<void> {
+  (await cookies()).set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: serverEnv().NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+  });
+}
+
+export async function clearSessionCookie(): Promise<void> {
+  (await cookies()).delete(SESSION_COOKIE);
+}
+
+/** Token sesi dari cookie (untuk langkah 2FA/keluar). */
+export async function currentSessionToken(): Promise<string | null> {
+  return (await cookies()).get(SESSION_COOKIE)?.value ?? null;
+}
+
+/** Jalur lanjutan aman (relatif, bukan ke halaman masuk). */
+export function safeNextPath(raw: unknown): string {
+  if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/masuk")) return "/beranda";
+  return raw;
+}

@@ -10,6 +10,7 @@ import "server-only";
 
 import { registerAllModules } from "@/server/modules/register";
 
+import { registerCoreAuth } from "./auth";
 import { registerCoreJobs } from "./core-jobs";
 import { registerCoreReports } from "./core-reports";
 
@@ -22,6 +23,8 @@ export function ensureBootstrapped(): void {
   try {
     registerCoreJobs();
     registerCoreReports();
+    // F3c: resolver pelaku (sesi web / token perangkat), handler sinkron inti, job sesi.
+    registerCoreAuth();
     registerAllModules();
     bootstrapped = true;
   } finally {
