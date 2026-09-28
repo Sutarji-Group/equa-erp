@@ -117,6 +117,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("anonymization.executed", "Anonimisasi data pribadi dijalankan", "info", ["owner", "system_admin"], "Informasi", "US-M10-06 KP-2"),
   e("backup.failed", "Pencadangan gagal", "high", ["system_admin", "owner"], "Ulangi pencadangan & catat hasilnya", "US-M10-06 KP-4, NFR-13"),
   e("support.ticket_answered", "Laporan kendala Anda dijawab", "normal", [], "Baca jawaban; tandai selesai bila sudah beres", "US-M10-07 KP-3"),
+  // --- Tambahan modul M6 (Penjualan Depot / kerangka POS) — hanya tambah ---
+  e("pos.qris_voided", "Transaksi QRIS di-void", "normal", ["finance_admin"], "Catat pengembalian dana di luar sistem sebagai pengeluaran dengan rujukan", "US-M6-03 KP-4"),
+  e("pos.void_reversal_needed", "Void disetujui setelah shift ditutup", "high", ["finance_admin"], "Buat transaksi pembalik di Pemantauan outlet", "US-M6-03 KP-2, PTB-43"),
+  e("water_supply.discrepancy", "Selisih pasokan air depot (kirim vs terima)", "normal", ["dispatcher"], "Periksa catatan sopir & operator; masukan neraca air M8", "US-M6-05 KP-1, P-04 langkah 3"),
+  e("pos.shift_conflict", "Konflik shift POS (dua shift terbuka)", "high", ["finance_admin"], "Tinjau shift dari perangkat cadangan; tandai selesai setelah dicocokkan", "7.6.6, Bab 6.4 butir 3"),
+  e("tenant.created", "Tenant mitra baru dibuat", "info", ["owner"], "Informasi; lengkapi pengaturan outlet mitra", "US-M6-07 KP-1"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

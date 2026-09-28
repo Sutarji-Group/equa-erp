@@ -304,6 +304,38 @@ export interface ShiftClosedPayload {
   countedCash: number;
   cashDiscrepancy: number;
   qrisAmount: number;
+  // --- Tambahan opsional M6 (payload mandiri PTB-47; M4 menerima setoran & transfer QRIS, M11 menjurnal) ---
+  outletKind?: OutletKind;
+  businessDate?: string;
+  closedAt?: string;
+  /** Kas awal tetap (PAR-57/outlet) & hasil hitung fisik saat buka. */
+  openingCash?: number;
+  openingCashCounted?: number | null;
+  /** Penjualan per cara bayar (transaksi sah + menunggu persetujuan void, PTB-43). */
+  salesByMethod?: { cash: number; qris: number; credit: number };
+  cashSales?: number;
+  qrisCount?: number;
+  voidCount?: number;
+  voidAmount?: number;
+  /** Void menunggu persetujuan pemilik — tetap dihitung sebagai penjualan pada tutup shift (PTB-43). */
+  voidPendingCount?: number;
+  voidPendingAmount?: number;
+  /** Σ setor sebagian (setor bank + slip) selama shift. */
+  partialDepositTotal?: number;
+  /** Setoran = tunai seharusnya − kas awal tetap − Σ setor sebagian (US-M6-02 KP-5). */
+  depositAmount?: number;
+  depositId?: string | null;
+  /** |selisih kas| ≥ PAR-01 → alur pemilik M4 (US-M6-02 KP-7). */
+  cashDiscrepancyOverThreshold?: boolean;
+  cashDiscrepancyReason?: string | null;
+  salesByProduct?: { productId: string; quantity: number; amount: number; gallonLiters: number }[];
+  gallonsSold?: number;
+  gallonLitersSold?: number;
+  /** Pemakaian bahan seharusnya (resep) vs stok fisik tutup shift (US-M6-02 KP-3, US-M6-04 KP-3). */
+  consumableUsage?: { productId: string; expectedUsage: number; systemQty: number; physicalQty: number | null; difference: number | null; reason?: string | null }[];
+  consumableUsageValue?: number;
+  /** Shift dari perangkat cadangan saat shift lain masih terbuka (7.6.6). */
+  syncConflict?: boolean;
 }
 export interface PosSaleLinePayload {
   productId: string;
@@ -323,6 +355,14 @@ export interface PosSaleRecordedPayload {
   cogs?: number | null;
   customerId?: string | null;
   lines: PosSaleLinePayload[];
+  // --- Tambahan opsional M6 ---
+  number?: string | null;
+  businessDate?: string;
+  /** Harga perangkat ≠ harga master berlaku (US-M6-06 KP-4). */
+  priceMismatch?: boolean;
+  /** Tersinkron setelah shift-nya ditutup (perangkat lain) — ditinjau Admin Keuangan. */
+  afterShiftClosed?: boolean;
+  qrisReference?: string | null;
 }
 export interface PosSaleVoidedPayload {
   posSaleId: string;
@@ -333,6 +373,14 @@ export interface PosSaleVoidedPayload {
   total: number;
   cogs?: number | null;
   reason: string;
+  // --- Tambahan opsional M6 ---
+  businessDate?: string;
+  /** Void efektif setelah shift ditutup = transaksi pembalik Admin Keuangan (US-M6-03 KP-2, PTB-43). */
+  afterClose?: boolean;
+  reversalId?: string | null;
+  approvalId?: string | null;
+  qrisReference?: string | null;
+  lines?: PosSaleLinePayload[];
 }
 export interface ConsumableUsagePostedPayload {
   shiftId: string;
@@ -395,6 +443,13 @@ export interface WaterSupplyConfirmedPayload {
   /** Nilai transfer internal = volume diterima × harga transfer (BR-33, K20). */
   transferValue: number;
   confirmedByOperator: boolean;
+  // --- Tambahan opsional M6 ---
+  source?: "equa_truck" | "other";
+  differenceL?: number;
+  differenceReason?: string | null;
+  /** Pasokan tanpa konfirmasi operator sampai tutup shift berikutnya (PAR-61). */
+  autoAccepted?: boolean;
+  shiftId?: string | null;
 }
 export interface MeterReadingRecordedPayload {
   meterReadingId: string;

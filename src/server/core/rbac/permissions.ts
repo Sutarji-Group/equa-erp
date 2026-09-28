@@ -485,6 +485,15 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   p("m10.app_version.update", "Mengatur versi minimal aplikasi lapangan/POS", [SA], { kind: "admin", ref: "US-M10-07 KP-4, NFR-32" }),
   p("m10.initial_accounts.sign", "Menyetujui sekaligus daftar akun awal go-live", [O], { kind: "approve", ref: "US-M10-01 KP-8, NFR-34" }),
   p("m10.access_log.export", "Mengekspor log akses", [O], { ref: "US-M10-05 KP-4/KP-6" }),
+
+  // ===================================================================================================================
+  // Tambahan modul M6 (Penjualan Depot / kerangka POS) — hanya tambah
+  // ===================================================================================================================
+  p("m6.shift_conflict.resolve", "Meninjau & menandai selesai konflik shift POS (perangkat cadangan)", [FA], {
+    cash: true,
+    finance: true,
+    ref: "7.6.6, Bab 6.4 butir 3",
+  }),
 ];
 
 const BY_KEY = new Map<string, PermissionDef>(PERMISSIONS.map((perm) => [perm.key, perm]));
