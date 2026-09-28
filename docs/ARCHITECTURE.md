@@ -241,6 +241,9 @@ Koreksi/pembalik (tambahan tinjauan pasca-F3c — WAJIB dipakai, jangan membuat 
 `src/server/core/events.ts`): galat pelanggan (mis. jurnal M11) tidak menggagalkan transaksi sumber, melainkan dicatat
 sebagai insiden.
 
+Tambahan modul (integrasi ronde 1): `employee.exited` (dipancarkan M1 saat tanggal keluar karyawan diisi/diubah dan saat
+tercapai; ditangani M10 → akun dinonaktifkan pada tanggal keluar, BR-37).
+
 Payload tiap event diketik di `src/server/core/events.types.ts`. Modul menambah event baru hanya dengan menambah entri
 di berkas itu (tambahan, tidak mengubah yang ada). M11 berlangganan event keuangan untuk jurnal otomatis (PRD 7.11.4);
 M9 membaca data, tidak berlangganan.

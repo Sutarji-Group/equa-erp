@@ -15,8 +15,13 @@ async function login(page: Page, username: string, totpSecret?: string) {
     await page.getByLabel("Kode verifikasi").fill(await generate({ secret: totpSecret }));
     await page.getByRole("button", { name: "Verifikasi" }).click();
     // Kode yang sama tidak boleh dipakai ulang dalam satu langkah waktu — tunggu langkah berikutnya bila ditolak.
+    // (`isVisible` tidak menunggu: tunggu salah satu hasil — beranda atau pesan penolakan — agar tidak balapan.)
     const rejected = page.getByText(/Kode verifikasi salah/);
-    if (await rejected.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    const outcome = await Promise.race([
+      page.waitForURL(/\/beranda$/, { timeout: 10_000 }).then(() => "ok" as const, () => "timeout" as const),
+      rejected.waitFor({ state: "visible", timeout: 10_000 }).then(() => "rejected" as const, () => "timeout" as const),
+    ]);
+    if (outcome === "rejected") {
       await page.waitForTimeout(30_000 - (Date.now() % 30_000) + 1_000);
       await page.getByLabel("Kode verifikasi").fill(await generate({ secret: totpSecret }));
       await page.getByRole("button", { name: "Verifikasi" }).click();

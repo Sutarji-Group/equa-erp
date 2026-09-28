@@ -6,14 +6,14 @@
 
 ## Ringkasan
 
-- **Prioritas M:** 92/490 KP (18.8%) · story: 2 lengkap, 44 sebagian, 48 belum
-- **Semua prioritas:** 101/554 KP (18.2%) · story: 2 lengkap, 49 sebagian, 63 belum
-- Uji dipindai: 331 judul di 41 berkas; 181 judul merujuk user story.
+- **Prioritas M:** 134/490 KP (27.3%) · story: 13 lengkap, 37 sebagian, 44 belum
+- **Semua prioritas:** 143/554 KP (25.8%) · story: 13 lengkap, 42 sebagian, 59 belum
+- Uji dipindai: 498 judul di 60 berkas; 316 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
-| M1 — Master Data | 6 | 0 | 3 | 3 | 8/36 | 22.2 |
-| M2 — Pesanan & Penjadwalan Rit | 11 | 0 | 4 | 7 | 6/51 | 11.8 |
+| M1 — Master Data | 6 | 6 | 0 | 0 | 36/36 | 100.0 |
+| M2 — Pesanan & Penjadwalan Rit | 11 | 0 | 5 | 6 | 8/51 | 15.7 |
 | M3 — Aplikasi Sopir | 10 | 0 | 6 | 4 | 8/55 | 14.5 |
 | M4 — Kas & Setoran | 6 | 0 | 2 | 4 | 2/36 | 5.6 |
 | M5 — Piutang & Penagihan | 7 | 0 | 3 | 4 | 4/32 | 12.5 |
@@ -21,7 +21,7 @@
 | M7 — Penjualan Toko & Stok | 9 | 0 | 4 | 5 | 5/37 | 13.5 |
 | M8 — Produksi & Stok Air | 7 | 0 | 2 | 5 | 3/29 | 10.3 |
 | M9 — Laporan & Dashboard Pemilik | 7 | 0 | 2 | 5 | 6/31 | 19.4 |
-| M10 — Pengguna, Hak Akses & Jejak Audit | 7 | 2 | 5 | 0 | 29/41 | 70.7 |
+| M10 — Pengguna, Hak Akses & Jejak Audit | 7 | 7 | 0 | 0 | 41/41 | 100.0 |
 | M11 — Akuntansi & Pajak | 10 | 0 | 6 | 4 | 7/47 | 14.9 |
 | M12 — Pelacakan Armada / GPS | 8 | 0 | 2 | 6 | 3/36 | 8.3 |
 | P2 — Tahap 2: Aplikasi Pelanggan | 8 | 0 | 1 | 7 | 1/32 | 3.1 |
@@ -32,24 +32,24 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M1 — Master Data
 
-8/36 KP (22.2%) · story: 0 lengkap, 3 sebagian, 3 belum
+36/36 KP (100.0%) · story: 6 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M1-01 | Mengelola pelanggan dan alamat kirim | M | 3/10 | sebagian | 3, 5, 6, 7, 8, 9, 10 | 4 |
-| US-M1-02 | Mengelola produk dan harga tiga lini | M | 1/6 | sebagian | 1, 2, 3, 5, 6 | 1 |
-| US-M1-03 | Mengelola armada, kru, dan perangkat | M | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M1-04 | Mengelola depot, sumber air, dan karyawan | M | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M1-05 | Mengelola zona tarif dan pemetaan alamat | M | 4/6 | sebagian | 5, 6 | 6 |
-| US-M1-06 | Mengimpor data awal dan membersihkan duplikat | M | 0/6 | belum | 1, 2, 3, 4, 5, 6 | 0 |
+| US-M1-01 | Mengelola pelanggan dan alamat kirim | M | 10/10 | lengkap | — | 29 |
+| US-M1-02 | Mengelola produk dan harga tiga lini | M | 6/6 | lengkap | — | 10 |
+| US-M1-03 | Mengelola armada, kru, dan perangkat | M | 4/4 | lengkap | — | 4 |
+| US-M1-04 | Mengelola depot, sumber air, dan karyawan | M | 4/4 | lengkap | — | 6 |
+| US-M1-05 | Mengelola zona tarif dan pemetaan alamat | M | 6/6 | lengkap | — | 13 |
+| US-M1-06 | Mengimpor data awal dan membersihkan duplikat | M | 6/6 | lengkap | — | 13 |
 
 ## M2 — Pesanan & Penjadwalan Rit
 
-6/51 KP (11.8%) · story: 0 lengkap, 4 sebagian, 7 belum
+8/51 KP (15.7%) · story: 0 lengkap, 5 sebagian, 6 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M2-01 | Membuat pesanan dalam kurang dari 60 detik | M | 0/8 | belum | 1, 2, 3, 4, 5, 6, 7, 8 | 0 |
+| US-M2-01 | Membuat pesanan dalam kurang dari 60 detik | M | 2/8 | sebagian | 2, 4, 5, 6, 7, 8 | 2 |
 | US-M2-02 | Nomor dan status pesanan | M | 1/4 | sebagian | 2, 3, 4 | 2 |
 | US-M2-03 | Papan jadwal rit harian | M | 0/7 | belum | 1, 2, 3, 4, 5, 6, 7 | 0 |
 | US-M2-04 | Peringatan pesanan dobel | M | 0/3 | belum | 1, 2, 3 | 0 |
@@ -59,7 +59,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M2-08 | Riwayat dan catatan khusus pelanggan | M | 0/3 | belum | 1, 2, 3 | 0 |
 | US-M2-09 | Pembatalan, penjadwalan ulang, dan rit gagal | M | 0/4 | belum | 1, 2, 3, 4 | 0 |
 | US-M2-10 | Jadwal kerja kru dan ketersediaan truk | S | 0/4 | belum | 1, 2, 3, 4 | 0 |
-| US-M2-11 | Penetapan pengemudi pengganti harian | M | 0/5 | belum | 1, 2, 3, 4, 5 | 1 |
+| US-M2-11 | Penetapan pengemudi pengganti harian | M | 0/5 | belum | 1, 2, 3, 4, 5 | 5 |
 
 ## M3 — Aplikasi Sopir
 
@@ -75,8 +75,8 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M3-06 | Menandai rit gagal, melaporkan kendala, dan memberi keterangan perjalanan | M | 1/4 | sebagian | 1, 2, 3 | 1 |
 | US-M3-07 | Melihat kas di tangan dan menyetor akhir hari | M | 0/6 | belum | 1, 2, 3, 4, 5, 6 | 0 |
 | US-M3-08 | Mencatat pengeluaran rit | S | 1/3 | sebagian | 1, 3 | 1 |
-| US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 2/5 | sebagian | 1, 3, 5 | 6 |
-| US-M3-10 | Keamanan perangkat dan kesiapan lapangan | M | 1/6 | sebagian | 2, 3, 4, 5, 6 | 5 |
+| US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 2/5 | sebagian | 1, 3, 5 | 9 |
+| US-M3-10 | Keamanan perangkat dan kesiapan lapangan | M | 1/6 | sebagian | 2, 3, 4, 5, 6 | 7 |
 
 ## M4 — Kas & Setoran
 
@@ -116,7 +116,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M6-03 | Void dengan alasan | M | 2/5 | sebagian | 3, 4, 5 | 3 |
 | US-M6-04 | Stok bahan habis pakai dan opname mingguan | M | 1/6 | sebagian | 2, 3, 4, 5, 6 | 2 |
 | US-M6-05 | Menerima pasokan air dan neraca air outlet | M | 2/6 | sebagian | 2, 4, 5, 6 | 2 |
-| US-M6-06 | Bekerja tanpa sinyal | M | 3/5 | sebagian | 4, 5 | 2 |
+| US-M6-06 | Bekerja tanpa sinyal | M | 3/5 | sebagian | 4, 5 | 3 |
 | US-M6-07 | Paket standar multi-tenant | M | 2/6 | sebagian | 1, 4, 5, 6 | 3 |
 
 ## M7 — Penjualan Toko & Stok
@@ -157,7 +157,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 |---|---|:-:|---:|---|---|---:|
 | US-M9-01 | Dashboard H+0 | M | 0/7 | belum | 1, 2, 3, 4, 5, 6, 7 | 0 |
 | US-M9-02 | Laporan bulanan laba kotor per lini dan konsolidasi | M | 0/6 | belum | 1, 2, 3, 4, 5, 6 | 0 |
-| US-M9-03 | Ekspor Excel/PDF | M | 3/4 | sebagian | 3 | 8 |
+| US-M9-03 | Ekspor Excel/PDF | M | 3/4 | sebagian | 3 | 11 |
 | US-M9-04 | Kotak masuk pengecualian dan pengaturan notifikasi pemilik | S | 3/4 | sebagian | 2 | 9 |
 | US-M9-05 | Kinerja per sopir/truk dan per depot/operator | S | 0/4 | belum | 1, 2, 3, 4 | 0 |
 | US-M9-06 | Tren mingguan/bulanan | S | 0/3 | belum | 1, 2, 3 | 0 |
@@ -165,17 +165,17 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 ## M10 — Pengguna, Hak Akses & Jejak Audit
 
-29/41 KP (70.7%) · story: 2 lengkap, 5 sebagian, 0 belum
+41/41 KP (100.0%) · story: 7 lengkap, 0 sebagian, 0 belum
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M10-01 | Peran, pengguna, dan lingkup akses | M | 6/8 | sebagian | 6, 7 | 17 |
-| US-M10-02 | Login, PIN, perangkat terdaftar, dan sesi | M | 7/7 | lengkap | — | 29 |
-| US-M10-03 | Pemisahan tugas dipaksakan | M | 3/4 | sebagian | 3 | 18 |
-| US-M10-04 | Alur persetujuan | M | 6/6 | lengkap | — | 17 |
-| US-M10-05 | Jejak audit | M | 5/6 | sebagian | 4 | 12 |
-| US-M10-06 | Data pribadi, retensi, dan pencadangan | M | 1/6 | sebagian | 1, 2, 4, 5, 6 | 1 |
-| US-M10-07 | Kesehatan perangkat, sinkron, dan pemantauan | M | 1/4 | sebagian | 2, 3, 4 | 1 |
+| US-M10-01 | Peran, pengguna, dan lingkup akses | M | 8/8 | lengkap | — | 34 |
+| US-M10-02 | Login, PIN, perangkat terdaftar, dan sesi | M | 7/7 | lengkap | — | 41 |
+| US-M10-03 | Pemisahan tugas dipaksakan | M | 4/4 | lengkap | — | 23 |
+| US-M10-04 | Alur persetujuan | M | 6/6 | lengkap | — | 23 |
+| US-M10-05 | Jejak audit | M | 6/6 | lengkap | — | 21 |
+| US-M10-06 | Data pribadi, retensi, dan pencadangan | M | 6/6 | lengkap | — | 11 |
+| US-M10-07 | Kesehatan perangkat, sinkron, dan pemantauan | M | 4/4 | lengkap | — | 12 |
 
 ## M11 — Akuntansi & Pajak
 
