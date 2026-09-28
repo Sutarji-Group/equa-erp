@@ -17,7 +17,7 @@ import { bootstrapForTests } from "../helpers/bootstrap";
 import { useTestDb } from "../helpers/db";
 import { createTruck } from "../helpers/fixtures";
 import { PRICE, driverDay, finance as m4Finance } from "../m4-cash/helpers";
-import { at, dispatcher, earlyWithdrawalRequest, finance, makeTrip, owner } from "./helpers";
+import { dispatcher, earlyWithdrawalRequest, finance, makeTrip, owner } from "./helpers";
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

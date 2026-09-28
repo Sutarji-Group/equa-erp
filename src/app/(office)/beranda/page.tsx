@@ -2,6 +2,7 @@ import { Bell, CheckCheck, ShieldAlert } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { OwnerTodayBlock } from "@/components/m9-reports/owner-today-block";
 import { KpiTile } from "@/components/shared/kpi-tile";
 import { filterNavByPermissions } from "@/components/shared/nav/registry";
 import { PageHeader } from "@/components/shared/page-header";
@@ -53,6 +54,8 @@ export default async function BerandaPage({ searchParams }: PageProps<"/beranda"
         </p>
       ) : null}
       {focus.length ? <p className="mb-6 max-w-3xl text-sm text-muted-foreground">Fokus peran Anda: {focus.join(" ")}</p> : null}
+      {/* M9 (hanya tambah): blok H+0 & kotak masuk untuk pemilik/Admin Keuangan. */}
+      <OwnerTodayBlock ctx={ctx} />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {canApprovals ? (

@@ -12,7 +12,7 @@ import "server-only";
 
 import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 
-import { approvalRequests, outlets, parallelRunChecks, posSales, trips, trucks, unitPaperWithdrawals } from "@/db/schema";
+import { approvalRequests, outlets, parallelRunChecks, trips, trucks, unitPaperWithdrawals } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { addDays, daysBetween, formatTanggal, wibToUtc, type BusinessDate } from "@/lib/time";
@@ -371,4 +371,17 @@ export async function applyEarlyWithdrawal(tx: Tx, ctx: ActorContext, request: {
     rule: "PAR-84, 11.5 butir 2",
   });
   return { withdrawnDate };
+}
+
+/** Pilihan unit (truk & outlet aktif) untuk formulir periode paralel. */
+export async function parallelUnitOptions(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<{ value: string; label: string }[]> {
+  await authorize(ctx, "m9.parallel_run.read", { tx: opts.tx });
+  const db = opts.tx ?? getDb();
+  const t = await db.select({ id: trucks.id, code: trucks.code, plate: trucks.plateNumber }).from(trucks).where(and(eq(trucks.tenantId, ctx.tenantId), inArray(trucks.status, ["active", "maintenance"]))).orderBy(asc(trucks.code));
+  const o = await db
+    .select({ id: outlets.id, code: outlets.code, name: outlets.name })
+    .from(outlets)
+    .where(and(eq(outlets.tenantId, ctx.tenantId), eq(outlets.isActive, true), inArray(outlets.kind, ["depot", "store"])))
+    .orderBy(asc(outlets.code));
+  return [...t.map((x) => ({ value: `truck:${x.id}`, label: `Truk ${x.code} (${x.plate})` })), ...o.map((x) => ({ value: `outlet:${x.id}`, label: `${x.code} — ${x.name}` }))];
 }

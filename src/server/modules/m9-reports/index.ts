@@ -102,6 +102,7 @@ export {
   listParallelChecks,
   listParallelUnits,
   par84Status,
+  parallelUnitOptions,
   recordParallelCheck,
   sourceRecordedForUnit,
   startParallelPeriod,
