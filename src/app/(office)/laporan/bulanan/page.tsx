@@ -325,6 +325,16 @@ export default async function MonthlyPage({ searchParams }: { searchParams: Prom
             ) : (
               <p className="text-muted-foreground">Di bawah ambang peringatan {r.pkp.levels.join("% / ")}%.</p>
             )}
+            <p data-testid="monthly-pkp-projection">
+              {r.pkp.projectedPeriod
+                ? `Proyeksi batas PKP tercapai pada ${r.pkp.projectedPeriod} (rata-rata 3 bulan terakhir ${formatRupiah(r.pkp.avg3)}).`
+                : r.pkp.source === "m11"
+                  ? "Proyeksi: batas PKP belum tercapai dalam jangkauan rata-rata 3 bulan terakhir."
+                  : "Proyeksi tersedia setelah modul akuntansi (M11) aktif."}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {r.pkp.source === "m11" ? "Sumber: jurnal akuntansi — angka sama dengan Akuntansi › Pajak." : "Sumber: perkiraan omzet operasional (M11 belum aktif)."}
+            </p>
           </div>
         </SectionCard>
       </div>

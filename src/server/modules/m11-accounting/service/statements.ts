@@ -183,6 +183,90 @@ async function allocationAccountIds(tx: Tx, tenantId: string, date: string): Pro
 
 const zeroCenters = (): Record<ProfitCenter, number> => ({ L1: 0, L2: 0, L3: 0, L4: 0, L5: 0, SHARED: 0 });
 
+// =====================================================================================================================
+// Eliminasi markup transfer internal toko → depot (B-56, US-M11-01 KP-4, BR-33, PTB-37)
+// =====================================================================================================================
+
+export type InternalMarkup = {
+  /** Akun persediaan bahan depot (debit pemetaan `internal_transfer.sent/revenue`). */
+  inventoryAccountId: string | null;
+  /** Markup (harga mitra − HPP toko) transfer internal dalam rentang. */
+  transferred: number;
+  /** Markup yang masih melekat di persediaan depot pada awal / akhir rentang (belum terpakai). */
+  unrealizedStart: number;
+  unrealizedEnd: number;
+  /** Markup yang ikut terpakai sebagai beban bahan depot dalam rentang = dieliminasi dari beban konsolidasi. */
+  realized: number;
+};
+
+type MarkupState = { markup: number; inflow: number; balance: number };
+
+/** Posisi kumulatif per outlet depot s.d. periode `toPeriod` (inklusif). */
+async function markupStateUpTo(tx: Tx, tenantId: string, inventoryAccountId: string, toPeriod: string): Promise<Map<string, MarkupState>> {
+  const base = [eq(journals.tenantId, tenantId), eq(journals.status, "posted"), lte(accountingPeriods.period, toPeriod)];
+  // Arus persediaan depot per outlet: debit = masuk (transfer internal, pembelian, saldo awal), kredit = terpakai.
+  const inv = await tx
+    .select({ outletId: journalLines.outletId, d: sql<string>`coalesce(sum(${journalLines.debit}),0)`, c: sql<string>`coalesce(sum(${journalLines.credit}),0)` })
+    .from(journalLines)
+    .innerJoin(journals, eq(journals.id, journalLines.journalId))
+    .innerJoin(accountingPeriods, eq(accountingPeriods.id, journals.periodId))
+    .where(and(...base, eq(journalLines.accountId, inventoryAccountId)))
+    .groupBy(journalLines.outletId);
+  // Nilai transfer internal (debit persediaan depot) & HPP toko (debit beban) per jurnal `internal_transfer.sent`.
+  const tr = await tx
+    .select({ journalId: journals.id, outletId: journalLines.outletId, accountId: journalLines.accountId, type: accounts.type, d: journalLines.debit })
+    .from(journalLines)
+    .innerJoin(journals, eq(journals.id, journalLines.journalId))
+    .innerJoin(accountingPeriods, eq(accountingPeriods.id, journals.periodId))
+    .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
+    .where(and(...base, eq(journals.sourceType, "internal_transfer.sent")));
+  const byJournal = new Map<string, { outletId: string | null; value: number; cost: number }>();
+  for (const r of tr) {
+    const j = byJournal.get(r.journalId) ?? { outletId: null, value: 0, cost: 0 };
+    if (r.accountId === inventoryAccountId) {
+      j.value += Number(r.d ?? 0);
+      j.outletId = r.outletId ?? j.outletId;
+    } else if (r.type === "expense") j.cost += Number(r.d ?? 0);
+    byJournal.set(r.journalId, j);
+  }
+  const out = new Map<string, MarkupState>();
+  const key = (o: string | null) => o ?? "-";
+  for (const r of inv) out.set(key(r.outletId), { markup: 0, inflow: Number(r.d), balance: Number(r.d) - Number(r.c) });
+  for (const j of byJournal.values()) {
+    const s = out.get(key(j.outletId)) ?? { markup: 0, inflow: 0, balance: 0 };
+    s.markup += j.value - j.cost;
+    out.set(key(j.outletId), s);
+  }
+  return out;
+}
+
+/** Markup belum terpakai = saldo persediaan × (markup kumulatif ÷ nilai masuk kumulatif), per outlet (rata-rata tertimbang). */
+function unrealizedOf(states: Map<string, MarkupState>): { markup: number; unrealized: number } {
+  let markup = 0;
+  let unrealized = 0;
+  for (const s of states.values()) {
+    markup += s.markup;
+    if (s.markup <= 0 || s.inflow <= 0 || s.balance <= 0) continue;
+    unrealized += Math.min(s.markup, Math.round((s.balance * s.markup) / s.inflow));
+  }
+  return { markup, unrealized };
+}
+
+/**
+ * Markup harga mitra atas bahan yang ditransfer toko → depot (B-56). Laporan per lini tetap memakai harga mitra
+ * (PTB-37); pada KONSOLIDASI pendapatan internal & HPP toko sudah dieliminasi, dan markup yang ikut terpakai sebagai beban
+ * bahan depot dieliminasi dari beban; markup yang masih di persediaan depot dieliminasi dari persediaan (neraca).
+ */
+export async function computeInternalMarkup(tx: Tx, tenantId: string, fromPeriod: string, toPeriod: string): Promise<InternalMarkup> {
+  const map = await resolveMapping(tx, "internal_transfer.sent", "revenue", periodEnd(toPeriod), tenantId);
+  const inventoryAccountId = map?.debitAccountId ?? null;
+  if (!inventoryAccountId) return { inventoryAccountId: null, transferred: 0, unrealizedStart: 0, unrealizedEnd: 0, realized: 0 };
+  const end = unrealizedOf(await markupStateUpTo(tx, tenantId, inventoryAccountId, toPeriod));
+  const start = unrealizedOf(await markupStateUpTo(tx, tenantId, inventoryAccountId, shiftPeriod(fromPeriod, -1)));
+  const transferred = end.markup - start.markup;
+  return { inventoryAccountId, transferred, unrealizedStart: start.unrealized, unrealizedEnd: end.unrealized, realized: transferred - (end.unrealized - start.unrealized) };
+}
+
 export async function computeProfitLoss(tx: Tx, tenantId: string, period: string, basis: Basis) {
   const { fromPeriod, toPeriod } = rangeOf(period, basis);
   const byId = await tenantAccounts(tx, tenantId);
@@ -227,11 +311,16 @@ export async function computeProfitLoss(tx: Tx, tenantId: string, period: string
     const allocationShared = -sum((r) => r.allocation === "shared", (r) => r.byCenter[pc], () => 1);
     centers[pc] = { revenue, beforeAllocation, allocationL1, allocationShared, net: beforeAllocation + allocationL1 + allocationShared };
   }
+  // B-56: markup harga mitra yang terpakai sebagai beban bahan depot dieliminasi dari beban konsolidasi.
+  const markup = await computeInternalMarkup(tx, tenantId, fromPeriod, toPeriod);
   const consolidated = {
     revenue: sum((r) => r.kind === "revenue", (r) => r.consolidated, () => 1),
-    net: sum(() => true, (r) => r.consolidated),
+    net: sum(() => true, (r) => r.consolidated) + markup.realized,
     eliminatedRevenue: sum((r) => r.kind === "revenue", (r) => r.elimination, () => 1),
     eliminatedExpense: sum((r) => r.kind === "expense", (r) => r.elimination, () => 1),
+    /** Markup transfer internal toko → depot yang terpakai (mengurangi beban konsolidasi) & yang masih di persediaan. */
+    markupRealized: markup.realized,
+    markupUnrealized: markup.unrealizedEnd,
   };
   return { period, basis, rows: list, centers, consolidated, netTotal: sum(() => true, (r) => r.total) };
 }
@@ -270,6 +359,12 @@ export async function computeBalanceSheet(tx: Tx, tenantId: string, period: stri
   }
   rows.push({ accountId: null, code: "", name: "Saldo laba (akumulasi tahun lalu)", section: "equity", amount: retained - currentYear });
   rows.push({ accountId: null, code: "", name: "Laba (rugi) tahun berjalan", section: "equity", amount: currentYear });
+  // B-56: markup harga mitra yang masih melekat di persediaan depot dieliminasi (persediaan dinilai harga pokok PT).
+  const markup = await computeInternalMarkup(tx, tenantId, period, period);
+  if (markup.unrealizedEnd !== 0) {
+    rows.push({ accountId: null, code: "", name: "Eliminasi markup transfer internal di persediaan depot", section: "asset", amount: -markup.unrealizedEnd });
+    rows.push({ accountId: null, code: "", name: "Laba internal belum terealisasi (eliminasi transfer toko → depot)", section: "equity", amount: -markup.unrealizedEnd });
+  }
   rows.sort((x, y) => (x.code || "9").localeCompare(y.code || "9"));
   const total = (s: BalanceRow["section"]) => rows.filter((r) => r.section === s).reduce((t, r) => t + r.amount, 0);
   const assets = total("asset");

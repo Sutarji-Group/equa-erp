@@ -68,11 +68,34 @@ export function agingBucket(dueDate: BusinessDate, asOf: BusinessDate, rules: Pi
   return "over_30";
 }
 
+/**
+ * B-52 (D-10 butir 1): peristiwa sumber yang MENJURNAL pendapatan & piutang setiap jenis faktur. `invoice.issued`
+ * sendiri TIDAK dijurnal M11 (B-31) — faktur hanya menagih. Jenis faktur baru WAJIB didaftarkan di sini (tipe
+ * `satisfies Record<InvoiceKind, …>` gagal dikompilasi bila lupa) beserta event sumber yang ada di `m11.JOURNALED_EVENTS`
+ * (diuji `tests/integration/m5-m11-invoice-sources.test.ts`). Faktur reklasifikasi (piutang sementara transfer
+ * `pendingTransferId`, tunai rit dialihkan `reclassifiedFromTripPaymentId`, konversi kurang bayar → tempo) bukan
+ * pendapatan baru.
+ */
+export const INVOICE_REVENUE_SOURCES = {
+  delivery: { events: ["trip.completed"], reference: "tripId", note: "Rit tempo / prabayar digital Selesai" },
+  underpayment: { events: ["trip.completed"], reference: "tripId", note: "Kurang bayar lapangan saat rit Selesai (PTB-18)" },
+  monthly: { events: ["trip.completed"], reference: "invoice_lines.trip_id", note: "Kumpulan rit tempo belum ditagih (unbilled_charges)" },
+  store_sale: { events: ["pos_sale.recorded"], reference: "posSaleId", note: "Penjualan tempo toko per transaksi" },
+  opening_balance: { events: [], reference: "opening", note: "Neraca awal cut-over — jurnal saldo awal M11 (US-M11-09)" },
+  partner_subscription: { events: ["partner.subscription_invoiced"], reference: "invoiceId", note: "Langganan sistem mitra L5 (P3, D-10 butir 1)" },
+} as const satisfies Record<InvoiceKind, { events: readonly string[]; reference: string; note: string }>;
+
 /** Lini piutang dari jenis faktur (US-M5-04 KP-1): toko = penjualan toko; kemitraan = langganan mitra; lainnya air truk. */
 export function lineOfKind(kind: InvoiceKind): ReceivableLine {
   if (kind === "store_sale") return "store";
   if (kind === "partner_subscription") return "partner";
   return "truck";
+}
+
+/** Lini piutang suatu faktur: saldo awal memakai lini asal yang dipilih saat input (B-37), selain itu dari jenisnya. */
+export function lineOfInvoice(inv: { kind: InvoiceKind; openingLine?: ReceivableLine | null }): ReceivableLine {
+  if (inv.kind === "opening_balance" && inv.openingLine) return inv.openingLine;
+  return lineOfKind(inv.kind);
 }
 
 /** Pusat laba faktur (payload event mandiri). */
@@ -145,4 +168,16 @@ export function invoiceLink(id: string): string {
 
 export function customerCardLink(id: string): string {
   return `/piutang/pelanggan/${id}`;
+}
+
+/**
+ * Label cara kirim faktur (`invoices.sent_via`, B-36): `email` = terkirim dari server dengan PDF terlampir; `email_link` =
+ * draf e-mail dibuka di perangkat pengguna (belum pasti terkirim); `wa` = tautan WhatsApp dibuka.
+ */
+export function invoiceSentViaLabel(via: string | null | undefined): string {
+  if (!via) return "";
+  if (via === "email") return "E-mail (terkirim, PDF terlampir)";
+  if (via === "email_link") return "Draf e-mail (dibuka)";
+  if (via === "wa") return "WhatsApp (dibuka)";
+  return via;
 }

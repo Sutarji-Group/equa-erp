@@ -37,7 +37,7 @@ import * as params from "@/server/core/params";
 import { authorize, authorizeAny, runService } from "@/server/core/rbac";
 import { buildWaLink, recordWaOpened, renderTemplate } from "@/server/core/wa";
 
-import { agingBucket, customerCardLink, invoiceLink, lineOfKind, loadCustomer, loadInvoice, receivableRules, type InvoiceRow } from "./common";
+import { agingBucket, customerCardLink, invoiceLink, lineOfInvoice, loadCustomer, loadInvoice, receivableRules, type InvoiceRow } from "./common";
 import { changeCreditStatus, afterReceivablesChanged } from "./credit-hold";
 import { computeExposure } from "./balance";
 import { applyWriteOff, issueCreditNote, issueInvoice, recomputeInvoice } from "./ledger";
@@ -150,7 +150,7 @@ export async function getInvoiceDetail(ctx: ActorContext, invoiceId: string, opt
     approvals: pending,
     fieldCredit,
     bucket: agingBucket(inv.dueDate, today, rules),
-    line: lineOfKind(inv.kind),
+    line: lineOfInvoice(inv),
   };
 }
 
@@ -189,43 +189,56 @@ export async function invoiceDocument(ctx: ActorContext, invoiceId: string, opts
   };
 }
 
-const sendSchema = z.object({ invoiceId: z.string().uuid(), via: z.enum(["wa", "email"], { error: "Pilih kirim lewat WA atau e-mail." }) });
+const sendSchema = z.object({
+  invoiceId: z.string().uuid(),
+  via: z.enum(["wa", "email"], { error: "Pilih kirim lewat WA atau e-mail." }),
+  /** B-36: alamat penerima draf e-mail (`mailto:`), opsional. */
+  email: z.email({ error: "Alamat e-mail tidak valid." }).nullable().optional(),
+});
+
+/** Teks faktur dari template (WA / e-mail) + subjek e-mail. Dipakai `sendInvoice` & `emailInvoice` (B-36). */
+export async function invoiceMessage(tx: Tx, ctx: ActorContext, inv: InvoiceRow, opts: { pdfUrl?: string } = {}) {
+  const customer = await loadCustomer(tx, inv.customerId);
+  const bank = await customerBankAccount(tx, inv.tenantId);
+  const kind = inv.kind === "monthly" ? ("monthly_invoice" as const) : ("invoice" as const);
+  const tpl = await activeTemplate(tx, inv.tenantId, kind);
+  const company = await companyName(tx, inv.tenantId, ctxBusinessDate(ctx));
+  const { text } = renderTemplate(tpl.body, {
+    nama_pelanggan: customer.name,
+    nomor_faktur: inv.number,
+    jumlah: formatRupiah(inv.outstandingAmount > 0 ? inv.outstandingAmount : inv.amount),
+    total_faktur: formatRupiah(inv.amount),
+    tanggal_faktur: formatTanggal(inv.issueDate, { weekday: false }),
+    jatuh_tempo: formatTanggal(inv.dueDate, { weekday: false }),
+    periode: inv.periodMonth ? formatTanggal(inv.periodMonth, { weekday: false }).replace(/^\d+ /, "") : "",
+    rekening: bank?.text ?? "",
+    nama_rekening: bank?.accountName ?? "",
+    tautan_pdf: opts.pdfUrl ?? "",
+    nama_usaha: company,
+  });
+  const subject = `${inv.kind === "monthly" ? "Faktur bulanan" : "Faktur"} ${inv.number} — ${company}`;
+  return { customer, kind, tpl, text, subject };
+}
 
 /** Kirim faktur lewat tautan WA (template) atau e-mail — pengiriman tercatat (US-M5-01 KP-5, US-M5-06 KP-4). */
 export async function sendInvoice(ctx: ActorContext, input: unknown, opts: { tx?: Tx; pdfUrl?: string } = {}): Promise<{ link: string | null; text: string }> {
   await authorize(ctx, "m5.invoice.send", { tx: opts.tx });
-  const data = parseInput(sendSchema, input);
+  const data = parseInput(sendSchema, input, { email: "Alamat e-mail" });
   return runService(ctx, opts, async (tx) => {
     const inv = await loadInvoice(tx, data.invoiceId, { ctx, forUpdate: true });
-    const customer = await loadCustomer(tx, inv.customerId);
-    const bank = await customerBankAccount(tx, inv.tenantId);
-    const kind = inv.kind === "monthly" ? "monthly_invoice" : "invoice";
-    const tpl = await activeTemplate(tx, inv.tenantId, kind);
-    const company = await companyName(tx, inv.tenantId, ctxBusinessDate(ctx));
-    const { text } = renderTemplate(tpl.body, {
-      nama_pelanggan: customer.name,
-      nomor_faktur: inv.number,
-      jumlah: formatRupiah(inv.outstandingAmount > 0 ? inv.outstandingAmount : inv.amount),
-      total_faktur: formatRupiah(inv.amount),
-      tanggal_faktur: formatTanggal(inv.issueDate, { weekday: false }),
-      jatuh_tempo: formatTanggal(inv.dueDate, { weekday: false }),
-      periode: inv.periodMonth ? formatTanggal(inv.periodMonth, { weekday: false }).replace(/^\d+ /, "") : "",
-      rekening: bank?.text ?? "",
-      nama_rekening: bank?.accountName ?? "",
-      tautan_pdf: opts.pdfUrl ?? "",
-      nama_usaha: company,
-    });
+    const { customer, kind, tpl, text, subject } = await invoiceMessage(tx, ctx, inv, { pdfUrl: opts.pdfUrl });
     let link: string | null = null;
     if (data.via === "wa") {
       link = buildWaLink(customer.waPhone, text);
       await recordWaOpened(tx, ctx, { kind, toPhone: customer.waPhone, renderedText: text, templateId: tpl.id, customerId: customer.id, objectType: "invoice", objectId: inv.id });
     } else {
-      // E-mail: draf e-mail terisi (PDF faktur dilampirkan Admin Keuangan dari tombol unduh); pengiriman tercatat.
-      const subject = `${inv.kind === "monthly" ? "Faktur bulanan" : "Faktur"} ${inv.number} — ${company}`;
-      link = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+      // E-mail tanpa pengirim server (RESEND_API_KEY kosong, D-10 butir 2): draf e-mail terisi (PDF dilampirkan Admin
+      // Keuangan dari tombol unduh) — dicatat "dibuka" (`email_link`), bukan "terkirim".
+      link = `mailto:${data.email ? encodeURIComponent(data.email) : ""}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
     }
-    await tx.update(invoices).set({ sentAt: ctx.now, sentVia: data.via, updatedAt: ctx.now }).where(eq(invoices.id, inv.id));
-    await auditRecord(tx, { ctx, objectType: "invoice", objectId: inv.id, action: "send", after: { via: data.via, sentAt: ctx.now }, rule: "US-M5-01 KP-5" });
+    const sentVia = data.via === "email" ? "email_link" : data.via;
+    await tx.update(invoices).set({ sentAt: ctx.now, sentVia, updatedAt: ctx.now }).where(eq(invoices.id, inv.id));
+    await auditRecord(tx, { ctx, objectType: "invoice", objectId: inv.id, action: "send", after: { via: sentVia, sentAt: ctx.now, to: data.email ?? null }, rule: "US-M5-01 KP-5, D-10 butir 2" });
     return { link, text };
   });
 }

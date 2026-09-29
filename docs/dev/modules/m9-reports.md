@@ -130,12 +130,12 @@ Komponen: `src/components/m9-reports/*` (tombol/formulir aksi, isian, grafik, bl
 | B-44 H+0 memakai M12 | Selesai: `m12.fleetDaySummary` per hari di pengecualian; pola `locationDeviationPatterns` di kinerja sopir |
 
 Terbuka (lihat juga laporan agen; nomor = `docs/dev/backlog.md`):
-1. Lencana hitungan **Kotak masuk** di menu (`badgeKey: "inbox"`) belum diisi — B-58 (`src/app/(office)/_shell-data.ts`;
+1. SELESAI S5 (B-58, lihat §10). Lencana hitungan **Kotak masuk** di menu (`badgeKey: "inbox"`) belum diisi — B-58 (`src/app/(office)/_shell-data.ts`;
    `m9.inboxCount` membangun seluruh kotak masuk → perlu hitungan ringan sebelum dipasang di setiap halaman).
 2. Imutabilitas `daily_summaries.snapshot` setelah terbit dijaga layanan (tidak ada jalur UPDATE); penjaga DB
    (`IMMUTABLE_COLUMN_GUARDS` di hardening) milik core — B-59.
 3. `access.request_pending` di katalog notifikasi tidak dipakai (M10 memakai `approval.requested`) — B-60.
-4. Satu definisi PKP: blok PKP laporan bulanan & `m9.gross_revenue_pkp` menghitung sendiri; tampilkan/pakai
+4. SELESAI S5 (B-54, lihat §10). Satu definisi PKP: blok PKP laporan bulanan & `m9.gross_revenue_pkp` menghitung sendiri; tampilkan/pakai
    `m11.pkpStatus` (US-M11-08 KP-4) — B-54.
 
 Diselesaikan saat integrasi M9 + M11 (B-61): katalog memakai laporan terdaftar M11 — baris "Laba kotor … laba rugi,
@@ -144,3 +144,17 @@ jurnal format konsultan" = `m11.journals` dengan layar `/akuntansi/pajak` (templ
 log ekspor yang sama). `pendingKeys` tidak lagi dipakai katalog (tipe tetap untuk modul menyusul). Pengirim
 `period.not_closed`, `tax.pkp_threshold`, `period.reopened` kini ada (M11) → dihapus dari `PENDING_EMITTERS` uji
 `US-M9-04 KP-1`. Uji lintas modul `tests/integration/m9-m11.test.ts`.
+
+## 10. S5 pengerasan — paket B
+
+- **B-58** lencana "Kotak masuk": `inboxBadgeCount(ctx, { approvalItems?, fresh? })` = hitungan COUNT terindeks per
+  kelompok + cache 30 detik per pengguna (`clearInboxBadgeCache()`; dikosongkan setelah tindakan kotak masuk);
+  `_shell-data.ts` kantor mengisi `counts.inbox` (galat tidak menggagalkan kerangka). Uji `tests/m9-reports/inbox.test.ts`
+  (`B-58 …`; `NOW` = siang WIB hari ini agar tidak bergantung jam dinding).
+- **B-54** satu definisi PKP: `pkpDashboard(ctx)` = `m11.pkpStatus` (dasbor pemilik); blok PKP laporan bulanan memakai
+  M11 bila aktif (`pkp.source = "m11"`, proyeksi `avg3`/`projectedPeriod`); snapshot Final lama tanpa kolom tersebut
+  dibaca dengan nilai bawaan. Uji `tests/integration/m9-m11.test.ts`.
+- **B-66** kinerja sopir/truk (US-M9-05): penilaian pelanggan aplikasi (`p2.ratingAggregates`: jumlah, rata-rata,
+  jumlah nilai ≤ 2) dan keluhan bulan itu (`p2.complaintMonthlyReport`) per truk + ringkasan `CustomerFeedbackSummary`
+  di `/laporan/kinerja`. Uji `tests/m9-reports/performance.test.ts`.
+- **B-24** kontrol tindakan kotak masuk memakai `useFlashActionState`.

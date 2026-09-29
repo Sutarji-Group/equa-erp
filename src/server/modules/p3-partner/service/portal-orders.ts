@@ -118,6 +118,8 @@ export async function createPortalWaterOrder(ctx: ActorContext, input: PortalWat
         notes: [`Pesanan dari portal mitra ${tenant.name}`, data.notes].filter(Boolean).join(" — "),
         duplicateDecision: data.confirmAdditional ? "additional" : null,
         duplicateReason: data.confirmAdditional ? "Pesanan tambahan dikonfirmasi mitra lewat portal" : null,
+        // B-64: asal portal mitra ikut `order.created`.
+        source: "partner_portal",
       },
       { tx },
     );
@@ -137,7 +139,7 @@ export async function createPortalWaterOrder(ctx: ActorContext, input: PortalWat
     const order = res.order;
     const periodMonth = `${data.requestedDate.slice(0, 7)}-01`;
     const priced = discountedWaterPrice(order.pricePerTrip, contract, periodMonth);
-    const set: Partial<typeof orders.$inferInsert> = { source: "partner_portal", updatedAt: ctx.now };
+    const set: Partial<typeof orders.$inferInsert> = { updatedAt: ctx.now };
     if (priced.discountBp > 0) {
       Object.assign(set, {
         pricePerTrip: priced.price,

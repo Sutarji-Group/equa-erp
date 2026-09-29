@@ -14,6 +14,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge, ToneBadge } from "@/components/shared/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { label } from "@/lib/labels";
+import { formatRupiah } from "@/lib/money";
 import { formatTanggal, formatTanggalJam } from "@/lib/time";
 import * as approvals from "@/server/core/approvals";
 import { requirePermission } from "@/server/core/auth/office";
@@ -118,16 +119,23 @@ export default async function PelangganDetailPage({ params }: PageProps<"/master
         }
       />
 
-      <SectionCard title="Ringkasan" description="Piutang dibaca dari modul Piutang (M5); batas tersisa = batas − (piutang terbuka + pesanan tempo berjalan), BR-06.">
+      <SectionCard title="Ringkasan" description="Saldo piutang dari modul Piutang (M5: faktur terbuka + rit belum ditagih); batas tersisa = batas − eksposur (piutang + pesanan tempo berjalan + tempo toko belum difakturkan), BR-06.">
         <KeyValueList
           columns={3}
           items={[
             { label: "Nomor WA", value: customer.waPhone ? formatWaNumber(customer.waPhone) : "—" },
             { label: "Kontak", value: customer.contactName ?? "—" },
             { label: "Jam terima tetap", value: customer.fixedReceiveTime?.slice(0, 5) ?? "—" },
-            { label: "Piutang terbuka", value: <MoneyText value={summary.openReceivable} /> },
+            { label: "Saldo piutang", value: <MoneyText value={summary.openReceivable} /> },
             { label: "Batas kredit", value: <MoneyText value={summary.creditLimit} />, hint: `Tempo ${summary.paymentTermDays} hari` },
-            { label: "Batas tersisa", value: <MoneyText value={summary.remainingLimit} colorize />, hint: summary.openCreditOrders ? `Pesanan tempo berjalan ${summary.openCreditOrders.toLocaleString("id-ID")}` : undefined },
+            { label: "Batas tersisa", value: <MoneyText value={summary.remainingLimit} colorize />, hint:
+                [
+                  summary.openCreditOrders ? `Pesanan tempo berjalan ${formatRupiah(summary.openCreditOrders)}` : null,
+                  summary.uninvoicedStoreCredit ? `Tempo toko belum difakturkan ${formatRupiah(summary.uninvoicedStoreCredit)}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || undefined,
+            },
             { label: "Rata-rata jarak antar pesanan", value: summary.averageDaysBetweenOrders !== null ? `${summary.averageDaysBetweenOrders.toLocaleString("id-ID")} hari` : "—" },
             { label: "Catatan khusus", value: summary.notes ?? "—", full: true },
           ]}

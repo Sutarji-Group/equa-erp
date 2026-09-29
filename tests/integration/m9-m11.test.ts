@@ -14,7 +14,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "@/db/client";
 import { incidents, notifications, reportSnapshots } from "@/db/schema";
 import { EQUA_TENANT_ID, userIdByUsername } from "@/db/seed";
+import { lastDayOfMonth } from "@/lib/time";
 import * as approvals from "@/server/core/approvals";
+import * as params from "@/server/core/params";
 import * as m11 from "@/server/modules/m11-accounting";
 import * as m9 from "@/server/modules/m9-reports";
 
@@ -89,6 +91,30 @@ describe("Integrasi M9 ↔ M11: laba kotor bulanan dari jurnal otomatis & versi 
     }
     expect(report.consolidated.revenue).toBe(statements.profitLoss.consolidated.revenue);
     expect(await crossModuleIncidents(t.db)).toEqual([]);
+  });
+
+  it("B-54 US-M11-08 KP-4 status batas PKP di M9 (laporan bulanan & dasbor) = m11.pkpStatus / Akuntansi › Pajak, termasuk proyeksi", async () => {
+    // Batas diturunkan mulai hari ini agar proyeksi rata-rata 3 bulan jatuh dalam jangkauan (parameter PAR-22 berjejak;
+    // bulan lalu tetap memakai batas lama karena parameter tidak berlaku surut).
+    const par22 = await params.get(t.db, "PAR-22", DAY5);
+    await params.set(owner(at(DAY5)), "PAR-22", { ...par22, threshold: 2_000_000 }, DAY5, "Uji proyeksi PKP (batas diturunkan)");
+    const report = await m9.getMonthlyReport(owner(at(DAY5)), { month: THIS_PERIOD });
+    const expected = await m11.pkpStatus(t.db, EQUA_TENANT_ID, DAY5);
+    expect(report.pkp.source).toBe("m11");
+    expect(report.pkp.twelveMonthRevenue).toBe(expected.total);
+    expect(report.pkp.twelveMonthRevenue).toBeGreaterThanOrEqual(700_000);
+    expect(report.pkp).toMatchObject({ threshold: 2_000_000, pct: expected.percent, reached: expected.level, avg3: expected.avg3, projectedPeriod: expected.projectedPeriod });
+    expect(report.pkp.projectedPeriod).not.toBeNull();
+    expect(report.pkp.months[0]).toBe(THIS_PERIOD);
+    // Bulan lalu: batas yang berlaku saat itu (PAR-22 lama) — angka omzet tetap dari jurnal M11.
+    const last = await m9.getMonthlyReport(owner(at(DAY5)), { month: MONTH });
+    const lastExpected = await m11.pkpStatus(t.db, EQUA_TENANT_ID, lastDayOfMonth(`${MONTH}-01`));
+    expect(last.pkp).toMatchObject({ twelveMonthRevenue: lastExpected.total, threshold: lastExpected.threshold, projectedPeriod: lastExpected.projectedPeriod });
+    // Dasbor M9 (beranda) & layar pajak M11 memakai angka yang sama pada hari ini.
+    const dash = await m9.pkpDashboard(owner(at(DAY5)));
+    const tax = await m11.taxOverview(owner(at(DAY5)));
+    expect(dash).toEqual(tax.pkp);
+    expect(dash?.projectedPeriod).toBe(report.pkp.projectedPeriod);
   });
 
   it("US-M9-02 KP-2 pemilik mengunci periode (persetujuan period_lock M11) → versi Final M9 tersimpan + notifikasi; buka kembali & kunci ulang → revisi baru, lama tetap (BR-32)", async () => {

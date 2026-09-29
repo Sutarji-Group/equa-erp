@@ -823,6 +823,26 @@ export const PARAM_REGISTRY = {
       description: "Awal penyusutan menurut tanggal perolehan, pengingat utang jurnal manual, dan syarat catatan akuntan pada tutup buku pertama (TG-8).",
     },
   }),
+  /** Tambahan S5 (B-67, NFR-29): laporan biaya komunikasi/cloud/aplikasi bulanan M11 + anggaran. */
+  "m11.it_cost_report": defineParam({
+    schema: z
+      .object({
+        /** Kode akun beban komunikasi, cloud & aplikasi (termasuk anak akun) yang dijurnal manual bulanan. */
+        account_codes: z.array(z.string().trim().min(1)).min(1, { error: "Isi minimal satu kode akun." }),
+        /** Anggaran bulanan biaya komunikasi/cloud/aplikasi (0 = tanpa anggaran). */
+        monthly_budget: rupiah,
+      })
+      .strict(),
+    scopes: ["global", "tenant"],
+    affectedRoles: ["owner", "finance_admin"],
+    fallback: { account_codes: ["6-2001"], monthly_budget: 0 },
+    meta: {
+      name: "Laporan biaya komunikasi, cloud & WhatsApp bulanan",
+      unit: null,
+      reference: "NFR-29, US-P2-08 KP-3",
+      description: "Akun beban yang dihitung sebagai biaya cloud/peta/GPS/aplikasi dan anggaran bulanannya; biaya pesan WhatsApp Business API dibaca dari catatan per pesan.",
+    },
+  }),
   // --- Tambahan modul P3 (Kemitraan RL-7 & Tahap 3) — hanya tambah ---
   "p3.partner_rules": defineParam({
     schema: z

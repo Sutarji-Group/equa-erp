@@ -84,6 +84,9 @@ export {
   reverseBankDeposit,
   listBankAccounts,
   createBankAccount,
+  setBankAccountGlAccount,
+  bankAccountsNeedingGl,
+  bankGlChoices,
   deactivateBankAccount,
 } from "./service/office-cash";
 export type { BankAccountRow, BankDepositRow, OfficeCashDay } from "./service/office-cash";

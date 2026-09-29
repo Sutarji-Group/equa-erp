@@ -1,9 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { deposits, discrepancies, fleetEvents, orders, shifts, trips, truckDaySummaries } from "@/db/schema";
+import { complaints, customerAccounts, deposits, discrepancies, fleetEvents, orders, shifts, trips, tripRatings, truckDaySummaries } from "@/db/schema";
 import { EQUA_TENANT_ID, employeeId, outletId, userIdByUsername } from "@/db/seed";
 import * as m9 from "@/server/modules/m9-reports";
+import * as p2 from "@/server/modules/p2-customer";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
 import { useTestDb } from "../helpers/db";
@@ -89,6 +90,40 @@ describe("M9 — kinerja sopir/truk & depot/operator (US-M9-05)", () => {
     expect(a.truckCodes).toHaveLength(1);
     const truck = r.trucks.find((x) => x.truckId === truckA)!;
     expect(truck).toMatchObject({ scheduled: 5, completed: 4, failed: 1, distanceKm: 52.3, tripExpenses: 75_000, completionPct: 80 });
+  });
+
+  it("B-66 US-M9-05 KP-1 kinerja sopir/truk menampilkan agregat penilaian & keluhan pelanggan aplikasi (P2 ratingAggregates & complaintReport)", async () => {
+    // Dua rit sopir A (truk A) dinilai 5 & 2, satu rit sopir B (truk B) dinilai 4; satu keluhan volume atas rit truk A.
+    const r1 = await makeTrip(t.db, { date: "2026-04-14", truckId: truckA, driverEmployeeId: A.emp, driverUserId: A.user });
+    const r2 = await makeTrip(t.db, { date: "2026-04-15", truckId: truckA, driverEmployeeId: A.emp, driverUserId: A.user });
+    const r3 = await makeTrip(t.db, { date: "2026-04-15", truckId: truckB, driverEmployeeId: B.emp, driverUserId: B.user });
+    for (const [trip, rating, phone] of [[r1, 5, "081300000661"], [r2, 2, "081300000662"], [r3, 4, "081300000663"]] as const) {
+      const [acc] = await t.db.insert(customerAccounts).values({ tenantId: EQUA_TENANT_ID, phone, customerId: trip.customerId, status: "linked" }).returning();
+      await t.db.insert(tripRatings).values({
+        tenantId: EQUA_TENANT_ID,
+        tripId: trip.id,
+        customerAccountId: acc!.id,
+        customerId: trip.customerId,
+        truckId: trip.truckId,
+        driverEmployeeId: trip.truckId === truckA ? A.emp : B.emp,
+        rating,
+        comment: "Komentar pelanggan tidak ikut laporan kinerja",
+        createdAt: at("2026-04-16", "08:00"),
+      });
+    }
+    await t.db.insert(complaints).values({ tenantId: EQUA_TENANT_ID, customerId: r2.customerId, tripId: r2.id, kind: "volume", description: "Volume kurang", assignedRole: "dispatcher", createdAt: at("2026-04-16", "09:00") });
+    const r = await m9.getPerformance(owner(NOW), { month: M });
+    const a = r.drivers.find((d) => d.employeeId === A.emp)!;
+    const b = r.drivers.find((d) => d.employeeId === B.emp)!;
+    expect(a).toMatchObject({ ratingCount: 2, ratingAverage: 3.5, lowRatings: 1 });
+    expect(b).toMatchObject({ ratingCount: 1, ratingAverage: 4, lowRatings: 0 });
+    const ta = r.trucks.find((x) => x.truckId === truckA)!;
+    expect(ta).toMatchObject({ ratingCount: 2, ratingAverage: 3.5, complaintCount: 1, complaintKinds: { volume: 1 } });
+    expect(r.trucks.find((x) => x.truckId === truckB)).toMatchObject({ ratingCount: 1, complaintCount: 0 });
+    expect(r.customerFeedback).toMatchObject({ ratingCount: 3, complaints: 1, openComplaints: 1 });
+    // Angka sama dengan fungsi P2 (satu definisi).
+    const agg = await p2.ratingAggregates(t.db, { tenantId: EQUA_TENANT_ID, from: `${M}-01`, to: `${M}-30` });
+    expect(r.customerFeedback.ratingAverage).toBe(agg.overall.average);
   });
 
   it("US-M9-05 KP-2 depot/operator per bulan: galon per hari, transaksi, void (jumlah, nilai), selisih kas, setoran terlambat", async () => {

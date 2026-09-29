@@ -8,7 +8,7 @@
  */
 import "server-only";
 
-import { and, asc, desc, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, ne } from "drizzle-orm";
 
 import { bankAccounts, bankDeposits, officeCashMovements, supplierPayments } from "@/db/schema";
 import { label } from "@/lib/labels";
@@ -23,8 +23,9 @@ import { ConflictError, DomainError, NotFoundError, parseInput } from "@/server/
 import { emit } from "@/server/core/events";
 import { authorize, runService } from "@/server/core/rbac";
 import { linkAttachment } from "@/server/core/storage";
+import * as m11 from "@/server/modules/m11-accounting";
 
-import { bankAccountSchema, bankDepositSchema, deactivateBankAccountSchema, openingBalanceSchema, reverseBankDepositSchema } from "../schemas";
+import { bankAccountSchema, bankDepositSchema, deactivateBankAccountSchema, openingBalanceSchema, reverseBankDepositSchema, setBankGlAccountSchema } from "../schemas";
 import { assertCashDayOpen, assertNotFuture, cashRules, officeCashBalance, officeCashOf, openCashDate, postOfficeCash } from "./common";
 import { cancelTransferForSource, recordIncomingTransfer } from "./transfers";
 
@@ -42,16 +43,79 @@ export async function listBankAccounts(ctx: ActorContext, opts: { tx?: Tx; inclu
   return opts.includeInactive ? rows : rows.filter((r) => r.isActive);
 }
 
+/**
+ * B-53: akun buku rekening wajib milik rekening itu sendiri — akun kas/bank detail aktif (M11) yang tidak dipakai
+ * rekening lain (aktif maupun nonaktif: riwayat saldo per rekening tidak boleh tercampur).
+ */
+async function assertGlAccountFree(tx: Tx, tenantId: string, glAccountId: string, exceptBankAccountId: string | null): Promise<void> {
+  const acc = await m11.assertBankGlAccount(tx, tenantId, glAccountId);
+  const conds = [eq(bankAccounts.tenantId, tenantId), eq(bankAccounts.glAccountId, glAccountId)];
+  if (exceptBankAccountId) conds.push(ne(bankAccounts.id, exceptBankAccountId));
+  const [other] = await tx.select({ bankName: bankAccounts.bankName, accountNumber: bankAccounts.accountNumber }).from(bankAccounts).where(and(...conds)).limit(1);
+  if (other) {
+    throw new ConflictError(
+      "BANK_GL_SHARED",
+      `Akun buku ${acc.code} ${acc.name} sudah dipakai rekening ${other.bankName} ${other.accountNumber}. Setiap rekening wajib punya akun buku sendiri — pilih akun lain atau biarkan kosong agar akun baru dibuat.`,
+    );
+  }
+}
+
+/** Rekening bank baru + akun bukunya sendiri (dipilih, atau dibuat otomatis `1-12NN` di bagan akun M11) — B-53. */
 export async function createBankAccount(ctx: ActorContext, input: unknown, opts: { tx?: Tx } = {}): Promise<BankAccountRow> {
   await authorize(ctx, "m4.bank_account.update", { tx: opts.tx });
-  const data = parseInput(bankAccountSchema, input, { bankName: "Nama bank", accountNumber: "Nomor rekening", accountName: "Nama pemilik rekening" });
+  const data = parseInput(bankAccountSchema, input, { bankName: "Nama bank", accountNumber: "Nomor rekening", accountName: "Nama pemilik rekening", glAccountId: "Akun buku" });
   return runService(ctx, opts, async (tx) => {
     const dup = await tx.select({ id: bankAccounts.id }).from(bankAccounts).where(and(eq(bankAccounts.tenantId, ctx.tenantId), eq(bankAccounts.accountNumber, data.accountNumber))).limit(1);
     if (dup[0]) throw new ConflictError("BANK_ACCOUNT_EXISTS", "Nomor rekening ini sudah terdaftar.");
-    const [row] = await tx.insert(bankAccounts).values({ tenantId: ctx.tenantId, ...data, createdBy: ctx.userId }).returning();
-    await auditRecord(tx, { ctx, objectType: "bank_account", objectId: row!.id, action: "create", after: data });
+    let glAccountId = data.glAccountId ?? null;
+    let glCreated: string | null = null;
+    if (glAccountId) await assertGlAccountFree(tx, ctx.tenantId, glAccountId, null);
+    else {
+      const gl = await m11.createBankGlAccount(tx, ctx, { bankName: data.bankName, accountNumber: data.accountNumber });
+      glAccountId = gl.id;
+      glCreated = `${gl.code} ${gl.name}`;
+    }
+    const [row] = await tx.insert(bankAccounts).values({ tenantId: ctx.tenantId, ...data, glAccountId, createdBy: ctx.userId }).returning();
+    await auditRecord(tx, { ctx, objectType: "bank_account", objectId: row!.id, action: "create", after: { ...data, glAccountId, glAccountCreated: glCreated }, rule: "US-M4-05 KP-1, B-53" });
     return row!;
   });
+}
+
+/**
+ * B-53: tetapkan akun buku rekening lama yang kosong / dipakai bersama (migrasi data sebelum aturan satu akun per
+ * rekening). Kosongkan `glAccountId` → akun buku baru dibuat otomatis. Berjejak (nilai lama/baru + alasan).
+ */
+export async function setBankAccountGlAccount(ctx: ActorContext, input: unknown, opts: { tx?: Tx } = {}): Promise<BankAccountRow> {
+  await authorize(ctx, "m4.bank_account.update", { tx: opts.tx });
+  const data = parseInput(setBankGlAccountSchema, input, { glAccountId: "Akun buku", reason: "Alasan" });
+  return runService(ctx, opts, async (tx) => {
+    const acc = (await tx.select().from(bankAccounts).where(eq(bankAccounts.id, data.bankAccountId)).limit(1))[0];
+    if (!acc || acc.tenantId !== ctx.tenantId) throw new NotFoundError("Rekening bank tidak ditemukan.");
+    let glAccountId = data.glAccountId ?? null;
+    if (glAccountId && glAccountId === acc.glAccountId) throw new DomainError("BANK_GL_UNCHANGED", "Akun buku rekening ini sudah akun tersebut.");
+    if (glAccountId) await assertGlAccountFree(tx, ctx.tenantId, glAccountId, acc.id);
+    else glAccountId = (await m11.createBankGlAccount(tx, ctx, { bankName: acc.bankName, accountNumber: acc.accountNumber })).id;
+    const [row] = await tx.update(bankAccounts).set({ glAccountId, updatedAt: ctx.now }).where(eq(bankAccounts.id, acc.id)).returning();
+    await auditRecord(tx, { ctx, objectType: "bank_account", objectId: acc.id, action: "set_gl_account", before: { glAccountId: acc.glAccountId }, after: { glAccountId }, reason: data.reason, rule: "B-53" });
+    return row!;
+  });
+}
+
+/** Pilihan akun buku rekening & rekening yang perlu diperbaiki (layar Kas kantor, B-53). */
+export async function bankGlChoices(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<{ options: m11.BankGlOption[]; needing: Awaited<ReturnType<typeof bankAccountsNeedingGl>> }> {
+  await authorize(ctx, "m4.office_cash.read", { tx: opts.tx });
+  const tx = opts.tx ?? getDb();
+  return { options: await m11.bankGlAccountOptions(tx, ctx.tenantId), needing: await bankAccountsNeedingGl(tx, ctx.tenantId) };
+}
+
+/** Rekening bank tanpa akun buku sendiri (kosong / dipakai bersama) — ditampilkan sebagai tugas perbaikan (B-53). */
+export async function bankAccountsNeedingGl(tx: Tx, tenantId: string): Promise<{ id: string; label: string; reason: "missing" | "shared" }[]> {
+  const rows = await tx.select().from(bankAccounts).where(eq(bankAccounts.tenantId, tenantId)).orderBy(asc(bankAccounts.createdAt));
+  const seen = new Map<string, number>();
+  for (const r of rows) if (r.glAccountId) seen.set(r.glAccountId, (seen.get(r.glAccountId) ?? 0) + 1);
+  return rows
+    .filter((r) => r.isActive && (!r.glAccountId || (seen.get(r.glAccountId) ?? 0) > 1))
+    .map((r) => ({ id: r.id, label: `${r.bankName} ${r.accountNumber}`, reason: r.glAccountId ? ("shared" as const) : ("missing" as const) }));
 }
 
 export async function deactivateBankAccount(ctx: ActorContext, input: unknown, opts: { tx?: Tx } = {}): Promise<BankAccountRow> {

@@ -9,6 +9,7 @@ import { getDb } from "@/server/core/db";
 import { enabledFlags } from "@/server/core/flags";
 import * as notifications from "@/server/core/notifications";
 import { can } from "@/server/core/rbac";
+import * as m9 from "@/server/modules/m9-reports";
 
 export type OfficeShellData = {
   user: OfficeShellUser;
@@ -32,11 +33,21 @@ export async function getOfficeShellData(session: ActiveOfficeSession): Promise<
 
   let approvalsCount = 0;
   let approvalsOverdue = 0;
+  let approvalItems: Awaited<ReturnType<typeof approvals.listInbox>> | undefined;
   if (can(ctx, "m10.approval.read")) {
-    const inbox = await approvals.listInbox(ctx, { limit: 500 });
-    const decidable = inbox.filter((i) => i.canDecide);
+    approvalItems = await approvals.listInbox(ctx, { limit: 500 });
+    const decidable = approvalItems.filter((i) => i.canDecide);
     approvalsCount = decidable.length;
     approvalsOverdue = decidable.filter((i) => i.isOverdue).length;
+  }
+  // Lencana "Kotak masuk" (B-58): hitungan COUNT terindeks + cache singkat per pengguna — bukan membangun kotak masuk
+  // penuh di setiap render. Galat tidak menggagalkan kerangka kantor.
+  let inbox: number | undefined;
+  if (can(ctx, "m9.inbox.read")) {
+    inbox = await m9.inboxBadgeCount(ctx, { approvalItems }).then(
+      (r) => r.count,
+      () => undefined,
+    );
   }
   const [unread, recent, flags] = await Promise.all([
     notifications.unreadCount(ctx),
@@ -47,7 +58,7 @@ export async function getOfficeShellData(session: ActiveOfficeSession): Promise<
   return {
     user: { name: user.name, roleLabels: user.roleLabels },
     permissions,
-    counts: { approvals: approvalsCount, approvalsOverdue, notifications: unread },
+    counts: { approvals: approvalsCount, approvalsOverdue, notifications: unread, inbox },
     enabledFlags: flags,
     notifications: recent.map((n) => ({
       id: n.id,

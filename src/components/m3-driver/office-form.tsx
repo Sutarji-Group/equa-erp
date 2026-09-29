@@ -5,9 +5,9 @@
  * saat berhasil. Tetap berfungsi tanpa JavaScript (form action; berkas bukti dikirim multipart otomatis oleh React).
  */
 import { LoaderCircle } from "lucide-react";
-import { type ReactNode, useActionState, useEffect, useRef } from "react";
-import { toast } from "sonner";
+import { type ReactNode, useEffect, useRef } from "react";
 
+import { useFlashActionState } from "@/components/shared/use-flash-action";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,11 +29,10 @@ export function M3ActionForm({
   className?: string;
   testId?: string;
 }) {
-  const [state, formAction, pending] = useActionState(action, {} as M3ActionState);
+  const [state, formAction, pending] = useFlashActionState(action, {} as M3ActionState);
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (state.ok) {
-      if (state.message) toast.success(state.message);
       ref.current?.reset();
     }
   }, [state]);

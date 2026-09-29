@@ -1,7 +1,7 @@
 /**
  * Siapkan FormData formulir kas sebelum dikirim ke Server Action (KODE PERAMBAN): foto (slip setor bank, bukti kas
  * kecil, bukti uang rusak) dikompresi di perangkat ≤ 300 KB (PAR-38) agar tidak melewati batas badan Server Action
- * (1 MB bawaan Next, backlog B-18) dan hemat penyimpanan. Berkas non-foto (CSV/Excel/PDF) dibiarkan apa adanya.
+ * (4 MB, D-10 butir 3 / B-18) dan hemat penyimpanan. Berkas non-foto (CSV/Excel/PDF) dibiarkan apa adanya.
  */
 import { compressImage, DEFAULT_MAX_PHOTO_BYTES } from "@/client/media/compress-image";
 

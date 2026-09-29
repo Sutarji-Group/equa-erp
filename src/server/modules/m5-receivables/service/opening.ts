@@ -15,6 +15,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { attachments, customers, dataSignoffs, invoices } from "@/db/schema";
+import { enumValues } from "@/lib/labels";
 import { formatRupiah, zRupiahPositive } from "@/lib/money";
 import { formatTanggal, isBusinessDate, type BusinessDate } from "@/lib/time";
 
@@ -28,14 +29,18 @@ import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
 import { linkAttachment } from "@/server/core/storage";
 
-import { loadCustomer, loadInvoice, openingSignoff, type InvoiceRow, type SignoffRow } from "./common";
+import { loadCustomer, loadInvoice, openingSignoff, type InvoiceRow, type ReceivableLine, type SignoffRow } from "./common";
 import { afterReceivablesChanged } from "./credit-hold";
 import { issueCreditNote, issueInvoice } from "./ledger";
 
 const bizDate = (what: string) => z.string().refine((v) => isBusinessDate(v), { error: `${what} tidak valid (YYYY-MM-DD).` });
 
+/** Lini asal piutang kertas (B-37) — bawaan air truk. */
+const lineSchema = z.enum(enumValues("receivable_line") as [ReceivableLine, ...ReceivableLine[]], { error: "Lini piutang tidak dikenal." }).default("truck");
+
 const openingSchema = z.object({
   customerId: z.string().uuid({ error: "Pelanggan wajib dipilih." }),
+  line: lineSchema,
   issueDate: bizDate("Tanggal faktur"),
   dueDate: bizDate("Jatuh tempo"),
   description: z.string().trim().min(3, { error: "Keterangan wajib diisi." }).max(300),
@@ -80,6 +85,7 @@ export async function createOpeningInvoice(ctx: ActorContext, input: unknown, op
       description: data.description,
       isOpeningBalance: true,
       openingConfirmationAttachmentId: data.confirmationAttachmentId,
+      openingLine: data.line,
       applyAdvances: false,
       lines: [{ component: "opening_balance", description: `Saldo awal: ${data.description}`, serviceDate: data.issueDate, quantity: 1, unitPrice: data.amount, amount: data.amount }],
       rule: "US-M5-07 KP-1",
@@ -195,6 +201,7 @@ const adjustSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("add"),
     customerId: z.string().uuid({ error: "Pelanggan wajib dipilih." }),
+    line: lineSchema,
     issueDate: bizDate("Tanggal faktur"),
     dueDate: bizDate("Jatuh tempo"),
     description: z.string().trim().min(3).max(300),
@@ -277,6 +284,7 @@ export async function applyOpeningAdjustment(tx: Tx, ctx: ActorContext, request:
       description: `Koreksi saldo awal: ${p.description}`,
       isOpeningBalance: true,
       openingConfirmationAttachmentId: p.confirmationAttachmentId,
+      openingLine: p.line ?? "truck",
       applyAdvances: false,
       lines: [{ component: "opening_balance", description: `Koreksi saldo awal (${request.number}): ${p.description}`, serviceDate: p.issueDate, quantity: 1, unitPrice: p.amount, amount: p.amount }],
       rule: "US-M5-07 KP-2, PAR-62, 6.2a",

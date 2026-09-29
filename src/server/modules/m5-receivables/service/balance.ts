@@ -81,11 +81,29 @@ export type CreditExposureView = ReceivableBalance & {
 
 const ACTIVE_ORDER_STATUSES = ["new", "awaiting_approval", "scheduled", "in_delivery"] as const;
 
-/** Eksposur kredit (BR-06) satu batas lintas lini (PTB-25). Tanpa otorisasi. */
+/** Penjualan tempo toko Sah yang belum menjadi faktur M5 (shift toko masih terbuka / belum tersinkron). */
+function uninvoicedStoreCreditConds(customerId: string, excludeSaleId?: string | null): SQL[] {
+  const conds: SQL[] = [
+    eq(posSales.customerId, customerId),
+    eq(posSales.paymentMethod, "credit"),
+    eq(posSales.status, "valid"),
+    eq(posSales.isReversal, false),
+    isNull(posSales.invoiceId),
+    sql`not exists (select 1 from ${invoices} where ${invoices.posSaleId} = ${posSales.id})`,
+  ];
+  if (excludeSaleId) conds.push(ne(posSales.id, excludeSaleId));
+  return conds;
+}
+
+/**
+ * Eksposur kredit (BR-06) — SATU definisi lintas lini (PTB-25, B-35): saldo piutang (faktur terbuka + belum ditagih) +
+ * rit tempo pesanan berjalan + penjualan tempo toko Sah yang belum difakturkan + `extraAmount`. Dipakai M1 (kartu
+ * pelanggan), M2 (`computeCreditExposure` pesanan tempo), M7 (tempo toko & pull POS) dan layar M5. Tanpa otorisasi.
+ */
 export async function computeExposure(
   tx: Tx,
   customerId: string,
-  opts: { extraAmount?: number; excludeOrderId?: string | null; asOf?: BusinessDate } = {},
+  opts: { extraAmount?: number; excludeOrderId?: string | null; excludeSaleId?: string | null; asOf?: BusinessDate } = {},
 ): Promise<CreditExposureView> {
   const rows = await tx
     .select({
@@ -116,16 +134,7 @@ export async function computeExposure(
   const [store] = await tx
     .select({ total: sum(posSales.total) })
     .from(posSales)
-    .where(
-      and(
-        eq(posSales.customerId, customerId),
-        eq(posSales.paymentMethod, "credit"),
-        eq(posSales.status, "valid"),
-        eq(posSales.isReversal, false),
-        isNull(posSales.invoiceId),
-        sql`not exists (select 1 from ${invoices} where ${invoices.posSaleId} = ${posSales.id})`,
-      ),
-    );
+    .where(and(...uninvoicedStoreCreditConds(customerId, opts.excludeSaleId)));
   const openCreditOrders = Number(open?.total ?? 0);
   const uninvoicedStoreCredit = Number(store?.total ?? 0);
   const extraAmount = Math.max(0, Math.round(opts.extraAmount ?? 0));

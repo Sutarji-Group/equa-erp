@@ -28,7 +28,7 @@ import { emit } from "@/server/core/events";
 import { notify } from "@/server/core/notifications";
 import { nextNumber } from "@/server/core/numbering";
 
-import { customerCardLink, invoiceLink, loadAdvance, loadInvoice, profitCenterOfKind, type AdvanceRow, type CreditNoteRow, type InvoiceRow } from "./common";
+import { customerCardLink, invoiceLink, loadAdvance, loadInvoice, profitCenterOfKind, type AdvanceRow, type CreditNoteRow, type InvoiceRow, type ReceivableLine } from "./common";
 
 // =====================================================================================================================
 // Terbitkan faktur
@@ -62,6 +62,8 @@ export type IssueInvoiceInput = {
   description?: string | null;
   isOpeningBalance?: boolean;
   openingConfirmationAttachmentId?: string | null;
+  /** Lini asal faktur saldo awal (B-37). */
+  openingLine?: ReceivableLine | null;
   pendingTransferId?: string | null;
   outletId?: string | null;
   reclassifiedFromTripPaymentId?: string | null;
@@ -96,6 +98,7 @@ export async function issueInvoice(tx: Tx, ctx: ActorContext, input: IssueInvoic
       description: input.description ?? null,
       isOpeningBalance: input.isOpeningBalance ?? false,
       openingConfirmationAttachmentId: input.openingConfirmationAttachmentId ?? null,
+      openingLine: input.openingLine ?? null,
       pendingTransferId: input.pendingTransferId ?? null,
       createdBy: ctx.userId,
     })
@@ -292,6 +295,26 @@ export async function insertAllocation(tx: Tx, ctx: ActorContext, input: { invoi
   });
 }
 
+/**
+ * Reklasifikasi piutang ↔ uang muka di buku besar (B-65): `amount` > 0 uang muka dipakai pada faktur; < 0 alokasi
+ * dibatalkan / kelebihan alokasi pelunasan menjadi uang muka. M11 menjurnal Dr 2-1201 / Cr 1-1401 (bertanda).
+ */
+async function emitAdvanceApplied(
+  tx: Tx,
+  ctx: ActorContext,
+  inv: InvoiceRow,
+  input: { amount: number; advanceId: string | null; reason: "applied" | "allocation_reversed" | "overpayment_to_advance" },
+): Promise<void> {
+  if (!input.amount) return;
+  const businessDate = ctxBusinessDate(ctx);
+  await emit(
+    tx,
+    "customer_advance.applied",
+    { customerId: inv.customerId, invoiceId: inv.id, invoiceNumber: inv.number, customerAdvanceId: input.advanceId, amount: input.amount, reason: input.reason, tripId: inv.tripId ?? null, businessDate },
+    { ctx, tenantId: inv.tenantId, businessDate, objectType: "invoice", objectId: inv.id },
+  );
+}
+
 async function moveOverflowToAdvance(tx: Tx, ctx: ActorContext, inv: InvoiceRow, over: number): Promise<void> {
   let left = over;
   const live = (await liveAllocations(tx, { invoiceId: inv.id })).reverse();
@@ -305,14 +328,16 @@ async function moveOverflowToAdvance(tx: Tx, ctx: ActorContext, inv: InvoiceRow,
         .update(customerAdvances)
         .set({ remainingAmount: adv.remainingAmount + take, status: "open", updatedAt: ctx.now })
         .where(eq(customerAdvances.id, adv.id));
+      await emitAdvanceApplied(tx, ctx, inv, { amount: -take, advanceId: adv.id, reason: "allocation_reversed" });
     } else {
-      await createAdvance(tx, ctx, {
+      const adv = await createAdvance(tx, ctx, {
         tenantId: inv.tenantId,
         customerId: inv.customerId,
         amount: take,
         sourcePaymentId: a.paymentId,
         notes: `Kelebihan alokasi ke faktur ${inv.number} (sisa berubah sementara pelunasan tercatat) dipindah menjadi uang muka.`,
       });
+      await emitAdvanceApplied(tx, ctx, inv, { amount: -take, advanceId: adv.id, reason: "overpayment_to_advance" });
     }
     left -= take;
   }
@@ -407,6 +432,7 @@ export async function applyAdvanceToInvoice(tx: Tx, ctx: ActorContext, advanceId
     after: { remainingAmount: remaining, invoiceId, invoiceNumber: inv.number, amount: take },
     rule: "US-M5-02 KP-3",
   });
+  await emitAdvanceApplied(tx, ctx, inv, { amount: take, advanceId: adv.id, reason: "applied" });
   return take;
 }
 

@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { discrepancies, fleetEvents, notifications, orders, unitPaperWithdrawals, waterBalances } from "@/db/schema";
 import { EQUA_TENANT_ID, userIdByUsername, waterSourceId } from "@/db/seed";
-import { addDays, toBusinessDate } from "@/lib/time";
+import { addDays, toBusinessDate, wibToUtc } from "@/lib/time";
 import { withTx } from "@/server/core/db";
 import * as notificationsCore from "@/server/core/notifications";
 import { NOTIFICATION_EVENTS, notify } from "@/server/core/notifications";
@@ -38,7 +38,9 @@ const PRIORITY_M = ["discrepancy.over_threshold", "deposit.not_received_at_close
 
 describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () => {
   const t = useTestDb({ seed: true });
-  const today = toBusinessDate(new Date());
+  // D-10 butir 6: tanpa jam dinding — hari WIB berjalan pada pukul 12.00 (setoran diterima sebelum 22.00, dst.).
+  const NOW = wibToUtc(toBusinessDate(new Date()), "12:00");
+  const today = toBusinessDate(NOW);
 
   beforeAll(() => bootstrapForTests());
 
@@ -62,8 +64,7 @@ describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () =
     const a2 = await earlyWithdrawalRequest(t.db, { start: addDays(today, -8) });
     // Selisih ≥ ambang menunggu pemilik (alur M3 → M4 nyata).
     const d = await driverDay(t.db, { trips: 1 });
-    // D-10 butir 6: tidak bergantung jam dinding — setelah PAR-06 (22.00 WIB) penerimaan wajib beralasan terlambat.
-    await m4.receiveDeposit(m4Finance(new Date()), { depositId: d.depositId, receivedAmount: PRICE - 60_000, discrepancyReason: "wrong_change", lateReason: "Uji otomatis di luar jam tutup kas" });
+    await m4.receiveDeposit(m4Finance(NOW), { depositId: d.depositId, receivedAmount: PRICE - 60_000, discrepancyReason: "wrong_change" });
     const [disc] = await t.db.select().from(discrepancies).where(eq(discrepancies.depositId, d.depositId));
     // Rit gagal yang perlu dijadwal ulang.
     const failed = await makeTrip(t.db, { date: today, status: "failed", failReason: "customer_absent" });
@@ -72,7 +73,7 @@ describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () =
     const truck = await createTruck(t.db);
     const [gps] = await t.db
       .insert(fleetEvents)
-      .values({ tenantId: EQUA_TENANT_ID, kind: "off_hours_trip", status: "explained", truckId: truck.id, businessDate: today, startedAt: new Date(), requiresExplanation: true, explanation: "Mengisi BBM di luar jam" })
+      .values({ tenantId: EQUA_TENANT_ID, kind: "off_hours_trip", status: "explained", truckId: truck.id, businessDate: today, startedAt: NOW, requiresExplanation: true, explanation: "Mengisi BBM di luar jam" })
       .returning();
     // Susut air dengan penjelasan operator.
     const [bal] = await t.db
@@ -82,7 +83,7 @@ describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () =
     // Info: notifikasi non-tindakan.
     await withTx((tx) => notify(tx, { event: "special_price.review_due", tenantId: EQUA_TENANT_ID, title: "Harga khusus Hotel Uji lewat 6 bulan", objectType: "customer", objectId: failed.customerId, link: "/master/pelanggan" }));
 
-    const box = await m9.getInbox(owner());
+    const box = await m9.getInbox(owner(NOW));
     const kinds = box.action.map((g) => g.kind);
     expect(kinds).toEqual(expect.arrayContaining(["approval", "discrepancy", "failed_trip", "gps", "water_loss"]));
     const group = (k: string) => box.action.find((g) => g.kind === k)!;
@@ -98,7 +99,7 @@ describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () =
     expect(box.actionCount).toBe(box.action.reduce((s, g) => s + g.items.length, 0));
 
     // Tindakan langsung.
-    const o = owner();
+    const o = owner(NOW);
     await expect(m9.actOnInboxItem(o, { itemKind: "approval", itemId: a2.approvalId, action: "reject" })).rejects.toThrow(/Alasan wajib/);
     expect((await m9.actOnInboxItem(o, { itemKind: "approval", itemId: a1.approvalId, action: "approve" })).message).toBe("Permintaan disetujui.");
     const [w1] = await t.db.select().from(unitPaperWithdrawals).where(eq(unitPaperWithdrawals.id, a1.withdrawalId));
@@ -123,19 +124,19 @@ describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () =
     expect((await t.db.select().from(notifications).where(eq(notifications.id, info.id)))[0]!.status).toBe("done");
     await expect(m9.actOnInboxItem(o, { itemKind: "failed_trip", itemId: failed.id, action: "approve" })).rejects.toThrow(/tidak tersedia/);
 
-    const after = await m9.getInbox(owner());
+    const after = await m9.getInbox(owner(NOW));
     const keys = after.action.flatMap((g) => g.items.map((i) => i.key));
     for (const k of [`approval:${a1.approvalId}`, `approval:${a2.approvalId}`, `discrepancy:${disc!.id}`, `gps:${gps!.id}`, `water_loss:${bal!.id}`]) expect(keys).not.toContain(k);
     expect(after.info.find((i) => i.id === info.id)).toBeUndefined();
 
     // Admin Keuangan melihat kotak masuk tetapi tidak memutuskan selisih; Dispatcher tidak berhak.
-    const fa = await m9.getInbox(finance());
+    const fa = await m9.getInbox(finance(NOW));
     expect(fa.action.every((g) => g.kind !== "discrepancy" || g.items.every((i) => !i.actions.includes("approve")))).toBe(true);
-    await expect(m9.getInbox(dispatcher())).rejects.toThrow(/tidak diizinkan/);
+    await expect(m9.getInbox(dispatcher(NOW))).rejects.toThrow(/tidak diizinkan/);
   });
 
   it("US-M9-04 KP-3 pengaturan per jenis: seketika / ringkasan harian / mati; peristiwa kritis tidak dapat dimatikan", async () => {
-    const o = owner();
+    const o = owner(NOW);
     await notificationsCore.setPreference(o, "daily_summary.published", "daily_digest");
     await notificationsCore.setPreference(o, "monthly_report.final", "off");
     await expect(notificationsCore.setPreference(o, "discrepancy.over_threshold", "off")).rejects.toThrow();
@@ -152,7 +153,7 @@ describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () =
   });
 
   it("US-M9-04 KP-4 butir lewat tenggat naik ke puncak dan bertanda; selisih lewat 24 jam dihitung KPI-03", async () => {
-    const now = new Date();
+    const now = NOW;
     // Selisih lama (30 jam) dan baru (1 jam) menunggu pemilik.
     const [oldD] = await t.db
       .insert(discrepancies)
@@ -177,5 +178,21 @@ describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () =
     const kpi = await m4.kpi03(t.db, EQUA_TENANT_ID, { from: addDays(today, -60), to: today, now });
     expect(kpi.overdue).toBe(box.kpi03.overdue);
     expect(await m9.inboxCount(owner(now))).toMatchObject({ count: box.actionCount, overdue: box.overdueCount });
+  });
+
+  it("B-58 US-M9-04 KP-2 lencana menu Kotak masuk = hitungan COUNT murah (angka sama dengan kotak masuk penuh) + cache singkat per pengguna", async () => {
+    const now = NOW;
+    m9.clearInboxBadgeCache();
+    const box = await m9.getInbox(owner(now));
+    const badge = await m9.inboxBadgeCount(owner(now));
+    expect(badge).toEqual({ count: box.actionCount, overdue: box.overdueCount });
+    // Butir baru dalam jendela cache → lencana belum berubah (tanpa kueri ulang); setelah kedaluwarsa / segar → naik.
+    await t.db.insert(discrepancies).values({ tenantId: EQUA_TENANT_ID, source: "driver", businessDate: today, amount: -60_000, requiresOwnerDecision: true, status: "formed", createdAt: now });
+    expect(await m9.inboxBadgeCount(owner(new Date(now.getTime() + 5_000)))).toEqual(badge);
+    const later = await m9.inboxBadgeCount(owner(new Date(now.getTime() + 60_000)));
+    expect(later.count).toBe(badge.count + 1);
+    expect(await m9.inboxBadgeCount(owner(now), { fresh: true })).toEqual({ count: (await m9.getInbox(owner(now))).actionCount, overdue: (await m9.getInbox(owner(now))).overdueCount });
+    // Pengguna tanpa izin kotak masuk ditolak (lencana tidak tampil).
+    await expect(m9.inboxBadgeCount(dispatcher(now))).rejects.toThrow();
   });
 });

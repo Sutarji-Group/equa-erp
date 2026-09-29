@@ -2,9 +2,9 @@
  * M2 — kontrol kredit pesanan tempo (US-M2-05; BR-03, BR-04, BR-06; PTB-18, PTB-25).
  *
  * - `computeCreditExposure(tx, customerId, { extraAmount })` — SATU batas lintas lini (PTB-25; M7 memakainya untuk
- *   penjualan tempo toko): piutang belum lunas (faktur `outstanding_amount` + tagihan belum difakturkan
- *   `unbilled_charges`, baca-saja tabel M5) + nilai rit tempo pesanan Baru/Menunggu persetujuan/Terjadwal/Dalam
- *   pengiriman yang belum Selesai + nilai transaksi ini.
+ *   penjualan tempo toko) = M5 `computeExposure` (B-35): piutang belum lunas (faktur `outstanding_amount` + tagihan
+ *   belum difakturkan `unbilled_charges`) + nilai rit tempo pesanan Baru/Menunggu persetujuan/Terjadwal/Dalam
+ *   pengiriman yang belum Selesai + penjualan tempo toko belum difakturkan + nilai transaksi ini.
  * - `evaluateCreditOrder` — status Tunai → tempo tidak tersedia; Ditahan → ditolak (dapat diajukan ke pemilik);
  *   eksposur > batas → ditolak dengan angka (dapat diajukan ke pemilik).
  * - `underpaymentStatus` — faktur kurang bayar terbuka (PTB-18): ≥ 1 → pesanan bertanda "tagih kurang bayar";
@@ -13,9 +13,9 @@
  */
 import "server-only";
 
-import { and, eq, gt, inArray, ne, sql, sum } from "drizzle-orm";
+import { and, eq, gt, sql, sum } from "drizzle-orm";
 
-import { customers, invoices, orders, trips } from "@/db/schema";
+import { customers, invoices } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 
@@ -23,9 +23,9 @@ import type { ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { NotFoundError } from "@/server/core/errors";
 import { assertTenantScope, authorizeAny } from "@/server/core/rbac";
-import { getReceivableBalance } from "@/server/modules/m5-receivables";
+import { computeExposure } from "@/server/modules/m5-receivables";
 
-import { ACTIVE_ORDER_STATUSES, SECOND_UNDERPAYMENT_OPEN_INVOICES, type CustomerRow } from "./common";
+import { SECOND_UNDERPAYMENT_OPEN_INVOICES, type CustomerRow } from "./common";
 
 export type CreditExposure = {
   customerId: string;
@@ -37,9 +37,11 @@ export type CreditExposure = {
   unbilledCharges: number;
   /** Rit tempo pesanan berjalan yang belum Selesai (BR-06). */
   openCreditOrders: number;
+  /** Penjualan tempo toko Sah yang belum menjadi faktur M5 (shift toko masih terbuka) — B-35. */
+  uninvoicedStoreCredit: number;
   /** Nilai transaksi yang sedang dinilai. */
   extraAmount: number;
-  /** Eksposur = piutang belum lunas + pesanan tempo berjalan + transaksi ini (BR-06). */
+  /** Eksposur = piutang belum lunas + pesanan tempo berjalan + tempo toko belum difakturkan + transaksi ini (BR-06). */
   exposure: number;
   /** Batas − eksposur (negatif = melampaui). */
   remaining: number;
@@ -48,51 +50,28 @@ export type CreditExposure = {
 
 /**
  * Eksposur kredit pelanggan (BR-06, PTB-25). Dipakai M2 (pesanan tempo) dan M7 (penjualan tempo toko) — satu batas
- * lintas lini. `excludeOrderId` mengecualikan pesanan yang sedang dinilai ulang (mis. saat persetujuan).
+ * lintas lini. Angkanya SATU definisi dengan M5 `computeExposure` (B-35): pesanan air tempo & tempo toko memakai
+ * eksposur yang sama. `excludeOrderId` mengecualikan pesanan yang sedang dinilai ulang (mis. saat persetujuan);
+ * `excludeSaleId` mengecualikan penjualan toko yang sedang dinilai ulang.
  */
 export async function computeCreditExposure(
   tx: Tx,
   customerId: string,
-  opts: { extraAmount?: number; excludeOrderId?: string | null } = {},
+  opts: { extraAmount?: number; excludeOrderId?: string | null; excludeSaleId?: string | null } = {},
 ): Promise<CreditExposure> {
-  const rows = await tx
-    .select({ id: customers.id, creditStatus: customers.creditStatus, creditLimit: customers.creditLimit })
-    .from(customers)
-    .where(eq(customers.id, customerId))
-    .limit(1);
-  const customer = rows[0];
-  if (!customer) throw new NotFoundError("Pelanggan tidak ditemukan.");
-  // Saldo piutang = faktur terbuka + belum ditagih — satu sumber di M5 (US-M5-01 KP-3).
-  const balance = await getReceivableBalance(tx, customerId);
-  const orderConds = [
-    eq(trips.customerId, customerId),
-    eq(trips.paymentMethod, "credit"),
-    inArray(trips.status, ["assigned", "departed", "arrived"]),
-    sql`${trips.withdrawnAt} is null`,
-    inArray(orders.status, [...ACTIVE_ORDER_STATUSES]),
-  ];
-  if (opts.excludeOrderId) orderConds.push(ne(trips.orderId, opts.excludeOrderId));
-  const [open] = await tx
-    .select({ total: sum(trips.price) })
-    .from(trips)
-    .innerJoin(orders, eq(orders.id, trips.orderId))
-    .where(and(...orderConds));
-  const openInvoices = balance.openInvoices;
-  const unbilledTotal = balance.unbilledCharges;
-  const openCreditOrders = Number(open?.total ?? 0);
-  const extraAmount = Math.max(0, Math.round(opts.extraAmount ?? 0));
-  const exposure = openInvoices + unbilledTotal + openCreditOrders + extraAmount;
+  const view = await computeExposure(tx, customerId, { extraAmount: opts.extraAmount, excludeOrderId: opts.excludeOrderId, excludeSaleId: opts.excludeSaleId });
   return {
     customerId,
-    creditStatus: customer.creditStatus,
-    creditLimit: customer.creditLimit,
-    openInvoices,
-    unbilledCharges: unbilledTotal,
-    openCreditOrders,
-    extraAmount,
-    exposure,
-    remaining: customer.creditLimit - exposure,
-    exceedsLimit: exposure > customer.creditLimit,
+    creditStatus: view.creditStatus,
+    creditLimit: view.creditLimit,
+    openInvoices: view.openInvoices,
+    unbilledCharges: view.unbilledCharges,
+    openCreditOrders: view.openCreditOrders,
+    uninvoicedStoreCredit: view.uninvoicedStoreCredit,
+    extraAmount: view.extraAmount,
+    exposure: view.exposure,
+    remaining: view.remaining,
+    exceedsLimit: view.exceedsLimit,
   };
 }
 
@@ -144,7 +123,7 @@ export async function evaluateCreditOrder(tx: Tx, customerId: string, amount: nu
       ok: false,
       reason: "over_limit",
       canRequestApproval: true,
-      message: `Pesanan tempo ditolak: eksposur ${formatRupiah(exposure.exposure)} melampaui batas kredit ${formatRupiah(exposure.creditLimit)} (piutang ${formatRupiah(exposure.openInvoices + exposure.unbilledCharges)} + pesanan tempo berjalan ${formatRupiah(exposure.openCreditOrders)} + pesanan ini ${formatRupiah(exposure.extraAmount)}). Ubah ke tunai atau ajukan persetujuan pemilik.`,
+      message: `Pesanan tempo ditolak: eksposur ${formatRupiah(exposure.exposure)} melampaui batas kredit ${formatRupiah(exposure.creditLimit)} (piutang ${formatRupiah(exposure.openInvoices + exposure.unbilledCharges)} + pesanan tempo berjalan ${formatRupiah(exposure.openCreditOrders)}${exposure.uninvoicedStoreCredit ? ` + tempo toko belum difakturkan ${formatRupiah(exposure.uninvoicedStoreCredit)}` : ""} + pesanan ini ${formatRupiah(exposure.extraAmount)}). Ubah ke tunai atau ajukan persetujuan pemilik.`,
       exposure,
     };
   }

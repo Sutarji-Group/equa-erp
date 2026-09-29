@@ -1068,6 +1068,8 @@ export interface OrderCreatedPayload {
   internalOutletId?: string | null;
   recurringOrderId?: string | null;
   status: EnumValue<"order_status">;
+  /** B-64 (tambahan S5): slot pengiriman pesanan aplikasi pelanggan (PAR-73). */
+  slot?: EnumValue<"delivery_slot"> | null;
 }
 /** Transisi status pesanan dari alur kantor (Menunggu persetujuan, Dibatalkan, keputusan persetujuan) — US-M2-02 KP-2. */
 export interface OrderStatusChangedPayload {
@@ -1103,6 +1105,25 @@ export interface StoreReturnRecordedPayload {
   reason: string;
   approvalId?: string | null;
   businessDate: string;
+}
+
+// --- Tambahan S5 (M5, B-65) — hanya tambah ------------------------------------------------------------------------------
+/**
+ * Uang muka pelanggan dipakai/dikembalikan pada faktur (US-M5-02 KP-3): `amount` > 0 = uang muka dialokasikan ke
+ * faktur (Dr uang muka 2-1201 / Cr piutang 1-1401); `amount` < 0 = alokasi dibatalkan / kelebihan alokasi pelunasan
+ * menjadi uang muka (sebaliknya). Satu-satunya jalur reklasifikasi piutang ↔ uang muka di buku besar (M11), agar saldo
+ * 1-1401/2-1201 sama dengan buku bantu M5 (termasuk rit prabayar digital B-65).
+ */
+export interface CustomerAdvanceAppliedPayload {
+  customerId: string;
+  invoiceId: string;
+  invoiceNumber?: string | null;
+  /** Uang muka yang dipakai/dikembalikan (null = kelebihan alokasi pelunasan menjadi uang muka baru). */
+  customerAdvanceId?: string | null;
+  amount: number;
+  reason: "applied" | "allocation_reversed" | "overpayment_to_advance";
+  tripId?: string | null;
+  businessDate?: string;
 }
 
 /** Peta tipe event → payload. */
@@ -1170,6 +1191,7 @@ export interface DomainEventMap {
   "order.created": OrderCreatedPayload;
   "order.status_changed": OrderStatusChangedPayload;
   "store_return.recorded": StoreReturnRecordedPayload;
+  "customer_advance.applied": CustomerAdvanceAppliedPayload;
 }
 
 export type DomainEventType = keyof DomainEventMap;
@@ -1239,6 +1261,7 @@ export const DOMAIN_EVENT_LABELS: Record<DomainEventType, string> = {
   "order.created": "Pesanan dibuat",
   "order.status_changed": "Status pesanan berubah",
   "store_return.recorded": "Retur barang toko tercatat",
+  "customer_advance.applied": "Uang muka dipakai pada faktur",
 };
 
 export const DOMAIN_EVENT_TYPES = Object.keys(DOMAIN_EVENT_LABELS) as DomainEventType[];

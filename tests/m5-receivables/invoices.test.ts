@@ -131,8 +131,9 @@ describe("US-M5-01 Piutang terbentuk otomatis dari pengiriman dan penjualan temp
     expect(decodeURIComponent(wa.link!)).toContain(inv.number);
     const logs = await t.db.select().from(waMessageLogs).where(and(eq(waMessageLogs.objectType, "invoice"), eq(waMessageLogs.objectId, inv.id)));
     expect(logs[0]).toMatchObject({ kind: "invoice", status: "link_opened" });
+    // Tanpa pengirim server (D-10 butir 2, B-36) e-mail = draf mailto → dicatat "draf dibuka" (email_link).
     await m5.sendInvoice(finance(), { invoiceId: inv.id, via: "email" });
-    expect(await invoiceRow(t.db, inv.id)).toMatchObject({ sentVia: "email" });
+    expect(await invoiceRow(t.db, inv.id)).toMatchObject({ sentVia: "email_link" });
     await expect(m5.sendInvoice(dispatcher(), { invoiceId: inv.id, via: "wa" })).rejects.toThrow();
   });
 

@@ -13,6 +13,7 @@ import { formatTanggal } from "@/lib/time";
 import { registerReport } from "@/server/core/export";
 
 import { agingReport, customerStatement } from "./service/aging";
+import { invoiceSentViaLabel } from "./service/common";
 import { creditEligibleCustomers, creditStatusBoard } from "./service/credit-hold";
 import { listInvoices } from "./service/invoices";
 import { monthlyBoard } from "./service/monthly";
@@ -228,7 +229,7 @@ export function registerReports(): void {
       { key: "amount", header: "Nilai", type: "rupiah", total: true },
       { key: "outstandingAmount", header: "Sisa", type: "rupiah", total: true },
       { key: "sentAt", header: "Dikirim", type: "datetime" },
-      { key: "sentVia", header: "Lewat" },
+      { key: "sentVia", header: "Lewat", value: (r) => invoiceSentViaLabel(r.sentVia as string | null) },
     ],
     fetch: async (ctx, _f, { tx }) => {
       const b = await monthlyBoard(ctx, { tx });
@@ -302,6 +303,7 @@ export function registerReports(): void {
     columns: [
       { key: "number", header: "Nomor" },
       { key: "customerName", header: "Pelanggan", width: 24 },
+      { key: "lineLabel", header: "Lini" },
       { key: "issueDate", header: "Tanggal", type: "date" },
       { key: "dueDate", header: "Jatuh tempo", type: "date" },
       { key: "description", header: "Keterangan", width: 26 },
@@ -312,7 +314,7 @@ export function registerReports(): void {
     fetch: async (ctx, _f, { tx }) => {
       const b = await openingBoard(ctx, { tx });
       return {
-        rows: b.summary.invoices,
+        rows: b.summary.invoices.map((i) => ({ ...i, lineLabel: label("receivable_line", i.openingLine ?? "truck") })),
         status: b.signoff ? label("signoff_status", b.signoff.status) : "Belum ada",
         summary: [{ label: "Total saldo awal", value: b.summary.total, type: "rupiah" as const }],
       };

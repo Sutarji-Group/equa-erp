@@ -14,6 +14,7 @@ import { registerReport } from "@/server/core/export";
 import { listAccounts } from "./service/accounts";
 import { assetRegister } from "./service/assets";
 import { dailyReconciliation } from "./service/daily";
+import { itCostReport } from "./service/it-costs";
 import { listJournals } from "./service/journals";
 import { listMappings } from "./service/mappings";
 import { openingOverview } from "./service/opening";
@@ -280,6 +281,40 @@ export function registerReports(): void {
       { key: "status", header: "Status", type: "enum", enumName: "reconciliation_status", value: (r) => (r as { r: { status: string } }).r.status },
     ],
     fetch: async (ctx, _f, { tx }) => ({ rows: (await reconciliationHistory(ctx, { tx })).cash }),
+  });
+
+  // B-67 (NFR-29): biaya komunikasi, cloud & WhatsApp bulanan.
+  const itCostFilters = z.object({ period: periodField }).passthrough();
+  registerReport({
+    key: "m11.it_costs",
+    title: "Biaya komunikasi, cloud & WhatsApp bulanan",
+    module: "m11",
+    permission: "m11.financial_report.read",
+    containsPii: false,
+    filtersSchema: itCostFilters,
+    describeFilters: (f: z.infer<typeof itCostFilters>) => [`Periode: ${f.period ?? "berjalan"}`],
+    columns: [
+      { key: "group", header: "Kelompok" },
+      { key: "item", header: "Rincian", width: 36 },
+      { key: "count", header: "Jumlah pesan", type: "number" },
+      { key: "amount", header: "Biaya", type: "rupiah", total: true },
+    ],
+    fetch: async (ctx, f: z.infer<typeof itCostFilters>, { tx }) => {
+      const r = await itCostReport(ctx, { period: f.period ?? null }, { tx });
+      return {
+        rows: [
+          ...r.journaled.map((j) => ({ group: "Terjurnal (langganan cloud, peta, GPS, aplikasi)", item: `${j.code} ${j.name}`, count: null, amount: j.amount })),
+          ...r.whatsapp.byCategory.map((c) => ({ group: "Pemakaian WhatsApp Business API (catatan per pesan)", item: c.category, count: c.count, amount: c.amount })),
+        ],
+        summary: [
+          { label: "Periode", value: r.period },
+          { label: "Beban terjurnal", value: r.journaledTotal, type: "rupiah" as const },
+          { label: "Pemakaian WhatsApp", value: r.whatsapp.totalCost, type: "rupiah" as const },
+          { label: "Anggaran bulanan", value: r.budget > 0 ? r.budget : "—" },
+          { label: "Status anggaran", value: r.budget > 0 ? (r.overBudget ? "Melampaui anggaran" : "Dalam anggaran") : "Tanpa anggaran" },
+        ],
+      };
+    },
   });
 
   const revenueFilters = z.object({ from: periodField, to: periodField }).passthrough();

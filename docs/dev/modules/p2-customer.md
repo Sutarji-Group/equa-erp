@@ -156,7 +156,7 @@ harian yang sudah dibayar di muka → aplikasi sopir dapat menampilkan "sudah di
 - Seed demo (`src/db/seed/demo-p2-customer.ts`) idempoten, flag tetap mati; dilewati saat snapshot Vitest.
 
 ## 8. Isu terbuka / tindak lanjut modul lain
-1. **M2**: `createOrder` belum menerima `source`/`slot` → `order.created` terpancar dengan `source: office`; P2
+1. SELESAI S5 (B-64). **M2**: `createOrder` belum menerima `source`/`slot` → `order.created` terpancar dengan `source: office`; P2
    memperbarui kolom setelahnya. Usul: parameter `source`/`slot` di M2.
 2. **M11 — jurnal dobel pembayaran digital (TERKONFIRMASI saat cek akhir; DIPERBAIKI integrasi P3+P2, backlog B-62 — `digitalPayment()` hanya menjurnal `gateway_fee` bila `customerPaymentId` terisi, uji `tests/integration/p2-m11.test.ts`)**: satu pembayaran Berhasil memancarkan
    `collection.recorded` (kanal/cara `digital`) DAN `digital_payment.succeeded`. M11 menjurnal keduanya dengan pemetaan
@@ -168,7 +168,7 @@ harian yang sudah dibayar di muka → aplikasi sopir dapat menampilkan "sudah di
    `wa_message_costs` masuk laporan biaya bulanan M11 (NFR-29).
 3. **M3/M5**: tampilkan "sudah dibayar di muka" di aplikasi sopir memakai pull `p2.prepaid_trips` / cara bayar
    `digital`; rit `digital` tidak ditagih tunai dan tidak menjadi faktur kurang bayar.
-4. **M9**: tampilkan `ratingAggregates` & `complaintReport` di kinerja sopir/truk (US-M9-05).
+4. SELESAI S5 (B-66). **M9**: tampilkan `ratingAggregates` & `complaintReport` di kinerja sopir/truk (US-M9-05).
 5. **Core**: `getWhatsAppProvider` masih mode tautan; P2 memakai `customerWaProvider()` (template Cloud API) sendiri.
 6. Service worker belum menangani event `push` (langganan push tersimpan; pengiriman memakai pengirim yang dapat
    diganti) — perlu handler di `src/app/sw.ts` (berkas bersama PWA).
@@ -176,3 +176,16 @@ harian yang sudah dibayar di muka → aplikasi sopir dapat menampilkan "sudah di
 8. `WA_WEBHOOK_VERIFY_TOKEN` / `WA_APP_SECRET` dibaca dari `process.env` (belum di `serverEnv()` bersama).
 9. Anonimisasi data pelanggan setelah "Hapus akun" tetap lewat M10 (Admin sistem mencatat, pemilik menyetujui).
 10. KP yang hanya dapat diuji saat UAT: layar ≤ 2 detik di 4G & pemesanan ≤ 60 detik (pengukuran manusia).
+
+## 9. S5 pengerasan — paket B
+
+- **B-64** `createCustomerOrder` meneruskan `source: "customer_app"` & `slot` ke M2 `createOrder` — `order.created`
+  memuat asal & slot sejak awal; P2 hanya mengisi `createdByCustomerAccountId` setelahnya.
+- **B-63** M4 mencatat transfer masuk pembayaran digital sebesar settlement (bruto − biaya gerbang); uji
+  `tests/p2-customer/billing.test.ts` memeriksa nilai neto.
+- **B-65** rit berbayar di muka diakui M5 terhadap uang muka (faktur kirim lunas otomatis) dan dijurnal M11
+  (`customer_advance.applied`); tampilan "sudah dibayar" di aplikasi sopir = paket A (M3).
+- **B-67** `waCostForMonth(tx, tenantId, period)` dipakai laporan biaya bulanan M11 (NFR-29).
+- **B-66** `ratingAggregates` & `complaintMonthlyReport` dipakai kinerja M9.
+- **B-18** batas unggah Server Action 4 MB (foto kantor dikompresi; aplikasi pelanggan memakai API sendiri).
+- Masih terbuka: **B-75** pengaburan wajah foto bukti kirim (keputusan PM sebelum Tahap 2 aktif), **B-74** UAT.

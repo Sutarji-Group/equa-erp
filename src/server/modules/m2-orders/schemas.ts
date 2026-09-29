@@ -42,6 +42,13 @@ export const createOrderSchema = z.object({
   creditApprovalReason: optionalText(500),
   /** PTB-18: ajukan persetujuan pemilik saat kurang bayar kedua belum lunas. */
   underpaymentApprovalReason: optionalText(500),
+  /**
+   * B-64: asal pesanan — `office` (bawaan) atau kanal sistem Tahap 2/3 (`customer_app` aplikasi pelanggan,
+   * `partner_portal` portal mitra). Kanal selain kantor hanya boleh diisi pelaku sistem (bukan pengguna kantor).
+   */
+  source: z.enum(["office", "customer_app", "partner_portal"], { error: "Asal pesanan tidak dikenal." }).default("office"),
+  /** B-64: slot pengiriman (PAR-73) untuk pesanan aplikasi pelanggan. */
+  slot: z.enum(enumValues("delivery_slot"), { error: "Slot pengiriman tidak dikenal. Pilih pagi, siang, atau sore." }).nullable().optional(),
 });
 export type CreateOrderInput = z.input<typeof createOrderSchema>;
 

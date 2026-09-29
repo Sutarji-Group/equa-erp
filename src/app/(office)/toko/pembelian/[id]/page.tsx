@@ -6,6 +6,7 @@ import { FormInput, FormSelect, FormTextarea } from "@/components/m7-store/offic
 import { EmptyState } from "@/components/shared/empty-state";
 import { KeyValueList } from "@/components/shared/key-value-list";
 import { OfficeBreadcrumbLabel } from "@/components/shared/office-shell";
+import { JournalLink } from "@/components/shared/journal-link";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge, ToneBadge } from "@/components/shared/status-badge";
@@ -54,6 +55,7 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
             {!r.reversalOfId && r.status === "received" ? <StatusBadge enumName="payable_status" value={r.paymentStatus} /> : null}
           </>
         }
+        actions={<JournalLink ctx={ctx} sourceType="purchase_receipt" sourceId={r.id} />}
       />
       {d.pendingApprovals.length ? (
         <Alert role="status">

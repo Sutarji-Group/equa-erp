@@ -275,9 +275,16 @@ export async function createBankAccountAction(_prev: CashActionState, fd: FormDa
         accountName: str(fd, "accountName") ?? "",
         branch: str(fd, "branch"),
         isCustomerFacing: fd.get("isCustomerFacing") === "on",
+        glAccountId: str(fd, "glAccountId"),
       })),
     "Rekening bank ditambahkan.",
   );
+}
+
+/** B-53: tetapkan akun buku sendiri untuk rekening lama (kosong = akun baru dibuat otomatis). */
+export async function setBankGlAccountAction(bankAccountId: string, _prev: CashActionState, fd: FormData): Promise<CashActionState> {
+  const { ctx } = await requireOfficeSession();
+  return attempt(async () => void (await m4.setBankAccountGlAccount(ctx, { bankAccountId, glAccountId: str(fd, "glAccountId"), reason: str(fd, "reason") ?? "" })), "Akun buku rekening ditetapkan.");
 }
 
 export async function deactivateBankAccountAction(bankAccountId: string, reason: string): Promise<CashActionState> {

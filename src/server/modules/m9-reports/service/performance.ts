@@ -24,6 +24,7 @@ import { authorize } from "@/server/core/rbac";
 import * as m4 from "@/server/modules/m4-cash";
 import * as m6 from "@/server/modules/m6-pos";
 import * as m12 from "@/server/modules/m12-fleet";
+import * as p2 from "@/server/modules/p2-customer";
 
 import { gallonsDaily, sumTrips, tripsDaily } from "../metrics";
 import { performanceSchema } from "../schemas";
@@ -57,10 +58,41 @@ export type DriverPerformance = {
   daysWithoutDiscrepancy: number | null;
   completionPct: number | null;
   onTimePct: number | null;
+  /** Penilaian pelanggan aplikasi (P2 `ratingAggregates`, B-66): jumlah, rata-rata (1–5), jumlah nilai ≤ 2. */
+  ratingCount: number;
+  ratingAverage: number | null;
+  lowRatings: number;
   rank: number;
 };
 
-export type TruckPerformance = { truckId: string; code: string; scheduled: number; completed: number; failed: number; internalCompleted: number; distanceKm: number; tripExpenses: number; completionPct: number | null };
+export type TruckPerformance = {
+  truckId: string;
+  code: string;
+  scheduled: number;
+  completed: number;
+  failed: number;
+  internalCompleted: number;
+  distanceKm: number;
+  tripExpenses: number;
+  completionPct: number | null;
+  /** Penilaian pelanggan aplikasi per truk (P2, B-66). */
+  ratingCount: number;
+  ratingAverage: number | null;
+  lowRatings: number;
+  /** Keluhan pelanggan aplikasi pada bulan itu (P2 `complaintMonthlyReport`, B-66) + rincian per jenis. */
+  complaintCount: number;
+  complaintKinds: Record<string, number>;
+};
+
+/** Ringkasan umpan balik pelanggan aplikasi bulan itu (P2, B-66). */
+export type CustomerFeedbackSummary = {
+  ratingCount: number;
+  ratingAverage: number | null;
+  complaints: number;
+  openComplaints: number;
+  complaintsWithoutTruck: number;
+  byKind: { kind: string; label: string; count: number; open: number }[];
+};
 
 export type OutletPerformance = {
   outletId: string;
@@ -114,6 +146,7 @@ export type PerformanceReport = {
   trucks: TruckPerformance[];
   outlets: OutletPerformance[];
   operators: OperatorPerformance[];
+  customerFeedback: CustomerFeedbackSummary;
 };
 
 const pct = (a: number, b: number) => (b === 0 ? null : Math.round((a / b) * 1000) / 10);
@@ -178,6 +211,9 @@ export async function computePerformance(tx: Tx, ctx: ActorContext, month: strin
       deviationOver200m: 0,
       deviationOver1km: 0,
       locationSourceInconsistent: 0,
+      ratingCount: 0,
+      ratingAverage: null,
+      lowRatings: 0,
       br25Events: 0,
       br25Explained: 0,
       br25Notes: [],
@@ -298,10 +334,18 @@ export async function computePerformance(tx: Tx, ctx: ActorContext, month: strin
   } catch {
     // Pelaku tanpa izin riwayat selisih: deret tidak ditampilkan.
   }
+  // Penilaian & keluhan pelanggan aplikasi (US-M9-05, B-66) — satu definisi P2 (`ratingAggregates`,
+  // `complaintMonthlyReport`); tanpa komentar pelanggan.
+  const ratings = await p2.ratingAggregates(tx, { tenantId, from, to });
+  const complaints = await p2.complaintMonthlyReport(tx, { tenantId, month, now: ctx.now });
   for (const d of drivers.values()) {
     d.daysWithoutDiscrepancy = streaks.get(d.employeeId) ?? null;
     d.completionPct = pct(d.completed, d.scheduled);
     d.onTimePct = pct(d.onTime, d.onTimeEligible);
+    const r = ratings.drivers.find((x) => x.key === d.employeeId);
+    d.ratingCount = r?.count ?? 0;
+    d.ratingAverage = r ? r.average : null;
+    d.lowRatings = r?.lowCount ?? 0;
   }
   const driverList = rankBy([...drivers.values()], (d) => [-(d.completionPct ?? -1), -(d.onTimePct ?? -1), d.discrepancyCount, d.lateDeposits]);
 
@@ -312,6 +356,11 @@ export async function computePerformance(tx: Tx, ctx: ActorContext, month: strin
     .from(tripExpenses)
     .where(and(eq(tripExpenses.tenantId, tenantId), eq(tripExpenses.status, "accepted"), gte(tripExpenses.businessDate, from), lte(tripExpenses.businessDate, to)))
     .groupBy(tripExpenses.truckId);
+  const truckFeedback = (truckId: string) => {
+    const r = ratings.trucks.find((x) => x.key === truckId);
+    const c = complaints.byTruck.find((x) => x.truckId === truckId);
+    return { ratingCount: r?.count ?? 0, ratingAverage: r ? r.average : null, lowRatings: r?.lowCount ?? 0, complaintCount: c?.count ?? 0, complaintKinds: c?.kinds ?? {} };
+  };
   const truckList: TruckPerformance[] = truckTrips.byTruck.map((t) => {
     let m = 0;
     for (const r of dist) if (r.truckId === t.truckId) m += n(r.meters);
@@ -325,8 +374,23 @@ export async function computePerformance(tx: Tx, ctx: ActorContext, month: strin
       distanceKm: Math.round(m / 100) / 10,
       tripExpenses: n(truckExp.find((e) => e.truckId === t.truckId)?.total),
       completionPct: pct(t.completed, t.scheduled),
+      ...truckFeedback(t.truckId),
     };
   });
+  // Truk yang hanya muncul di umpan balik (mis. keluhan atas rit bulan lalu) tetap tampil.
+  for (const fb of [...ratings.trucks.map((r) => r.key), ...complaints.byTruck.map((c) => c.truckId)]) {
+    if (!fb || truckList.some((t) => t.truckId === fb)) continue;
+    const label = ratings.trucks.find((r) => r.key === fb)?.label ?? complaints.byTruck.find((c) => c.truckId === fb)?.truck ?? "—";
+    truckList.push({ truckId: fb, code: label, scheduled: 0, completed: 0, failed: 0, internalCompleted: 0, distanceKm: 0, tripExpenses: 0, completionPct: null, ...truckFeedback(fb) });
+  }
+  const customerFeedback: CustomerFeedbackSummary = {
+    ratingCount: ratings.overall.count,
+    ratingAverage: ratings.overall.count ? ratings.overall.average : null,
+    complaints: complaints.total,
+    openComplaints: complaints.open,
+    complaintsWithoutTruck: complaints.byTruck.find((c) => !c.truckId)?.count ?? 0,
+    byKind: complaints.byKind.map((k) => ({ kind: k.kind, label: k.label, count: k.count, open: k.open })),
+  };
 
   // ---------------------------------------------------------------- Depot/toko & operator
   const outletRows = await tx.select().from(outlets).where(and(eq(outlets.tenantId, tenantId), inArray(outlets.kind, ["depot", "store"])));
@@ -432,7 +496,7 @@ export async function computePerformance(tx: Tx, ctx: ActorContext, month: strin
       (o) => [o.cashDifferenceCount, o.voidCount, o.lateDeposits, -o.gallonsPerDay],
     ),
   );
-  return { month, from, to, onTimeWindowMinutes: window, drivers: driverList, trucks: truckList, outlets: outletList, operators: rankedOperators };
+  return { month, from, to, onTimeWindowMinutes: window, drivers: driverList, trucks: truckList, outlets: outletList, operators: rankedOperators, customerFeedback };
 }
 
 /** Kinerja sopir/truk & depot/operator per bulan — hanya pemilik (US-M9-05 KP-4). */

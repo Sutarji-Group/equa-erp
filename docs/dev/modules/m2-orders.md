@@ -116,3 +116,17 @@ baru (laporan & template = tab di `/pesanan`). Papan: DnD HTML5 + tombol (aksesi
 - M3 wajib: konsumsi pull `m2.schedule`, pancarkan `trip.departed/completed/failed` (payload katalog), hormati `locked`.
 - Kunci PAR-83 (belum dipakai M2) dan KPI-07 (rit terealisasi vs terjadwal) diserahkan ke M9/M12.
 - US-M2-01 KP-7 (< 60 dtk/pesanan) diverifikasi UAT manusia; E2E hanya proksi waktu.
+
+## 11. S5 pengerasan — paket B
+
+- **B-35** `computeCreditExposure` = M5 `computeExposure` (satu batas kredit lintas lini PTB-25): kini memuat penjualan
+  tempo toko Sah yang belum difakturkan (`uninvoicedStoreCredit`, shift toko masih terbuka); opsi baru `excludeSaleId`.
+  Pesan penolakan menyebut komponen tempo toko. M7 `storeCreditExposure` memakai angka yang sama. Uji
+  `tests/integration/credit-exposure.test.ts` (`B-35 …`).
+- **B-64** `createOrder` menerima `source` (`office` bawaan | `customer_app` | `partner_portal`; kanal non-kantor hanya
+  untuk pelaku sistem — pengguna kantor ditolak) dan `slot` (PAR-73); `order.created` memuat `source` & `slot`
+  (tambahan katalog event: `OrderCreatedPayload.slot?`). P2 & P3 tidak lagi memperbarui kolom setelah pesanan dibuat
+  (berkas P3 `service/portal-orders.ts` ikut disesuaikan). Uji `tests/p2-customer/orders.test.ts`,
+  `tests/p3-partner/phase3-pos-orders.test.ts`.
+- **B-55** rincian pesanan `/pesanan/[id]`: kolom "Jurnal" per rit Selesai (`JournalLink`, hanya pemegang
+  `m11.journal.read`). **B-24**: formulir memakai `useFlashActionState`.

@@ -46,9 +46,30 @@ export type TripReceivableInput = {
   receivedAmount?: number;
   underpaymentReason?: string | null;
   lateSync?: boolean;
+  /** B-65: nilai rit yang sudah dibayar di muka lewat aplikasi pelanggan (cara bayar `digital`). */
+  prepaidAmount?: number;
 };
 
 export type TripReceivableResult = { deliveryInvoiceId: string | null; unbilledChargeId: string | null; underpaymentInvoiceId: string | null };
+
+/**
+ * Nilai prabayar digital rit Selesai (B-65, D-11 butir 4) — SATU definisi untuk M5 (faktur lunas uang muka) & M11
+ * (pendapatan terhadap uang muka): `prepaidAmount` dari M3 bila ada; bila tidak, harga rit dikurangi uang yang
+ * diterima/ditagih di lapangan. 0 untuk cara bayar selain `digital`.
+ */
+export function prepaidAmountOfTrip(p: {
+  paymentMethod: string;
+  price: number;
+  prepaidAmount?: number | null;
+  cashReceived?: number;
+  transferAmount?: number;
+  creditAmount?: number;
+  underpaymentAmount?: number;
+}): number {
+  if (p.paymentMethod !== "digital") return 0;
+  if (typeof p.prepaidAmount === "number") return Math.max(0, Math.round(p.prepaidAmount));
+  return Math.max(0, p.price - (p.cashReceived ?? 0) - (p.transferAmount ?? 0) - (p.creditAmount ?? 0) - (p.underpaymentAmount ?? 0));
+}
 
 /** Bentuk piutang dari rit Selesai (idempoten per rit & jenis). */
 export async function receivablesFromTrip(tx: Tx, ctx: ActorContext, input: TripReceivableInput): Promise<TripReceivableResult> {
@@ -120,6 +141,30 @@ export async function receivablesFromTrip(tx: Tx, ctx: ActorContext, input: Trip
     }
   }
 
+  // B-65: rit prabayar digital → faktur kirim yang langsung dilunasi uang muka pelanggan (bukan kurang bayar/tempo).
+  // Pemakaian uang muka memancarkan `customer_advance.applied` → M11 Dr uang muka / Cr piutang; bersama jurnal rit
+  // Selesai (Dr piutang / Cr pendapatan) hasil bersihnya pendapatan diakui terhadap uang muka 2-1201.
+  if ((input.prepaidAmount ?? 0) > 0) {
+    const existing = await invoiceForTrip(tx, trip.id, "delivery");
+    if (existing) out.deliveryInvoiceId = existing.id;
+    else {
+      const amount = input.prepaidAmount!;
+      const inv = await issueInvoice(tx, ctx, {
+        tenantId: trip.tenantId,
+        customerId: customer.id,
+        kind: "delivery",
+        addressId: trip.addressId,
+        tripId: trip.id,
+        issueDate: serviceDate,
+        dueDate: serviceDate,
+        description: `Faktur rit ${trip.number} — dibayar di muka lewat aplikasi pelanggan`,
+        lines: [{ component: "trip", description: `${tripDesc} (prabayar digital)`, tripId: trip.id, serviceDate, quantity: 1, unitPrice: amount, amount, volumeL: volume }],
+        rule: "US-P2-04 KP-4, D-11 butir 4",
+      });
+      out.deliveryInvoiceId = inv.id;
+    }
+  }
+
   if (input.underpaymentAmount > 0) {
     const existing = await invoiceForTrip(tx, trip.id, "underpayment");
     if (existing) out.underpaymentInvoiceId = existing.id;
@@ -188,6 +233,7 @@ export async function onTripCompleted(tx: Tx, ctx: ActorContext, event: DomainEv
     receivedAmount: p.paymentMethod === "cash" ? p.cashReceived : p.paymentMethod === "transfer" ? p.transferAmount : 0,
     underpaymentReason: p.underpaymentReason ?? null,
     lateSync: p.lateSync,
+    prepaidAmount: prepaidAmountOfTrip(p),
   });
 }
 

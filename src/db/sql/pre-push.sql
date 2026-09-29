@@ -101,3 +101,24 @@ BEGIN
   END IF;
 END;
 $$;
+
+--> statement-breakpoint
+
+-- S5 (B-53): satu akun buku per rekening bank (indeks unik `bank_accounts_gl_account_uq`). Rekening yang memakai akun
+-- buku bersama pada DB dev lama dikosongkan akun bukunya KECUALI rekening tertua; layar Kas kantor menandai rekening
+-- tanpa akun buku sendiri agar Admin Keuangan menetapkannya (`setBankAccountGlAccount`, berjejak).
+DO $$
+BEGIN
+  IF to_regclass('public.bank_accounts') IS NOT NULL
+     AND to_regclass('public.bank_accounts_gl_account_uq') IS NULL THEN
+    UPDATE public.bank_accounts b
+       SET gl_account_id = NULL
+     WHERE b.gl_account_id IS NOT NULL
+       AND EXISTS (
+         SELECT 1 FROM public.bank_accounts o
+          WHERE o.gl_account_id = b.gl_account_id
+            AND (o.created_at, o.id) < (b.created_at, b.id)
+       );
+  END IF;
+END;
+$$;

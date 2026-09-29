@@ -8,7 +8,10 @@ import { Resend } from "resend";
 
 import { serverEnv } from "@/lib/env";
 
-export type EmailMessage = { to: string[]; subject: string; text: string; html?: string };
+/** Lampiran e-mail (tambahan S5, B-36: PDF faktur/pernyataan piutang). */
+export type EmailAttachment = { filename: string; content: Uint8Array; contentType?: string };
+
+export type EmailMessage = { to: string[]; subject: string; text: string; html?: string; attachments?: EmailAttachment[] };
 export type EmailResult = { ok: boolean; mode: "resend" | "memory" | "console"; id?: string; error?: string };
 
 const memoryOutbox: EmailMessage[] = [];
@@ -26,6 +29,9 @@ export async function sendEmail(message: EmailMessage): Promise<EmailResult> {
         subject: message.subject,
         text: message.text,
         ...(message.html ? { html: message.html } : {}),
+        ...(message.attachments?.length
+          ? { attachments: message.attachments.map((a) => ({ filename: a.filename, content: Buffer.from(a.content), ...(a.contentType ? { contentType: a.contentType } : {}) })) }
+          : {}),
       });
       if (error) return { ok: false, mode: "resend", error: error.message };
       return { ok: true, mode: "resend", id: data?.id };
@@ -39,6 +45,11 @@ export async function sendEmail(message: EmailMessage): Promise<EmailResult> {
   }
   console.info(`[equa:email] Kepada: ${message.to.join(", ")}\nSubjek: ${message.subject}\n\n${message.text}`);
   return { ok: true, mode: "console" };
+}
+
+/** Pengiriman e-mail dari server tersedia (Resend dikonfigurasi)? Bila tidak, modul memakai tautan `mailto:` (D-10 butir 2). */
+export function isEmailDeliveryConfigured(): boolean {
+  return !!serverEnv().RESEND_API_KEY;
 }
 
 /** E-mail yang "terkirim" di lingkungan uji. */

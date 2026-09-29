@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { label } from "@/lib/labels";
+import { enumValues, label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { formatTanggal, formatTanggalJam } from "@/lib/time";
 import { requirePermission } from "@/server/core/auth/office";
@@ -22,6 +22,9 @@ import * as m5 from "@/server/modules/m5-receivables";
 import { createOpeningAction, requestOpeningAdjustmentAction, signOpeningAction } from "../actions";
 
 export const metadata: Metadata = { title: "Saldo awal piutang" };
+
+/** Pilihan lini asal faktur saldo awal (B-37) — bawaan air truk. */
+const LINE_OPTIONS = enumValues("receivable_line").map((v) => ({ value: v, label: label("receivable_line", v) }));
 
 /**
  * Saldo awal piutang saat cut-over (US-M5-07): faktur saldo awal per pelanggan (tanggal, keterangan, jumlah, jatuh
@@ -71,13 +74,14 @@ export default async function OpeningBalancesPage() {
           <SectionCard title="Input faktur saldo awal" description="Satu baris per faktur yang dikonfirmasi pelanggan. Bukti konfirmasi wajib dilampirkan.">
             <M5ActionForm action={createOpeningAction} submitLabel="Simpan saldo awal" testId="form-saldo-awal" className="max-w-3xl">
               <FormSelect label="Pelanggan" name="customerId" required emptyLabel="— pilih pelanggan —" options={customers.map((c) => ({ value: c.id, label: c.code ? `${c.name} (${c.code})` : c.name }))} />
+              <FormSelect label="Lini piutang" name="line" required defaultValue="truck" options={LINE_OPTIONS} hint="Lini asal nota kertas — dipakai umur piutang per lini." />
               <div className="grid gap-3 sm:grid-cols-3">
                 <FormInput label="Tanggal faktur" name="issueDate" type="date" max={maxDate} required />
                 <FormInput label="Jatuh tempo" name="dueDate" type="date" required />
                 <FormInput label="Jumlah (Rp)" name="amount" inputMode="numeric" required />
               </div>
               <FormInput label="Keterangan" name="description" required placeholder="Mis. nota kertas no. 0457, rit Juli" />
-              <FormInput label="Bukti konfirmasi pelanggan" name="confirmation" type="file" accept="application/pdf,image/jpeg,image/png" required hint="Surat/foto konfirmasi saldo dari pelanggan (maks. 1 MB)." />
+              <FormInput label="Bukti konfirmasi pelanggan" name="confirmation" type="file" accept="application/pdf,image/jpeg,image/png" required hint="Surat/foto konfirmasi saldo dari pelanggan (maks. 4 MB; foto dikompres otomatis)." />
             </M5ActionForm>
           </SectionCard>
         ) : (
@@ -86,6 +90,7 @@ export default async function OpeningBalancesPage() {
               <M5ActionForm action={requestOpeningAdjustmentAction} submitLabel="Ajukan koreksi" testId="form-koreksi-tambah">
                 <input type="hidden" name="action" value="add" />
                 <FormSelect label="Pelanggan" name="customerId" required emptyLabel="— pilih pelanggan —" options={customers.map((c) => ({ value: c.id, label: c.code ? `${c.name} (${c.code})` : c.name }))} />
+                <FormSelect label="Lini piutang" name="line" required defaultValue="truck" options={LINE_OPTIONS} hint="Lini asal nota kertas — dipakai umur piutang per lini." />
                 <div className="grid gap-3 sm:grid-cols-3">
                   <FormInput label="Tanggal faktur" name="issueDate" type="date" max={maxDate} required />
                   <FormInput label="Jatuh tempo" name="dueDate" type="date" required />
@@ -149,6 +154,7 @@ export default async function OpeningBalancesPage() {
                 <TableRow>
                   <TableHead>Nomor</TableHead>
                   <TableHead>Pelanggan</TableHead>
+                  <TableHead>Lini</TableHead>
                   <TableHead>Tanggal</TableHead>
                   <TableHead>Jatuh tempo</TableHead>
                   <TableHead>Keterangan</TableHead>
@@ -166,6 +172,7 @@ export default async function OpeningBalancesPage() {
                       </Link>
                     </TableCell>
                     <TableCell className="text-sm">{i.customerName}</TableCell>
+                    <TableCell className="text-sm">{label("receivable_line", i.openingLine ?? "truck")}</TableCell>
                     <TableCell>{formatTanggal(i.issueDate, { weekday: false })}</TableCell>
                     <TableCell>{formatTanggal(i.dueDate, { weekday: false })}</TableCell>
                     <TableCell className="min-w-48 text-sm">{i.description}</TableCell>

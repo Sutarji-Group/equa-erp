@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatRupiah } from "@/lib/money";
 import { formatTanggal, formatTanggalJam } from "@/lib/time";
 import { requirePermission } from "@/server/core/auth/office";
+import { isEmailDeliveryConfigured } from "@/server/core/notifications";
 import { can } from "@/server/core/rbac";
 import * as m5 from "@/server/modules/m5-receivables";
 
@@ -33,6 +34,7 @@ export default async function MonthlyInvoicesPage() {
   const { ctx } = await requirePermission("m5.monthly_invoice.read");
   const b = await m5.monthlyBoard(ctx);
   const canSend = can(ctx, "m5.invoice.send");
+  const emailServer = isEmailDeliveryConfigured();
   const canIssue = can(ctx, "m5.monthly_invoice.issue");
   const canRequest = can(ctx, "m5.monthly_billing.request");
   const period = b.period;
@@ -89,7 +91,17 @@ export default async function MonthlyInvoicesPage() {
                         {canSend ? (
                           <>
                             <M5ActionButton label="WA" icon={<MessageCircle aria-hidden />} action={sendInvoiceAction.bind(null, inv.id, "wa")} testId={`kirim-wa-${inv.number}`} />
-                            <M5ActionButton label="E-mail" icon={<Mail aria-hidden />} action={sendInvoiceAction.bind(null, inv.id, "email")} />
+                            {emailServer ? (
+                              // B-36: pengirim server aktif → kirim dengan PDF terlampir dari rincian faktur (isi alamat penerima).
+                              <Button asChild variant="outline" size="sm">
+                                <Link href={`/piutang/faktur/${inv.id}`}>
+                                  <Mail aria-hidden />
+                                  E-mail
+                                </Link>
+                              </Button>
+                            ) : (
+                              <M5ActionButton label="E-mail" icon={<Mail aria-hidden />} action={sendInvoiceAction.bind(null, inv.id, "email")} />
+                            )}
                           </>
                         ) : null}
                       </div>
@@ -168,7 +180,7 @@ export default async function MonthlyInvoicesPage() {
                     <TableCell>
                       <InvoiceStatusBadge status={inv.status} />
                     </TableCell>
-                    <TableCell className="text-sm">{inv.sentAt ? `${formatTanggalJam(inv.sentAt)} · ${inv.sentVia === "email" ? "e-mail" : "WhatsApp"}` : "—"}</TableCell>
+                    <TableCell className="text-sm">{inv.sentAt ? `${formatTanggalJam(inv.sentAt)} · ${m5.invoiceSentViaLabel(inv.sentVia)}` : "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -207,7 +219,7 @@ export default async function MonthlyInvoicesPage() {
           <SectionCard title="Ajukan penanda tagihan bulanan" description="Untuk pelanggan Tempo berperjanjian tertulis (hotel, industri). Diputuskan pemilik.">
             <M5ActionForm action={requestMonthlyBillingAction} submitLabel="Ajukan ke pemilik" testId="form-tagihan-bulanan">
               <FormSelect label="Pelanggan" name="customerId" required emptyLabel="— pilih pelanggan Tempo —" options={b.eligible.map((c) => ({ value: c.id, label: c.code ? `${c.name} (${c.code})` : c.name }))} />
-              <FormInput label="Perjanjian tertulis (PDF/foto)" name="agreement" type="file" accept="application/pdf,image/jpeg,image/png" required hint="Wajib (BR-05), maks. 1 MB." />
+              <FormInput label="Perjanjian tertulis (PDF/foto)" name="agreement" type="file" accept="application/pdf,image/jpeg,image/png" required hint="Wajib (BR-05), maks. 4 MB; foto dikompres otomatis." />
               <FormTextarea label="Alasan" name="reason" required />
             </M5ActionForm>
           </SectionCard>

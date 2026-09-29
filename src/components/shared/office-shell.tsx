@@ -31,6 +31,7 @@ import { ApprovalCountBadge } from "./approval-count-badge";
 import { NotificationBell, type NotificationPreview } from "./notification-bell";
 import { buildBreadcrumbs, filterNavByPermissions, hasPermission } from "./nav/registry";
 import { SidebarNav } from "./nav/sidebar-nav";
+import { UploadGuard } from "./upload-guard";
 import { usePersistentFlag } from "./use-persistent-flag";
 
 export type OfficeShellUser = {
@@ -295,6 +296,7 @@ export function OfficeShell({
             <UserMenu user={user} signOutAction={signOutAction} />
           </header>
           <main id="konten" className="mx-auto flex w-full max-w-screen-2xl min-w-0 flex-1 flex-col gap-6 p-4 md:p-6">
+            <UploadGuard />
             {children}
           </main>
         </div>

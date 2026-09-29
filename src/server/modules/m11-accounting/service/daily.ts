@@ -13,6 +13,7 @@ import type { BusinessDate } from "@/lib/time";
 import type { ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { authorize } from "@/server/core/rbac";
+import { prepaidAmountOfTrip } from "@/server/modules/m5-receivables";
 
 export type DailyReconRow = {
   key: string;
@@ -40,7 +41,7 @@ type GroupDef = {
 const n = (v: unknown) => (typeof v === "number" ? v : 0);
 
 const GROUPS: GroupDef[] = [
-  { key: "trip", module: "M3", label: "Rit air truk Selesai", eventType: "trip.completed", include: (p) => !p.isInternal, eventValue: (p) => n(p.cashReceived) + n(p.transferAmount) + n(p.creditAmount) + n(p.underpaymentAmount), journalValue: "revenue" },
+  { key: "trip", module: "M3", label: "Rit air truk Selesai", eventType: "trip.completed", include: (p) => !p.isInternal, eventValue: (p) => n(p.cashReceived) + n(p.transferAmount) + n(p.creditAmount) + n(p.underpaymentAmount) + prepaidAmountOfTrip(p as Parameters<typeof prepaidAmountOfTrip>[0]), journalValue: "revenue" },
   { key: "pos_depot", module: "M6", label: "Penjualan POS depot", eventType: "pos_sale.recorded", include: (p) => p.outletKind !== "store", eventValue: (p) => n(p.total), journalValue: "revenue" },
   { key: "pos_store", module: "M7", label: "Penjualan toko", eventType: "pos_sale.recorded", include: (p) => p.outletKind === "store", eventValue: (p) => n(p.total), journalValue: "revenue" },
   { key: "deposit", module: "M4", label: "Setoran diterima", eventType: "deposit.received", include: () => true, eventValue: (p) => n(p.receivedAmount), journalValue: "cash_debit" },

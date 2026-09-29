@@ -196,6 +196,8 @@ export function registerReports(): void {
           { label: "Batas PKP (PAR-22)", value: r.pkp.threshold, type: "rupiah" },
           { label: "Persentase terhadap batas", value: r.pkp.pct, type: "percent" },
           { label: "Peringatan tercapai", value: r.pkp.reached ? `${r.pkp.reached}%` : "Belum" },
+          { label: "Proyeksi batas tercapai (rata-rata 3 bulan)", value: r.pkp.projectedPeriod ?? "—" },
+          { label: "Sumber angka", value: r.pkp.source === "m11" ? "Jurnal akuntansi (sama dengan /akuntansi/pajak)" : "Perkiraan operasional (M11 belum aktif)" },
         ],
       };
     },
@@ -267,8 +269,19 @@ export function registerReports(): void {
       { key: "distanceKm", header: "Jarak (km)", type: "number" },
       { key: "tripExpenses", header: "Pengeluaran rit", type: "rupiah" },
       { key: "daysWithoutDiscrepancy", header: "Hari tanpa selisih", type: "number" },
+      { key: "ratingAverage", header: "Penilaian pelanggan (rata-rata)", type: "number" },
+      { key: "ratingCount", header: "Jumlah penilaian", type: "number" },
     ],
-    fetch: async (ctx, f: { month?: string }, { tx }) => ({ rows: (await computePerformance(tx, ctx, f.month ?? thisMonth(ctxBusinessDate(ctx)))).drivers }),
+    fetch: async (ctx, f: { month?: string }, { tx }) => {
+      const r = await computePerformance(tx, ctx, f.month ?? thisMonth(ctxBusinessDate(ctx)));
+      return {
+        rows: r.drivers,
+        summary: [
+          { label: "Penilaian pelanggan aplikasi (rata-rata)", value: r.customerFeedback.ratingAverage ?? "—" },
+          { label: "Keluhan pelanggan aplikasi", value: r.customerFeedback.complaints, type: "number" as const },
+        ],
+      };
+    },
   });
 
   registerReport({

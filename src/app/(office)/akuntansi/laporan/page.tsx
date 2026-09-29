@@ -25,6 +25,7 @@ const TABS = [
   { key: "neraca-saldo", label: "Neraca saldo" },
   { key: "neraca", label: "Neraca" },
   { key: "arus-kas", label: "Arus kas" },
+  { key: "biaya-ti", label: "Biaya komunikasi & cloud" },
 ] as const;
 
 /**
@@ -41,7 +42,8 @@ export default async function StatementsPage({ searchParams }: { searchParams: S
   const tab = TABS.find((t) => t.key === sp.tab)?.key ?? "laba-rugi";
   const s = await m11.getStatements(ctx, { period, basis });
   const f = { period, basis };
-  const reportKey = { "laba-rugi": "m11.profit_loss", "neraca-saldo": "m11.trial_balance", neraca: "m11.balance_sheet", "arus-kas": "m11.cash_flow" }[tab];
+  const reportKey = { "laba-rugi": "m11.profit_loss", "neraca-saldo": "m11.trial_balance", neraca: "m11.balance_sheet", "arus-kas": "m11.cash_flow", "biaya-ti": "m11.it_costs" }[tab];
+  const itCosts = tab === "biaya-ti" ? await m11.itCostReport(ctx, { period }) : null;
   const pl = s.profitLoss;
 
   return (
@@ -159,6 +161,21 @@ export default async function StatementsPage({ searchParams }: { searchParams: S
                   <TableCell />
                   <TableCell />
                 </TableRow>
+                {pl.consolidated.markupRealized || pl.consolidated.markupUnrealized ? (
+                  <TableRow data-testid="eliminasi-markup">
+                    <TableCell>
+                      Eliminasi markup harga mitra (transfer toko → depot)
+                      <span className="block text-xs text-muted-foreground">Masih di persediaan depot: {formatRupiah(pl.consolidated.markupUnrealized)} (dieliminasi di neraca)</span>
+                    </TableCell>
+                    {CENTERS.map((c) => (
+                      <TableCell key={c} />
+                    ))}
+                    <TableCell />
+                    <TableCell className="text-right">
+                      <Amount value={pl.consolidated.markupRealized} />
+                    </TableCell>
+                  </TableRow>
+                ) : null}
                 <TableRow>
                   <TableCell className="font-semibold">Laba (rugi) bersih</TableCell>
                   {CENTERS.map((c) => (
@@ -315,6 +332,70 @@ export default async function StatementsPage({ searchParams }: { searchParams: S
                   </TableCell>
                 </TableRow>
               </TableFooter>
+            </Table>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {itCosts ? (
+        <SectionCard
+          title="Biaya komunikasi, cloud & WhatsApp (NFR-29)"
+          description={`Beban terjurnal pada akun ${itCosts.accountCodes.join(", ")} (langganan cloud, peta, GPS, aplikasi — jurnal manual bulanan) dibandingkan anggaran, dan pemakaian WhatsApp Business API dari catatan per pesan tertagih.`}
+          flush
+        >
+          <div className="grid gap-3 p-4 sm:grid-cols-3">
+            <KpiTile label="Beban terjurnal" value={<MoneyText value={itCosts.journaledTotal} />} />
+            <KpiTile label="Pemakaian WhatsApp" value={<MoneyText value={itCosts.whatsapp.totalCost} />} hint={`${itCosts.whatsapp.billableMessages.toLocaleString("id-ID")} pesan tertagih`} />
+            <KpiTile
+              label="Anggaran bulanan"
+              value={itCosts.budget > 0 ? <MoneyText value={itCosts.budget} /> : "Belum ditetapkan"}
+              hint={itCosts.budgetUsedPct !== null ? `Terpakai ${itCosts.budgetUsedPct.toLocaleString("id-ID")}%` : "Atur di parameter m11.it_cost_report"}
+              tone={itCosts.overBudget ? "danger" : itCosts.budget > 0 ? "success" : "neutral"}
+            />
+          </div>
+          <div className="overflow-x-auto">
+            <Table data-testid="tabel-biaya-ti">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Kelompok</TableHead>
+                  <TableHead>Rincian</TableHead>
+                  <TableHead className="text-right">Pesan</TableHead>
+                  <TableHead className="text-right">Biaya</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {itCosts.journaled.map((j) => (
+                  <TableRow key={j.accountId}>
+                    <TableCell className="text-sm">Terjurnal</TableCell>
+                    <TableCell className="text-sm">
+                      <Link href={hrefWith("/akuntansi/buku-besar", { akun: j.accountId, dari: period, sampai: period })} className="text-primary hover:underline">
+                        {j.code} {j.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-right">—</TableCell>
+                    <TableCell className="text-right">
+                      <Amount value={j.amount} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {itCosts.whatsapp.byCategory.map((c) => (
+                  <TableRow key={c.category}>
+                    <TableCell className="text-sm">WhatsApp Business API</TableCell>
+                    <TableCell className="text-sm">Kategori {c.category}</TableCell>
+                    <TableCell className="text-right">{c.count.toLocaleString("id-ID")}</TableCell>
+                    <TableCell className="text-right">
+                      <Amount value={c.amount} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!itCosts.journaled.length && !itCosts.whatsapp.byCategory.length ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                      Belum ada biaya komunikasi/cloud terjurnal maupun pesan WhatsApp tertagih pada periode ini.
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
             </Table>
           </div>
         </SectionCard>

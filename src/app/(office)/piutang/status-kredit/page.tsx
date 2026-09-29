@@ -242,7 +242,7 @@ export default async function CreditStatusPage({ searchParams }: { searchParams:
         <SectionCard title="Ajukan penanda tagihan bulanan" description="Hanya pelanggan Tempo dengan perjanjian tertulis (BR-05); diputuskan pemilik.">
           <M5ActionForm action={requestMonthlyBillingAction} submitLabel="Ajukan ke pemilik" testId="form-tagihan-bulanan-dispatcher" className="max-w-2xl">
             <FormSelect label="Pelanggan" name="customerId" required emptyLabel="— pilih pelanggan Tempo —" options={monthlyCandidates.map((c) => ({ value: c.id, label: c.code ? `${c.name} (${c.code})` : c.name }))} />
-            <FormInput label="Perjanjian tertulis (PDF/foto)" name="agreement" type="file" accept="application/pdf,image/jpeg,image/png" required hint="Wajib (BR-05), maks. 1 MB." />
+            <FormInput label="Perjanjian tertulis (PDF/foto)" name="agreement" type="file" accept="application/pdf,image/jpeg,image/png" required hint="Wajib (BR-05), maks. 4 MB; foto dikompres otomatis." />
             <FormTextarea label="Alasan" name="reason" required />
           </M5ActionForm>
         </SectionCard>

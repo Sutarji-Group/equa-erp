@@ -314,6 +314,11 @@ gerbang bila `customerPaymentId` terisi (B-62; uji `tests/integration/p2-m11.tes
 `order.status_changed`, `trip.departed`, `trip.completed`, `trip.failed`, `transfer.matched` (rincian di
 `docs/dev/modules/p3-partner.md` §3 dan `docs/dev/modules/p2-customer.md` §3).
 
+Tambahan S5 pengerasan (paket B): `customer_advance.applied` (dipancarkan M5 setiap uang muka pelanggan dipakai melunasi
+faktur, termasuk rit berbayar di muka, atau dikembalikan menjadi uang muka — jumlah BERTANDA, alasan `applied` |
+`allocation_reversed` | `overpayment_to_advance`; M11 menjurnal D uang muka pelanggan / K piutang usaha, B-65). Field
+OPSIONAL baru: `trip.completed.prepaidAmount` (rit berbayar di muka, B-65) dan `order.created.slot` (B-64).
+
 Payload tiap event diketik di `src/server/core/events.types.ts`. Modul menambah event baru hanya dengan menambah entri
 di berkas itu (tambahan, tidak mengubah yang ada). M11 berlangganan event keuangan untuk jurnal otomatis (PRD 7.11.4);
 M9 membaca data modul untuk angka laporan dan hanya berlangganan event untuk menerbitkan H+0, addenda, dan versi Final

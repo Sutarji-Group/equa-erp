@@ -105,6 +105,12 @@ export { payablesView, runJournalPayableReminders, PAYABLE_AGING_LABELS } from "
 // Pajak (US-M11-08)
 export { taxOverview, monthlyRevenueReport, setTaxScheme, pkpStatus, runPkpMonitor, listExportTemplates, saveExportTemplate, exportWithTemplate, EXPORT_FIELDS, type PkpStatus } from "./service/tax";
 
+// Akun buku per rekening bank (B-53) — kontrak untuk M4 (tanpa otorisasi, di dalam transaksi pemanggil)
+export { assertBankGlAccount, bankGlAccountOptions, createBankGlAccount, nextBankGlCode, type BankGlOption } from "./service/bank-gl";
+
+// Biaya komunikasi, cloud & WhatsApp bulanan (NFR-29, B-67)
+export { itCostReport, computeItCostReport, type ItCostReport } from "./service/it-costs";
+
 // Saldo awal (US-M11-09)
 export {
   openingOverview,

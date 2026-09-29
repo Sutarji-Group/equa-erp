@@ -38,6 +38,7 @@ import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize } from "@/server/core/rbac";
 import { put, readAttachment } from "@/server/core/storage";
+import * as m11 from "@/server/modules/m11-accounting";
 import * as m8 from "@/server/modules/m8-production";
 
 import { revenueForRange } from "../metrics";
@@ -83,7 +84,24 @@ export type MonthlyGrossProfit = MonthlyFigures & {
   incomplete: boolean;
   incompleteNote: string | null;
   availability: { deadline: BusinessDate; late: boolean };
-  pkp: { months: string[]; twelveMonthRevenue: number; threshold: number; pct: number; levels: number[]; reached: number | null };
+  /**
+   * Pemantauan PKP (US-M11-08 KP-4, B-54): SATU definisi = M11 `pkpStatus` (omzet luar 12 bulan berjalan dari jurnal,
+   * sama dengan `/akuntansi/pajak`) termasuk proyeksi bulan tercapai. Selama M11 belum aktif (belum ada jurnal) dipakai
+   * perkiraan omzet operasional (`source: "operational"`, tanpa proyeksi).
+   */
+  pkp: {
+    months: string[];
+    twelveMonthRevenue: number;
+    threshold: number;
+    pct: number;
+    levels: number[];
+    reached: number | null;
+    /** Rata-rata omzet 3 bulan terakhir (dasar proyeksi). */
+    avg3: number;
+    /** Bulan (YYYY-MM) batas PKP diproyeksikan tercapai; null = tidak dalam jangkauan / belum dihitung. */
+    projectedPeriod: string | null;
+    source: "m11" | "operational";
+  };
   comparison: { previous: ComparisonRow | null; lastYear: ComparisonRow | null };
   waterCostTrend: { month: string; cost: number; liters: number; costPerLiter: number | null }[];
   operational: RevenueFigures;
@@ -308,6 +326,54 @@ async function finalSnapshots(tx: Tx, tenantId: string, month: string) {
     .orderBy(desc(reportSnapshots.revision));
 }
 
+/**
+ * Status PKP untuk bulan `month` (B-54). M11 aktif → `m11.pkpStatus` per akhir bulan itu (atau hari ini untuk bulan
+ * berjalan); M11 belum aktif → perkiraan omzet operasional 12 bulan (tanpa jurnal, tanpa proyeksi).
+ */
+async function pkpFor(
+  tx: Tx,
+  tenantId: string,
+  month: string,
+  today: BusinessDate,
+  m11Active: boolean,
+  figures: Awaited<ReturnType<typeof computeMonthlyFigures>>,
+  prev: Awaited<ReturnType<typeof computeMonthlyFigures>>,
+): Promise<MonthlyGrossProfit["pkp"]> {
+  const monthEnd = lastDayOfMonth(`${month}-01`);
+  const asOf = monthEnd < today ? monthEnd : today;
+  if (m11Active) {
+    const s = await m11.pkpStatus(tx, tenantId, asOf);
+    return {
+      months: s.months.map((m) => m.period).reverse(),
+      twelveMonthRevenue: s.total,
+      threshold: s.threshold,
+      pct: s.percent,
+      levels: s.warnPercents,
+      reached: s.level,
+      avg3: s.avg3,
+      projectedPeriod: s.projectedPeriod,
+      source: "m11",
+    };
+  }
+  const par22 = await params.get(tx, "PAR-22", asOf, { tenantId });
+  const threshold = Number(par22.threshold);
+  const levels = par22.warn_percents.map(Number);
+  const months: string[] = [];
+  const revenues: number[] = [];
+  for (let i = 0; i < par22.window_months; i++) {
+    const m = shiftMonth(month, -i);
+    months.push(m);
+    const f = i === 0 ? figures : i === 1 ? prev : await computeMonthlyFigures(tx, tenantId, m, m11Active, { withWaterCost: false });
+    revenues.push(grossBusinessRevenue(f));
+  }
+  const twelve = revenues.reduce((a, b) => a + b, 0);
+  const pct = threshold > 0 ? Math.round((twelve / threshold) * 10_000) / 100 : 0;
+  const reached = [...levels].sort((a, b) => b - a).find((lv) => pct >= lv) ?? null;
+  const last3 = revenues.slice(0, 3);
+  const avg3 = last3.length ? Math.round(last3.reduce((a, b) => a + b, 0) / last3.length) : 0;
+  return { months, twelveMonthRevenue: twelve, threshold, pct, levels, reached, avg3, projectedPeriod: null, source: "operational" };
+}
+
 /** Laporan lengkap (tanpa versi Final) untuk satu bulan — dasar Sementara dan isi snapshot Final. */
 async function buildReport(tx: Tx, tenantId: string, month: string, today: BusinessDate): Promise<Omit<MonthlyGrossProfit, "final" | "previousFinals">> {
   const m11Active = await isEnabled(tx, "accounting.m11_active", { tenantId });
@@ -322,20 +388,9 @@ async function buildReport(tx: Tx, tenantId: string, month: string, today: Busin
   const lyMonth = shiftMonth(month, -12);
   const prev = await computeMonthlyFigures(tx, tenantId, prevMonth, m11Active, { withWaterCost: false });
   const ly = await computeMonthlyFigures(tx, tenantId, lyMonth, m11Active, { withWaterCost: false });
-  // PKP (BR-29, FR-M11-12): omzet bruto usaha 12 bulan berjalan (s.d. bulan ini) vs batas PAR-22 + peringatan 80%/90%.
-  const par22 = await params.get(tx, "PAR-22", today, { tenantId });
-  const threshold = Number(par22.threshold);
-  const levels = par22.warn_percents.map(Number);
-  const months: string[] = [];
-  let twelve = 0;
-  for (let i = 0; i < par22.window_months; i++) {
-    const m = shiftMonth(month, -i);
-    months.push(m);
-    const f = i === 0 ? figures : i === 1 ? prev : await computeMonthlyFigures(tx, tenantId, m, m11Active, { withWaterCost: false });
-    twelve += grossBusinessRevenue(f);
-  }
-  const pkpPct = threshold > 0 ? Math.round((twelve / threshold) * 10_000) / 100 : 0;
-  const reached = [...levels].sort((a, b) => b - a).find((lv) => pkpPct >= lv) ?? null;
+  // PKP (BR-29, FR-M11-12, B-54): omzet bruto usaha 12 bulan berjalan (s.d. bulan ini) vs batas PAR-22 + peringatan
+  // 80%/90% + proyeksi — dari M11 `pkpStatus` (satu definisi dengan /akuntansi/pajak).
+  const pkp = await pkpFor(tx, tenantId, month, today, m11Active, figures, prev);
   // Tren biaya air per liter (KP-6).
   const rules = await reportRules(tx, today, tenantId);
   const trend: MonthlyGrossProfit["waterCostTrend"] = [];
@@ -362,7 +417,7 @@ async function buildReport(tx: Tx, tenantId: string, month: string, today: Busin
     incomplete: !m11Active,
     incompleteNote: m11Active ? null : "Belum lengkap — M11 belum aktif: omzet operasional per lini dan biaya yang sudah tercatat (pengeluaran rit, pembelian toko).",
     availability: { deadline, late: !isFinal && today > deadline },
-    pkp: { months, twelveMonthRevenue: twelve, threshold, pct: pkpPct, levels, reached },
+    pkp,
     comparison: {
       previous: hasMonthData(prev, m11Active) ? comparisonOf(prevMonth, prev) : null,
       lastYear: hasMonthData(ly, m11Active) ? comparisonOf(lyMonth, ly) : null,
@@ -460,8 +515,11 @@ export async function getMonthlyReport(ctx: ActorContext, input: unknown, opts: 
     const snap = fresh ?? (opts.tx ? await finalizeMonthlyReport(opts.tx, { tenantId: ctx.tenantId, month, now: ctx.now }) : await withTx((tx) => finalizeMonthlyReport(tx, { tenantId: ctx.tenantId, month, now: ctx.now })));
     const all = await finalSnapshots(db, ctx.tenantId, month);
     const data = snap!.data as unknown as MonthlyGrossProfit;
+    // Versi Final sebelum B-54 tidak menyimpan proyeksi/sumber PKP.
+    const storedPkp = data.pkp as Partial<MonthlyGrossProfit["pkp"]> & Omit<MonthlyGrossProfit["pkp"], "avg3" | "projectedPeriod" | "source">;
     return {
       ...data,
+      pkp: { ...storedPkp, avg3: storedPkp.avg3 ?? 0, projectedPeriod: storedPkp.projectedPeriod ?? null, source: storedPkp.source ?? "m11" },
       final: { snapshotId: snap!.id, revision: snap!.revision, generatedAt: snap!.generatedAt.toISOString() },
       previousFinals: all.filter((s) => s.id !== snap!.id).map((s) => ({ snapshotId: s.id, revision: s.revision, generatedAt: s.generatedAt.toISOString() })),
     };
@@ -469,6 +527,17 @@ export async function getMonthlyReport(ctx: ActorContext, input: unknown, opts: 
   const report = await buildReport(db, ctx.tenantId, month, ctxBusinessDate(ctx));
   const all = await finalSnapshots(db, ctx.tenantId, month);
   return { ...report, final: null, previousFinals: all.map((s) => ({ snapshotId: s.id, revision: s.revision, generatedAt: s.generatedAt.toISOString() })) };
+}
+
+/**
+ * Status batas PKP untuk dasbor M9 (US-M11-08 KP-4 "tampil di dashboard M9", B-54) — SATU definisi: M11 `pkpStatus`
+ * (sama dengan /akuntansi/pajak, termasuk proyeksi). `null` bila M11 belum aktif (belum ada jurnal omzet).
+ */
+export async function pkpDashboard(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<m11.PkpStatus | null> {
+  await authorize(ctx, "m9.monthly_report.read", { tx: opts.tx });
+  const db = opts.tx ?? getDb();
+  if (!(await isEnabled(db, "accounting.m11_active", { tenantId: ctx.tenantId }))) return null;
+  return m11.pkpStatus(db, ctx.tenantId, ctxBusinessDate(ctx));
 }
 
 // =====================================================================================================================

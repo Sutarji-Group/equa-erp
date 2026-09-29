@@ -1,8 +1,9 @@
 "use client";
 
 import { KeyRound, LoaderCircle } from "lucide-react";
-import { useActionState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
+import { useFlashActionState } from "@/components/shared/use-flash-action";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +27,7 @@ export type ActionFormProps = {
  * TAMPIL (kode aktivasi / kata sandi sementara) yang tidak dapat dilihat lagi setelah halaman ditutup.
  */
 export function ActionForm({ action, submitLabel, children, variant = "default", className, confirmText, block, testId }: ActionFormProps) {
-  const [state, formAction, pending] = useActionState<ActionState, FormData>(action, undefined);
+  const [state, formAction, pending] = useFlashActionState<ActionState>(action, undefined);
   return (
     <form
       action={formAction}

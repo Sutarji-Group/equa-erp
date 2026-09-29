@@ -16,6 +16,7 @@ import type { EnumValue, ProfitCenter } from "@/lib/labels";
 
 import type { Tx } from "@/server/core/db";
 import type { DomainEvent, DomainEventMap, DomainEventType } from "@/server/core/events";
+import * as m5 from "@/server/modules/m5-receivables";
 
 import { TRANSFER_SOURCES_NOT_JOURNALED } from "../constants";
 import { outlets } from "@/db/schema";
@@ -50,6 +51,9 @@ function tripCompleted(e: Ev<"trip.completed">): EventJournalSpec {
   if (p.isInternal) return skip("Rit internal pasokan depot dijurnal saat pasokan dikonfirmasi (water_supply.confirmed).");
   const date = eventDate(e, p.businessDate);
   const dims = { truckId: p.truckId || null };
+  // B-65 (D-11 butir 4): rit prabayar digital — pendapatan diakui saat Selesai; sisi debit piutang langsung dilunasi
+  // uang muka pelanggan oleh M5 (`customer_advance.applied` → Dr 2-1201 / Cr 1-1401), bukan kurang bayar/tempo.
+  const prepaid = m5.prepaidAmountOfTrip(p);
   return journal(
     "trip.completed",
     date,
@@ -58,6 +62,7 @@ function tripCompleted(e: Ev<"trip.completed">): EventJournalSpec {
       { entryKey: "cash", amount: p.cashReceived, ...dims },
       { entryKey: "transfer", amount: p.transferAmount, ...dims },
       { entryKey: "credit", amount: p.creditAmount + p.underpaymentAmount, ...dims, memo: p.underpaymentAmount > 0 ? `Kurang bayar ${p.underpaymentReason ?? ""}`.trim() : null },
+      { entryKey: "credit", amount: prepaid, ...dims, memo: "Rit prabayar digital — dilunasi uang muka pelanggan" },
     ],
     { type: "trip", id: p.tripId },
     p.tripNumber ?? null,
@@ -434,6 +439,16 @@ function partnerSubscription(e: Ev<"partner.subscription_invoiced">): EventJourn
   return journal("partner.subscription_invoiced", eventDate(e), "Tagihan langganan sistem mitra", [{ entryKey: "default", amount: p.amount }], { type: "invoice", id: p.invoiceId });
 }
 
+/**
+ * Uang muka pelanggan dipakai pada faktur (B-65): reklasifikasi Dr uang muka 2-1201 / Cr piutang 1-1401 (bertanda —
+ * negatif = alokasi dibatalkan / kelebihan pelunasan menjadi uang muka). Menyelaraskan buku besar dengan buku bantu M5.
+ */
+function advanceApplied(e: Ev<"customer_advance.applied">): EventJournalSpec {
+  const p = e.payload;
+  const text = p.amount >= 0 ? "Uang muka pelanggan dipakai" : "Alokasi dibatalkan → uang muka pelanggan";
+  return journal("customer_advance.applied", eventDate(e, p.businessDate), `${text} (${p.invoiceNumber ?? "faktur"})`, [{ entryKey: "default", amount: p.amount }], { type: "invoice", id: p.invoiceId });
+}
+
 function digitalPayment(e: Ev<"digital_payment.succeeded">): EventJournalSpec {
   const p = e.payload;
   // Integrasi P2: bila pelunasan M5 (`customerPaymentId`) sudah dibentuk, `collection.recorded` kanal `digital` yang
@@ -486,6 +501,7 @@ export const JOURNALED_EVENTS = [
   "water_supply.confirmed",
   "partner.subscription_invoiced",
   "digital_payment.succeeded",
+  "customer_advance.applied",
 ] as const satisfies readonly DomainEventType[];
 
 export type JournaledEventType = (typeof JOURNALED_EVENTS)[number];
@@ -571,6 +587,8 @@ export async function specForEvent(tx: Tx, event: DomainEvent): Promise<EventJou
       return partnerSubscription(as<"partner.subscription_invoiced">());
     case "digital_payment.succeeded":
       return digitalPayment(as<"digital_payment.succeeded">());
+    case "customer_advance.applied":
+      return advanceApplied(as<"customer_advance.applied">());
     default:
       return skip(`Peristiwa ${e.type} tidak menghasilkan jurnal.`);
   }

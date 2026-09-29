@@ -9,9 +9,9 @@
  */
 import "server-only";
 
-import { and, asc, desc, eq, gte, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
-import { customers, discrepancies, notifications, orders, trips, trucks, waterBalances, waterSources } from "@/db/schema";
+import { customers, discrepancies, fleetEvents, notifications, orders, trips, trucks, waterBalances, waterSources } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { addDays, formatTanggal } from "@/lib/time";
@@ -287,6 +287,8 @@ async function requestExplanation(
 export async function actOnInboxItem(ctx: ActorContext, input: unknown): Promise<{ message: string }> {
   await authorize(ctx, "m9.inbox.read");
   const data = parseInput(inboxActionSchema, input, { itemKind: "Jenis", itemId: "Butir", action: "Tindakan", note: "Catatan" });
+  // Lencana menu dihitung ulang setelah tindakan (B-58).
+  badgeCache.clear();
   const note = data.note ?? null;
   switch (data.itemKind) {
     case "approval": {
@@ -405,6 +407,98 @@ export async function actOnInboxItem(ctx: ActorContext, input: unknown): Promise
 export async function inboxCount(ctx: ActorContext): Promise<{ count: number; overdue: number }> {
   const box = await getInbox(ctx);
   return { count: box.actionCount, overdue: box.overdueCount };
+}
+
+// =====================================================================================================================
+// Lencana menu "Kotak masuk" (B-58): hitungan murah di setiap render kerangka kantor
+// =====================================================================================================================
+
+/** Umur cache hitungan lencana per pengguna (teknis, bukan aturan bisnis): cukup segar untuk menu, murah untuk DB. */
+const BADGE_CACHE_TTL_MS = 30_000;
+const BADGE_CACHE_MAX = 500;
+const badgeCache = new Map<string, { at: number; value: { count: number; overdue: number } }>();
+
+/** Kosongkan cache lencana (uji / setelah tindakan kotak masuk). */
+export function clearInboxBadgeCache(): void {
+  badgeCache.clear();
+}
+
+/**
+ * Hitungan lencana "Kotak masuk" = jumlah butir "Perlu tindakan" `getInbox` (angka sama), tetapi dengan kueri COUNT
+ * terindeks per kelompok — tanpa membangun judul/isi butir, tanpa notifikasi info — plus cache singkat per pengguna.
+ * `approvalItems` = hasil `approvals.listInbox` yang sudah diambil kerangka kantor (menghindari kueri ganda).
+ */
+export async function inboxBadgeCount(
+  ctx: ActorContext,
+  opts: { tx?: Tx; approvalItems?: readonly { type: string; isOverdue: boolean }[]; fresh?: boolean } = {},
+): Promise<{ count: number; overdue: number }> {
+  await authorize(ctx, "m9.inbox.read", { tx: opts.tx });
+  const key = `${ctx.tenantId}:${ctx.userId ?? "-"}:${[...ctx.roles].sort().join(",")}`;
+  const hit = badgeCache.get(key);
+  if (!opts.fresh && hit && ctx.now.getTime() - hit.at >= 0 && ctx.now.getTime() - hit.at < BADGE_CACHE_TTL_MS) return hit.value;
+  const db = opts.tx ?? getDb();
+  const today = ctxBusinessDate(ctx);
+  const rules = await reportRules(db, today, ctx.tenantId);
+  const since = addDays(today, -rules.inbox_lookback_days);
+  let count = 0;
+  let overdue = 0;
+
+  if (can(ctx, "m10.approval.read")) {
+    const items = opts.approvalItems ?? (await approvals.listInbox(ctx, { tx: opts.tx, limit: 500 }));
+    for (const a of items) {
+      if (a.type === "cash_discrepancy") continue;
+      count++;
+      if (a.isOverdue) overdue++;
+    }
+  }
+  if (can(ctx, "m4.discrepancy.read")) {
+    const hours = await discrepancyFollowUpHours(db, ctx.tenantId, today);
+    const cutoff = new Date(ctx.now.getTime() - hours * 3_600_000);
+    const [d] = await db
+      .select({ n: sql<number>`count(*)::int`, late: sql<number>`count(*) filter (where ${discrepancies.createdAt} < ${cutoff})::int` })
+      .from(discrepancies)
+      .where(
+        and(
+          eq(discrepancies.tenantId, ctx.tenantId),
+          eq(discrepancies.requiresOwnerDecision, true),
+          isNull(discrepancies.decision),
+          inArray(discrepancies.status, ["formed", "explained"]),
+        ),
+      );
+    count += Number(d?.n ?? 0);
+    overdue += Number(d?.late ?? 0);
+  }
+  const [f] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(trips)
+    .innerJoin(orders, eq(orders.id, trips.orderId))
+    .where(and(eq(trips.tenantId, ctx.tenantId), eq(trips.status, "failed"), gte(trips.completionBusinessDate, since), or(eq(orders.needsReschedule, true), eq(orders.reconfirmationRequired, true))));
+  count += Number(f?.n ?? 0);
+  if (can(ctx, "m12.fleet_event.read")) {
+    const [g] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(fleetEvents)
+      .where(
+        and(
+          eq(fleetEvents.tenantId, ctx.tenantId),
+          gte(fleetEvents.businessDate, since),
+          lte(fleetEvents.businessDate, today),
+          inArray(fleetEvents.kind, [...m12.REVIEW_KINDS]),
+          inArray(fleetEvents.status, ["detected", "explained"]),
+        ),
+      );
+    count += Math.min(Number(g?.n ?? 0), 500);
+  }
+  const [w] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(waterBalances)
+    .where(and(eq(waterBalances.tenantId, ctx.tenantId), inArray(waterBalances.status, ["over_threshold", "investigating", "negative_anomaly"])));
+  count += Math.min(Number(w?.n ?? 0), 50);
+
+  const value = { count, overdue };
+  if (badgeCache.size >= BADGE_CACHE_MAX) badgeCache.delete(badgeCache.keys().next().value!);
+  badgeCache.set(key, { at: ctx.now.getTime(), value });
+  return value;
 }
 
 /** Notifikasi terbaru (tidak dipakai kelompok) — untuk uji/diagnostik. */

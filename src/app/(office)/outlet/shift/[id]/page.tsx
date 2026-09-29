@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { KeyValueList } from "@/components/shared/key-value-list";
 import { KpiTile } from "@/components/shared/kpi-tile";
 import { MoneyText } from "@/components/shared/money-text";
+import { JournalLink } from "@/components/shared/journal-link";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge, ToneBadge } from "@/components/shared/status-badge";
@@ -52,6 +53,7 @@ export default async function ShiftDetailPage({ params }: { params: Promise<{ id
             {s.syncConflict ? <ToneBadge tone={s.conflictResolvedAt ? "muted" : "danger"}>Konflik{s.conflictResolvedAt ? " (ditinjau)" : ""}</ToneBadge> : null}
           </>
         }
+        actions={<JournalLink ctx={ctx} sourceType="shift" sourceId={s.id} label="Lihat jurnal shift" />}
       />
 
       {!d.sync.fullySynced ? (

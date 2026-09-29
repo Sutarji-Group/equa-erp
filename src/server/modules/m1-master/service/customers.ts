@@ -12,14 +12,14 @@
  */
 import "server-only";
 
-import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, ne, or, sql, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
   customerAddresses,
   customerCreditHistory,
   customers,
-  invoices,
+  fleetEvents,
   orders,
   products,
   specialPrices,
@@ -42,6 +42,7 @@ import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, can, runService } from "@/server/core/rbac";
 import { normalizeWaNumber } from "@/server/core/wa";
+import { computeExposure, getReceivableBalance } from "@/server/modules/m5-receivables";
 
 import { ACTIVE_ORDER_STATUSES, loadAddress, loadCustomer, masterRules, normalizeText, textSimilarity, type AddressRow, type CustomerRow } from "./common";
 import { getActiveSpecialPrice } from "./pricing";
@@ -477,13 +478,12 @@ export async function reactivateCustomer(ctx: ActorContext, customerId: string, 
   });
 }
 
-/** Piutang terbuka pelanggan (read-only dari M5; kosong di awal). */
+/**
+ * Saldo piutang pelanggan — SATU definisi M5 (`getReceivableBalance(tx, id).balance`: faktur terbuka semua lini +
+ * rit belum ditagih pelanggan tagihan bulanan; US-M5-01 KP-3, B-32).
+ */
 export async function openReceivable(tx: Tx, customerId: string): Promise<number> {
-  const [row] = await tx
-    .select({ total: sum(invoices.outstandingAmount) })
-    .from(invoices)
-    .where(and(eq(invoices.customerId, customerId), gt(invoices.outstandingAmount, 0)));
-  return Number(row?.total ?? 0);
+  return (await getReceivableBalance(tx, customerId)).balance;
 }
 
 // =====================================================================================================================
@@ -760,9 +760,41 @@ export async function setAddressReferenceSource(ctx: ActorContext, addressId: st
   });
 }
 
+type CompletionPoint = LatLng & { source: "phone" | "gps_device" };
+
+/**
+ * Titik Selesai rit untuk usulan koordinat: titik ponsel sopir; bila rit Selesai TANPA lokasi ponsel (`no_location`),
+ * posisi perangkat GPS truk saat Selesai (US-M12-04 KP-4, backlog B-43) — dari penanda M12
+ * `fleet_events(no_location).details.devicePosition`, atau (handler M12 belum berjalan untuk event yang sama: M1
+ * terdaftar lebih dulu) dihitung dengan aturan M12 yang sama (`devicePositionAt`, jendela `inconsistency_window_minutes`).
+ */
+async function completionPointOf(tx: Tx, trip: typeof trips.$inferSelect, tenantId: string): Promise<CompletionPoint | null> {
+  if (trip.completedLat !== null && trip.completedLng !== null) {
+    const phone = { lat: trip.completedLat, lng: trip.completedLng };
+    return isValidLatLng(phone) ? { ...phone, source: "phone" } : null;
+  }
+  const flagged = await tx
+    .select({ details: fleetEvents.details })
+    .from(fleetEvents)
+    .where(and(eq(fleetEvents.tripId, trip.id), eq(fleetEvents.kind, "no_location"), sql`${fleetEvents.details}->>'tripStatus' = 'completed'`))
+    .limit(1);
+  const stored = (flagged[0]?.details as { devicePosition?: { lat?: unknown; lng?: unknown } | null } | null)?.devicePosition;
+  if (stored && typeof stored.lat === "number" && typeof stored.lng === "number") {
+    const device = { lat: stored.lat, lng: stored.lng };
+    return isValidLatLng(device) ? { ...device, source: "gps_device" } : null;
+  }
+  if (flagged[0] || !trip.truckId || !trip.completedAt) return null;
+  // Impor dinamis: M12 (fuel) mengimpor M1 — hindari siklus impor saat modul dimuat.
+  const m12 = await import("@/server/modules/m12-fleet");
+  const rules = await m12.m12Rules(tx, trip.completionBusinessDate ?? toBusinessDate(trip.completedAt), tenantId);
+  const device = await m12.devicePositionAt(tx, trip.truckId, trip.completedAt, rules.fleet.inconsistency_window_minutes);
+  return device && isValidLatLng(device) ? { lat: device.lat, lng: device.lng, source: "gps_device" } : null;
+}
+
 /**
  * Usulan kunci koordinat dari lokasi Selesai rit (handler `trip.completed`, US-M1-01 KP-2, BRD 10.2): hanya untuk
- * alamat "Belum dikunci" tanpa usulan lain; Dispatcher diberi tahu untuk mengonfirmasi. Idempoten per rit.
+ * alamat "Belum dikunci" tanpa usulan lain; Dispatcher diberi tahu untuk mengonfirmasi. Idempoten per rit. Rit tanpa
+ * lokasi ponsel memakai posisi perangkat GPS truk saat Selesai (B-43, US-M12-04 KP-4).
  */
 export async function proposeCoordinateFromTrip(tx: Tx, input: { tripId: string; tenantId: string; now: Date }): Promise<{ proposed: boolean; addressId?: string }> {
   const rows = await tx
@@ -776,27 +808,31 @@ export async function proposeCoordinateFromTrip(tx: Tx, input: { tripId: string;
   if (!row) return { proposed: false };
   const { trip, address } = row;
   if (trip.isInternal || address.coordinateStatus === "locked") return { proposed: false };
-  if (trip.completedLat === null || trip.completedLng === null || !isValidLatLng({ lat: trip.completedLat, lng: trip.completedLng })) return { proposed: false };
   if (address.proposedFromTripId === trip.id || address.proposedLat !== null) return { proposed: false };
+  const point = await completionPointOf(tx, trip, input.tenantId);
+  if (!point) return { proposed: false };
+  const fromDevice = point.source === "gps_device";
   const ctx = systemContext({ tenantId: input.tenantId, now: input.now });
   await tx
     .update(customerAddresses)
-    .set({ proposedLat: trip.completedLat, proposedLng: trip.completedLng, proposedFromTripId: trip.id, proposedAt: input.now })
+    .set({ proposedLat: point.lat, proposedLng: point.lng, proposedFromTripId: trip.id, proposedAt: input.now })
     .where(eq(customerAddresses.id, address.id));
   await auditRecord(tx, {
     ctx,
     objectType: "customer_address",
     objectId: address.id,
     action: "update",
-    after: { proposedLat: trip.completedLat, proposedLng: trip.completedLng, proposedFromTripId: trip.id },
-    reason: `Usulan koordinat dari lokasi Selesai rit ${trip.number}.`,
-    rule: "US-M1-01 KP-2",
+    after: { proposedLat: point.lat, proposedLng: point.lng, proposedFromTripId: trip.id, pointSource: point.source },
+    reason: fromDevice ? `Usulan koordinat dari posisi GPS truk saat Selesai rit ${trip.number} (ponsel tanpa lokasi).` : `Usulan koordinat dari lokasi Selesai rit ${trip.number}.`,
+    rule: fromDevice ? "US-M1-01 KP-2, US-M12-04 KP-4" : "US-M1-01 KP-2",
   });
   await notify(tx, {
     event: "address.coordinate_proposed",
     tenantId: input.tenantId,
     title: `Usulan koordinat: ${row.customerName}`,
-    body: `Lokasi Selesai rit ${trip.number} diusulkan sebagai koordinat alamat "${address.label}". Konfirmasi atau tolak.`,
+    body: fromDevice
+      ? `Rit ${trip.number} Selesai tanpa lokasi ponsel; posisi GPS truk saat itu diusulkan sebagai koordinat alamat "${address.label}". Periksa di peta, lalu konfirmasi atau tolak.`
+      : `Lokasi Selesai rit ${trip.number} diusulkan sebagai koordinat alamat "${address.label}". Konfirmasi atau tolak.`,
     objectType: "customer_address",
     objectId: address.id,
     link: `/master/pelanggan/${row.customerId}#alamat-${address.id}`,
@@ -930,11 +966,13 @@ export type CustomerSummary = {
   creditStatus: CustomerRow["creditStatus"];
   creditLimit: number;
   paymentTermDays: number;
-  /** Piutang belum lunas (read-only M5; 0 bila belum ada faktur). */
+  /** Saldo piutang M5 (faktur terbuka + rit belum ditagih; US-M5-01 KP-3, B-32). */
   openReceivable: number;
-  /** Nilai pesanan tempo berjalan (Baru/Menunggu persetujuan/Terjadwal/Dalam pengiriman) — BR-06. */
+  /** Nilai rit tempo pesanan berjalan (Baru/Menunggu persetujuan/Terjadwal/Dalam pengiriman) — BR-06. */
   openCreditOrders: number;
-  /** Batas tersisa = batas − (piutang terbuka + pesanan tempo berjalan) (BR-06). */
+  /** Penjualan tempo toko belum difakturkan (bagian eksposur lintas lini, B-35). */
+  uninvoicedStoreCredit: number;
+  /** Batas tersisa = batas − eksposur M5 `computeExposure` (BR-06, PTB-25). */
   remainingLimit: number;
   lastOrders: { id: string; number: string; requestedDate: string; tankCount: number; status: string; trucks: string[]; totalAmount: number }[];
   /** Rata-rata jarak (hari) antar pesanan; null bila < 2 pesanan. */
@@ -954,12 +992,8 @@ export async function getCustomerSummary(ctx: ActorContext, customerId: string, 
   const tx = opts.tx ?? getDb();
   const customer = await loadCustomer(tx, ctx, customerId);
   const date = opts.date ?? ctxBusinessDate(ctx);
-  const receivable = await openReceivable(tx, customerId);
-  const [creditOrders] = await tx
-    .select({ total: sum(orders.totalAmount) })
-    .from(orders)
-    .where(and(eq(orders.customerId, customerId), eq(orders.paymentMethod, "credit"), inArray(orders.status, [...ACTIVE_ORDER_STATUSES])));
-  const openCreditOrders = Number(creditOrders?.total ?? 0);
+  // Saldo & eksposur dari M5 — satu definisi dengan kartu piutang, kontrol kredit M2 & tempo toko M7 (B-32, B-35).
+  const exposure = await computeExposure(tx, customerId, { asOf: date });
   const last = await tx
     .select({ id: orders.id, number: orders.number, requestedDate: orders.requestedDate, tankCount: orders.tankCount, status: orders.status, totalAmount: orders.totalAmount })
     .from(orders)
@@ -1000,7 +1034,6 @@ export async function getCustomerSummary(ctx: ActorContext, customerId: string, 
     seen.add(r.s.productId);
     activeSpecial.push({ id: current.id, productId: current.productId, productName: r.productName, price: current.price, validFrom: current.validFrom, reviewDate: current.reviewDate, reviewOverdue: current.reviewDate <= date });
   }
-  const exposure = receivable + openCreditOrders;
   return {
     customerId,
     name: customer.name,
@@ -1008,9 +1041,10 @@ export async function getCustomerSummary(ctx: ActorContext, customerId: string, 
     creditStatus: customer.creditStatus,
     creditLimit: customer.creditLimit,
     paymentTermDays: customer.paymentTermDays,
-    openReceivable: receivable,
-    openCreditOrders,
-    remainingLimit: customer.creditLimit - exposure,
+    openReceivable: exposure.balance,
+    openCreditOrders: exposure.openCreditOrders,
+    uninvoicedStoreCredit: exposure.uninvoicedStoreCredit,
+    remainingLimit: exposure.remaining,
     lastOrders: last.map((o) => ({ ...o, trucks: truckRows.filter((t) => t.orderId === o.id).map((t) => t.code) })),
     averageDaysBetweenOrders,
     notes: customer.notes,

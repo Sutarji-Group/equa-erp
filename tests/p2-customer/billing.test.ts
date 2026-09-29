@@ -141,9 +141,10 @@ describe("P2 Riwayat, struk, tagihan & pembayaran digital (US-P2-04)", () => {
     const ev = await t.db.select().from(domainEvents).where(and(eq(domainEvents.type, "digital_payment.succeeded"), eq(domainEvents.objectId, intent.id)));
     expect(ev).toHaveLength(1);
     const [tr] = await t.db.select().from(incomingTransfers).where(and(eq(incomingTransfers.sourceKind, "digital_payment"), eq(incomingTransfers.sourceObjectId, intent.id)));
-    expect(tr).toMatchObject({ amount: 600_000, status: "unmatched" });
+    // B-63: transfer masuk = settlement gerbang neto (bruto 600.000 − biaya QRIS 0,7% = 4.200).
+    expect(tr).toMatchObject({ amount: 595_800, status: "unmatched" });
     // M4 mencocokkan settlement bank → Dicocokkan.
-    await emitEvent("transfer.matched", { incomingTransferId: tr!.id, amount: 600_000, sourceKind: "digital_payment", matchedAt: minutes(60).toISOString() }, { now: minutes(60) });
+    await emitEvent("transfer.matched", { incomingTransferId: tr!.id, amount: 595_800, sourceKind: "digital_payment", matchedAt: minutes(60).toISOString() }, { now: minutes(60) });
     const [matched] = await t.db.select().from(paymentIntents).where(eq(paymentIntents.id, intent.id));
     expect(matched!.status).toBe("matched");
     // Kantor melihat daftar pembayaran digital (Admin Keuangan, pemilik).

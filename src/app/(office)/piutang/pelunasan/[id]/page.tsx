@@ -9,6 +9,7 @@ import { AdvanceBadge, FormInput, FormTextarea, InvoiceStatusBadge } from "@/com
 import { EmptyState } from "@/components/shared/empty-state";
 import { KeyValueList } from "@/components/shared/key-value-list";
 import { OfficeBreadcrumbLabel } from "@/components/shared/office-shell";
+import { JournalLink } from "@/components/shared/journal-link";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge, ToneBadge } from "@/components/shared/status-badge";
@@ -75,7 +76,8 @@ export default async function PaymentDetailPage({ params }: { params: Promise<{ 
           </div>
         }
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <JournalLink ctx={ctx} sourceType="customer_payment" sourceId={p.id} />
             <Button asChild variant="outline" size="sm">
               <a href={`/piutang/pelunasan/${p.id}/bukti`} download data-testid="unduh-bukti-pelunasan">
                 <FileDown aria-hidden />

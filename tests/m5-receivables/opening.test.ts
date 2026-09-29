@@ -65,6 +65,29 @@ describe("US-M5-07 KP-1 Input saldo awal piutang", () => {
   });
 });
 
+describe("B-37 lini asal faktur saldo awal", () => {
+  const t = useTestDb({ seed: true });
+  beforeAll(() => bootstrapForTests());
+
+  it("B-37 US-M5-07 KP-1 US-M5-04 KP-1 faktur saldo awal menyimpan lini asal (toko/kemitraan/air truk) sehingga umur piutang per lini tepat", async () => {
+    const d = today();
+    const c = await creditCustomer(t.db, { name: "Toko Mitra Saldo Awal" });
+    const store = await m5.createOpeningInvoice(finance(), { customerId: c.id, line: "store", issueDate: addDays(d, -20), dueDate: addDays(d, -5), description: "Nota toko kertas 0112", amount: 450_000, confirmationAttachmentId: (await confirmation()).id });
+    const truck = await m5.createOpeningInvoice(finance(), { customerId: c.id, issueDate: addDays(d, -20), dueDate: addDays(d, -5), description: "Nota air kertas 0113", amount: 700_000, confirmationAttachmentId: (await confirmation()).id });
+    expect(store.openingLine).toBe("store");
+    // Tanpa pilihan → air truk (perilaku lama).
+    expect(truck.openingLine).toBe("truck");
+    await expect(m5.createOpeningInvoice(finance(), { customerId: c.id, line: "gudang", issueDate: addDays(d, -20), dueDate: addDays(d, -5), description: "Lini salah", amount: 1_000, confirmationAttachmentId: (await confirmation()).id })).rejects.toThrow(/Lini piutang/);
+    expect((await m5.getInvoiceDetail(finance(), store.id)).line).toBe("store");
+    const aging = await m5.agingReport(finance(), { line: "store" });
+    const storeLine = aging.byLine.find((g) => g.key === "store");
+    expect(storeLine?.total).toBeGreaterThanOrEqual(450_000);
+    expect(aging.customers.find((r) => r.customerId === c.id)?.total).toBe(450_000);
+    const truckAging = await m5.agingReport(finance(), { line: "truck" });
+    expect(truckAging.customers.find((r) => r.customerId === c.id)?.total).toBe(700_000);
+  });
+});
+
 describe("US-M5-07 KP-2 Tanda tangan pemilik & koreksi berjejak", () => {
   const t = useTestDb({ seed: true });
   beforeAll(() => bootstrapForTests());

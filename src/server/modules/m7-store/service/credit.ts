@@ -2,9 +2,8 @@
  * M7 — kontrol tempo toko (US-M7-04; BR-04, BR-06, BR-18, PTB-25, PTB-42).
  *
  * Tempo hanya untuk pelanggan bertanda mitra toko (BR-18) berstatus kredit Tempo/Tempo migrasi. Eksposur memakai SATU
- * batas lintas lini (M2 `computeCreditExposure`: piutang semua lini + tagihan belum difakturkan + pesanan tempo air
- * truk berjalan) DITAMBAH penjualan tempo toko yang belum difakturkan M5 (faktur dibuat M5 dari `pos_sale.recorded`)
- * dan transaksi ini.
+ * definisi lintas lini (M2 `computeCreditExposure` = M5 `computeExposure`, B-35: piutang semua lini + tagihan belum
+ * difakturkan + pesanan tempo air truk berjalan + penjualan tempo toko yang belum difakturkan M5) ditambah transaksi ini.
  */
 import "server-only";
 
@@ -20,8 +19,6 @@ import { computeCreditExposure, type CreditExposure } from "@/server/modules/m2-
 import { loadCustomer, type CustomerRow } from "./common";
 
 export type StoreCreditExposure = CreditExposure & {
-  /** Penjualan tempo toko yang sudah Sah tetapi belum menjadi faktur M5. */
-  uninvoicedStoreCredit: number;
   /** Nilai transaksi ini. */
   saleAmount: number;
 };
@@ -56,11 +53,13 @@ export async function uninvoicedStoreCredit(tx: Tx, customerId: string, opts: { 
   return Number(row?.total ?? 0);
 }
 
-/** Eksposur lintas lini + tempo toko belum difakturkan + transaksi ini (tanpa keputusan). */
+/**
+ * Eksposur lintas lini + transaksi ini (tanpa keputusan). SATU definisi dengan pesanan air tempo (B-35): M2
+ * `computeCreditExposure` (= M5 `computeExposure`) sudah memuat tempo toko belum difakturkan.
+ */
 export async function storeCreditExposure(tx: Tx, customerId: string, amount: number, opts: { excludeSaleId?: string | null } = {}): Promise<StoreCreditExposure> {
-  const pendingStore = await uninvoicedStoreCredit(tx, customerId, opts);
-  const base = await computeCreditExposure(tx, customerId, { extraAmount: pendingStore + amount });
-  return { ...base, uninvoicedStoreCredit: pendingStore, saleAmount: amount };
+  const base = await computeCreditExposure(tx, customerId, { extraAmount: amount, excludeSaleId: opts.excludeSaleId });
+  return { ...base, saleAmount: amount };
 }
 
 /**

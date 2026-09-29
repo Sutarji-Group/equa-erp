@@ -261,6 +261,15 @@ export const M11_EXTRA_MAPPINGS: ExtraMapping[] = [
     creditPc: "SHARED",
   },
   {
+    event: "customer_advance.applied",
+    entry: "default",
+    description: "Uang muka pelanggan dipakai pada faktur: uang muka / piutang (B-65)",
+    debit: "2-1201",
+    credit: "1-1401",
+    debitPc: "SHARED",
+    creditPc: "SHARED",
+  },
+  {
     event: "m11.allocation",
     entry: "l1_allocation",
     description: "Alokasi biaya produksi air L1 → L2/L3 (PAR-65)",
