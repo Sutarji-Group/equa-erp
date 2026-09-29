@@ -13,7 +13,7 @@ import { cache } from "react";
 
 import { employees, tenants, users } from "@/db/schema";
 import { buildActorContext } from "@/server/core/actor";
-import { rolesAllowInterface, SESSION_COOKIE, validateSession } from "@/server/core/auth";
+import { FORCED_CHANGE_PASSWORD_URL, rolesAllowInterface, SESSION_COOKIE, validateSession } from "@/server/core/auth";
 import { ensureBootstrapped } from "@/server/core/bootstrap";
 import type { ActorContext } from "@/server/core/context";
 import { getDb } from "@/server/core/db";
@@ -24,7 +24,7 @@ export type PortalSession = {
   tenant: { id: string; code: string; name: string; readOnly: boolean; isActive: boolean };
 };
 
-export type PortalSessionState = { state: "active"; session: PortalSession } | { state: "none"; reason: "no_session" | "not_portal" | "inactive" };
+export type PortalSessionState = { state: "active"; session: PortalSession } | { state: "none"; reason: "no_session" | "not_portal" | "inactive" | "must_change_password" };
 
 /** Status sesi portal untuk permintaan ini (di-cache per permintaan). */
 export const getPortalSession = cache(async (): Promise<PortalSessionState> => {
@@ -42,13 +42,15 @@ export const getPortalSession = cache(async (): Promise<PortalSessionState> => {
   if (!ctx.roles.length) return { state: "none", reason: "inactive" };
   if (!rolesAllowInterface(ctx.roles, "portal")) return { state: "none", reason: "not_portal" };
   const [row] = await db
-    .select({ username: users.username, name: employees.fullName, tenantId: tenants.id, code: tenants.code, tenantName: tenants.name, readOnly: tenants.readOnly, isActive: tenants.isActive })
+    .select({ username: users.username, name: employees.fullName, tenantId: tenants.id, code: tenants.code, tenantName: tenants.name, readOnly: tenants.readOnly, isActive: tenants.isActive, mustChangePassword: users.mustChangePassword })
     .from(users)
     .innerJoin(employees, eq(employees.id, users.employeeId))
     .innerJoin(tenants, eq(tenants.id, users.tenantId))
     .where(eq(users.id, v.user.id))
     .limit(1);
   if (!row) return { state: "none", reason: "inactive" };
+  // B-08: kata sandi sementara wajib diganti dulu (halaman /akun/kata-sandi, sama dengan web kantor).
+  if (row.mustChangePassword) return { state: "none", reason: "must_change_password" };
   return {
     state: "active",
     session: {
@@ -63,5 +65,6 @@ export const getPortalSession = cache(async (): Promise<PortalSessionState> => {
 export async function requirePortalSession(): Promise<PortalSession> {
   const s = await getPortalSession();
   if (s.state === "active") return s.session;
+  if (s.reason === "must_change_password") return redirect(FORCED_CHANGE_PASSWORD_URL);
   return redirect(s.reason === "not_portal" ? "/mitra/masuk?alasan=bukan-portal" : s.reason === "inactive" ? "/mitra/masuk?alasan=akun-nonaktif" : "/mitra/masuk");
 }

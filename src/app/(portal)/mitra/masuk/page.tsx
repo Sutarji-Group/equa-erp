@@ -21,6 +21,7 @@ export default async function PortalLoginPage({ searchParams }: { searchParams: 
   const sp = await searchParams;
   const s = await getPortalSession();
   if (s.state === "active") redirect("/mitra");
+  if (s.reason === "must_change_password") redirect("/akun/kata-sandi?wajib=1");
   const terms = await p3.partnerTerms(getDb());
   const phase3 = await p3.portalEnabled(getDb());
   const notice = sp.alasan ? (REASONS[sp.alasan] ?? null) : null;

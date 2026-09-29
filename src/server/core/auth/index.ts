@@ -90,6 +90,16 @@ export {
 } from "./field-login";
 export { applyCrewScope, crewTrucksForDay, isActingDriver, substituteDriverConditions } from "./field-scope";
 export { resolveActor, webActorFromToken, readCookie } from "./resolver";
+// Tambahan S5 (B-08): ubah kata sandi mandiri & kewajiban ganti kata sandi sementara.
+export {
+  CHANGE_PASSWORD_PATH,
+  FORCED_CHANGE_PASSWORD_URL,
+  changeOwnPassword,
+  changePasswordSchema,
+  passwordChangeRequired,
+  passwordPageState,
+  type ChangePasswordInput,
+} from "./password-change";
 export { computePinVerifier, fieldCommandKey, PIN_VERIFIER_ITERATIONS, signFieldCommand, verifyFieldCommand, type PinVerifier } from "./crypto";
 
 let registered = false;

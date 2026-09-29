@@ -19,7 +19,7 @@ import type { WaMessageKind } from "@/lib/labels";
 
 import { DomainError } from "@/server/core/errors";
 import { sendWebPush } from "@/server/core/notifications";
-import { assertWaNumber, buildWaLink, linkProvider, type TemplateVars, type WaSendRequest, type WaSendResult, type WhatsAppProvider } from "@/server/core/wa";
+import { assertWaNumber, cloudApiProvider, getWhatsAppProvider, type TemplateVars, type WhatsAppProvider } from "@/server/core/wa";
 
 type PushPayload = Parameters<typeof sendWebPush>[1];
 type PushResult = Awaited<ReturnType<typeof sendWebPush>>;
@@ -50,46 +50,10 @@ export type CloudTemplateConfig = { token: string; phoneNumberId: string; fetchI
 /**
  * Penyedia WhatsApp Cloud API (Meta) yang mengirim template (`templateName` + `variables` berurutan sebagai parameter
  * body); tanpa `templateName` → pesan teks. Gagal → `fallbackLink` (tautan wa.me tetap dapat dipakai, NFR-20).
+ * Sejak S5 (B-69) implementasinya satu dengan penyedia inti `cloudApiProvider` (`src/server/core/wa.ts`).
  */
 export function cloudTemplateProvider(config: CloudTemplateConfig): WhatsAppProvider {
-  const doFetch = config.fetchImpl ?? fetch;
-  const version = config.apiVersion ?? "v21.0";
-  return {
-    kind: "cloud_api",
-    async send(request: WaSendRequest): Promise<WaSendResult> {
-      const to = assertWaNumber(request.to);
-      const fallbackLink = buildWaLink(to, request.text);
-      const body = request.templateName
-        ? {
-            messaging_product: "whatsapp",
-            to,
-            type: "template",
-            template: {
-              name: request.templateName,
-              language: { code: "id" },
-              components: [
-                {
-                  type: "body",
-                  parameters: Object.values(request.variables ?? {}).map((v) => ({ type: "text", text: String(v ?? "") })),
-                },
-              ],
-            },
-          }
-        : { messaging_product: "whatsapp", to, type: "text", text: { body: request.text } };
-      try {
-        const res = await doFetch(`https://graph.facebook.com/${version}/${config.phoneNumberId}/messages`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const json = (await res.json().catch(() => ({}))) as { messages?: { id: string }[]; error?: { message?: string } };
-        if (!res.ok || !json.messages?.[0]?.id) return { mode: "cloud_api", status: "failed", error: json.error?.message ?? `HTTP ${res.status}`, fallbackLink };
-        return { mode: "cloud_api", status: "sent", providerMessageId: json.messages[0].id };
-      } catch (error) {
-        return { mode: "cloud_api", status: "failed", error: error instanceof Error ? error.message : String(error), fallbackLink };
-      }
-    },
-  };
+  return cloudApiProvider(config);
 }
 
 let waProviderOverride: WhatsAppProvider | null = null;
@@ -102,11 +66,8 @@ export function setCustomerWaProviderForTests(provider: WhatsAppProvider | null)
 /** Penyedia aktif: Cloud API bila `WA_PROVIDER=cloud_api` + token; selain itu tautan (tanpa kirim otomatis). */
 export function customerWaProvider(): WhatsAppProvider {
   if (waProviderOverride) return waProviderOverride;
-  const env = serverEnv();
-  if (env.WA_PROVIDER === "cloud_api" && env.WA_CLOUD_TOKEN && env.WA_CLOUD_PHONE_ID) {
-    return cloudTemplateProvider({ token: env.WA_CLOUD_TOKEN, phoneNumberId: env.WA_CLOUD_PHONE_ID });
-  }
-  return linkProvider;
+  // B-69: satu penyedia bersama untuk semua modul (env tervalidasi `serverEnv()`; `WA_PROVIDER=cloud_api` → Cloud API).
+  return getWhatsAppProvider();
 }
 
 /** Benar bila pesan WA terkirim otomatis (Cloud API aktif). */

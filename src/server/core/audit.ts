@@ -25,7 +25,7 @@ import { createHash, createHmac, hkdfSync } from "node:crypto";
 
 import { and, asc, desc, eq, gt, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
 
-import { auditLogs } from "@/db/schema";
+import { auditLogs, customerAccounts, customerAddresses, customers, orders, trips, waMessageLogs } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { label, type RoleCode } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
@@ -563,8 +563,94 @@ export async function queryForActor(ctx: ActorContext, filter: AuditQuery = {}, 
     if (scoped.objectType.length === 0) return [];
   }
   const rows = await query(tx, scoped);
+  // B-09 (D-09 butir 1): data pribadi pelanggan yang SUDAH DIANONIMKAN disamarkan bagi semua peran kecuali pemilik —
+  // jejak tetap append-only (nilai lama tersimpan sebagai catatan wajib hukum), hanya tampilan & ekspor yang disamarkan.
+  const visible = isOwner ? rows : await maskAnonymizedPii(tx, rows);
   if (!isOwner && ctx.roles.includes("system_admin")) {
-    return rows.map((r) => (FINANCIAL_OBJECT_TYPES.has(r.objectType) ? { ...r, before: null, after: null } : r));
+    return visible.map((r) => (FINANCIAL_OBJECT_TYPES.has(r.objectType) ? { ...r, before: null, after: null } : r));
   }
-  return rows;
+  return visible;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Penyamaran data pribadi pelanggan yang dianonimkan (tambahan S5, B-09; D-09 butir 1, US-M10-06, RP-15)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Nilai pengganti data pribadi di tampilan/ekspor jejak audit. */
+export const AUDIT_PII_MASK = "[disamarkan — data pribadi dianonimkan]";
+
+/**
+ * Kunci data pribadi per jenis objek yang tertaut ke pelanggan (samakan dengan kolom yang dikosongkan anonimisasi M10
+ * `anonymizeCustomer`). Kunci berakhiran `Lat`/`Lng` (koordinat) juga disamarkan. Append-only.
+ */
+export const AUDIT_CUSTOMER_PII_KEYS: Record<string, readonly string[]> = {
+  customer: ["name", "waPhone", "phone", "contactName", "contactPhone", "email", "notes", "addressText", "address"],
+  customer_address: ["label", "addressText", "address", "contactName", "contactPhone", "notes", "lat", "lng", "proposedLat", "proposedLng", "coordinate"],
+  trip: ["recipientName", "customerName", "contactName", "customerPhone", "addressText"],
+  order: ["contactName", "contactPhone", "customerName", "addressText", "notes"],
+  customer_account: ["phone", "displayName", "name", "email"],
+  wa_message_log: ["toPhone", "renderedText"],
+};
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function maskValue(objectType: string, value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const keys = new Set(AUDIT_CUSTOMER_PII_KEYS[objectType] ?? []);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const pii = keys.has(k) || /(Lat|Lng)$/.test(k);
+    out[k] = pii && v !== null && v !== undefined && v !== "" ? AUDIT_PII_MASK : v;
+  }
+  return out;
+}
+
+/** ID objek (per jenis) yang milik pelanggan sudah dianonimkan (`customers.anonymized_at` terisi). */
+async function anonymizedObjectIds(tx: Tx, rows: readonly Pick<AuditRow, "objectType" | "objectId">[]): Promise<Set<string>> {
+  const idsOf = (type: string) => [...new Set(rows.filter((r) => r.objectType === type && UUID_RE.test(r.objectId)).map((r) => r.objectId))];
+  const out = new Set<string>();
+  const add = (type: string, found: { id: string }[]) => found.forEach((f) => out.add(`${type}:${f.id}`));
+  const anon = sql`${customers.anonymizedAt} is not null`;
+  const c = idsOf("customer");
+  if (c.length) add("customer", await tx.select({ id: customers.id }).from(customers).where(and(inArray(customers.id, c), anon)));
+  const a = idsOf("customer_address");
+  if (a.length) {
+    add("customer_address", await tx.select({ id: customerAddresses.id }).from(customerAddresses).innerJoin(customers, eq(customers.id, customerAddresses.customerId)).where(and(inArray(customerAddresses.id, a), anon)));
+  }
+  const tr = idsOf("trip");
+  if (tr.length) add("trip", await tx.select({ id: trips.id }).from(trips).innerJoin(customers, eq(customers.id, trips.customerId)).where(and(inArray(trips.id, tr), anon)));
+  const o = idsOf("order");
+  if (o.length) add("order", await tx.select({ id: orders.id }).from(orders).innerJoin(customers, eq(customers.id, orders.customerId)).where(and(inArray(orders.id, o), anon)));
+  const acc = idsOf("customer_account");
+  if (acc.length) {
+    add(
+      "customer_account",
+      await tx
+        .select({ id: customerAccounts.id })
+        .from(customerAccounts)
+        .where(and(inArray(customerAccounts.id, acc), sql`${customerAccounts.anonymizedAt} is not null`)),
+    );
+  }
+  const w = idsOf("wa_message_log");
+  if (w.length) {
+    add("wa_message_log", await tx.select({ id: waMessageLogs.id }).from(waMessageLogs).innerJoin(customers, eq(customers.id, waMessageLogs.customerId)).where(and(inArray(waMessageLogs.id, w), anon)));
+  }
+  return out;
+}
+
+/**
+ * Samarkan nilai data pribadi pada baris jejak audit milik pelanggan yang sudah dianonimkan (nilai lama/baru). Dipakai
+ * `queryForActor` (halaman `/audit`, riwayat, ekspor `core.audit_log`) untuk semua peran kecuali pemilik; modul yang
+ * menampilkan riwayat audit sendiri (mis. riwayat pesanan) memanggil fungsi ini sebelum merender.
+ */
+export async function maskAnonymizedPii<T extends Pick<AuditRow, "objectType" | "objectId" | "before" | "after">>(tx: Tx, rows: readonly T[]): Promise<T[]> {
+  const relevant = rows.filter((r) => r.objectType in AUDIT_CUSTOMER_PII_KEYS);
+  if (!relevant.length) return [...rows];
+  const anonymized = await anonymizedObjectIds(tx, relevant);
+  if (!anonymized.size) return [...rows];
+  return rows.map((r) =>
+    anonymized.has(`${r.objectType}:${r.objectId}`)
+      ? { ...r, before: maskValue(r.objectType, r.before) as T["before"], after: maskValue(r.objectType, r.after) as T["after"] }
+      : r,
+  );
 }

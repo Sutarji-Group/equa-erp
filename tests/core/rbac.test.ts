@@ -14,6 +14,7 @@ import {
   assertTruckScope,
   authorize,
   can,
+  conditionalGrant,
   exportMatrix,
   getPermission,
   PERMISSIONS,
@@ -21,6 +22,7 @@ import {
   requires2fa,
   ROLE_CATALOG,
   ROLE_PERMISSIONS,
+  roleHasPermission,
 } from "@/server/core/rbac";
 
 import { seededContext, testContext } from "../helpers/context";
@@ -102,6 +104,24 @@ describe("Katalog izin & matriks (murni)", () => {
     expect(receive.grants.dispatcher).toBe("");
     const complete = m.rows.find((r) => r.key === "m3.trip.complete")!;
     expect(complete.grants.helper).toBe("Bersyarat");
+  });
+
+  it("B-71 US-M10-03 KP-4 US-P3-10 KP-1 empat izin portal Tahap 3 = izin BERSYARAT Pemilik mitra (tampil di ekspor matriks, tidak statis)", () => {
+    const portal = ["p3.portal_order.create", "p3.portal_dispute.create", "p3.portal_sop.sign", "p3.portal_settings.update"];
+    const m = exportMatrix();
+    for (const key of portal) {
+      const row = m.rows.find((r) => r.key === key)!;
+      expect(row, key).toBeTruthy();
+      expect(row.grants.partner_owner, key).toBe("Bersyarat");
+      for (const role of ROLE_CODES.filter((r) => r !== "partner_owner")) expect(row.grants[role], `${key} ${role}`).toBe("");
+      expect(roleHasPermission("partner_owner", key)).toBe(false);
+      expect(conditionalGrant("partner_owner", key)).toBe("partner_portal_phase3");
+    }
+    const owner = testContext({ role: "partner_owner" });
+    expect(can(owner, "p3.portal_order.create")).toBe(false);
+    expect(can(owner, "p3.portal_order.create", { partner_portal_phase3: true })).toBe(true);
+    // Syarat portal tidak membuka izin kernet pengganti (kondisi per peran & jenis).
+    expect(can(owner, "m3.trip.complete", { partner_portal_phase3: true, substitute_driver: true })).toBe(false);
   });
 });
 

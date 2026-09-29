@@ -9,6 +9,10 @@
  */
 import "server-only";
 
+import { eq } from "drizzle-orm";
+
+import { users } from "@/db/schema";
+
 import { setActorResolver } from "../actor";
 import type { ActorContext } from "../context";
 import { getDb, type Tx } from "../db";
@@ -51,6 +55,9 @@ export async function webActorFromToken(token: string | null | undefined, option
   if (!v.ok) return null;
   const ctx = await buildActorContext(tx, v.user.id, { source: "web", now });
   if (isPending2fa(ctx, v.session)) return null;
+  // B-08: kata sandi sementara wajib diganti dulu — API web menolak pelaku sampai diganti (halaman /akun/kata-sandi).
+  const [pw] = await tx.select({ must: users.mustChangePassword }).from(users).where(eq(users.id, v.user.id)).limit(1);
+  if (pw?.must) return null;
   return ctx;
 }
 

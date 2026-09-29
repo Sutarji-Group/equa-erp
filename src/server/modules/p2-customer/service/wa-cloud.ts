@@ -22,6 +22,7 @@ import { label, type EnumValue } from "@/lib/labels";
 import { addDays, lastDayOfMonth, monthOf, toBusinessDate, wibToUtc } from "@/lib/time";
 
 import { safeEqual } from "@/server/core/auth/crypto";
+import { waWebhookSecrets } from "@/server/core/wa";
 import type { ActorContext } from "@/server/core/context";
 import { getDb, runInTx, type Tx } from "@/server/core/db";
 import * as params from "@/server/core/params";
@@ -30,8 +31,14 @@ import { authorize } from "@/server/core/rbac";
 import { CUSTOMER_APP_TENANT_ID } from "./common";
 import { isAutoWaActive } from "./messaging";
 
+/** Rahasia webhook dari env bersama tervalidasi `serverEnv()` (B-69) — bukan `process.env` langsung. */
+function webhookEnv(): Record<string, string | undefined> {
+  const s = waWebhookSecrets();
+  return { WA_WEBHOOK_VERIFY_TOKEN: s.verifyToken ?? undefined, WA_APP_SECRET: s.appSecret ?? undefined };
+}
+
 /** Verifikasi langganan webhook (GET). Mengembalikan `challenge` atau null. */
-export function verifyWaWebhookChallenge(query: { mode?: string | null; token?: string | null; challenge?: string | null }, env: Record<string, string | undefined> = process.env): string | null {
+export function verifyWaWebhookChallenge(query: { mode?: string | null; token?: string | null; challenge?: string | null }, env: Record<string, string | undefined> = webhookEnv()): string | null {
   const expected = env.WA_WEBHOOK_VERIFY_TOKEN;
   if (!expected || query.mode !== "subscribe" || !query.token || !query.challenge) return null;
   return safeEqual(query.token, expected) ? query.challenge : null;
@@ -43,7 +50,7 @@ export function signWaWebhook(rawBody: string, appSecret: string): string {
 }
 
 /** Periksa tanda tangan webhook status. */
-export function verifyWaSignature(rawBody: string, header: string | null | undefined, env: Record<string, string | undefined> = process.env): boolean {
+export function verifyWaSignature(rawBody: string, header: string | null | undefined, env: Record<string, string | undefined> = webhookEnv()): boolean {
   const secret = env.WA_APP_SECRET;
   if (!secret) return devSecretsAllowed(serverEnv());
   if (!header) return false;

@@ -640,7 +640,13 @@ export const MODULE_LABELS: Record<string, string> = {
  * pengemudi pengganti. Layanan M3 menghitung syaratnya lalu memanggil
  * `authorize(ctx, "m3.trip.complete", { conditions: { substitute_driver: true } })`.
  */
-export const CONDITIONAL_GRANTS: readonly { role: RoleCode; condition: "substitute_driver"; permissions: readonly string[] }[] = [
+/**
+ * Kondisi izin bersyarat. Tambahan S5 (B-71, D-11 butir 1): `partner_portal_phase3` — Pemilik mitra pada tenant mitranya
+ * sendiri DAN flag `phase3.partner_portal` aktif untuk tenant itu (dihitung `authorizePortalAction` modul P3).
+ */
+export type ConditionalGrantCondition = "substitute_driver" | "partner_portal_phase3";
+
+export const CONDITIONAL_GRANTS: readonly { role: RoleCode; condition: ConditionalGrantCondition; permissions: readonly string[] }[] = [
   {
     role: "helper",
     condition: "substitute_driver",
@@ -660,5 +666,12 @@ export const CONDITIONAL_GRANTS: readonly { role: RoleCode; condition: "substitu
       "m3.deposit_history.read",
       "m3.receipt.send_wa",
     ],
+  },
+  // Tambahan S5 (B-71, D-11 butir 1): tindakan portal Tahap 3 — TIDAK statis (Pemilik mitra baca-saja pada RL-7,
+  // US-P3-10 KP-1); tampil "Bersyarat" di ekspor matriks peran (US-M10-03 KP-4).
+  {
+    role: "partner_owner",
+    condition: "partner_portal_phase3",
+    permissions: ["p3.portal_order.create", "p3.portal_dispute.create", "p3.portal_sop.sign", "p3.portal_settings.update"],
   },
 ];
