@@ -78,7 +78,7 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
                       </Link>
                       <div className="text-xs text-muted-foreground">{p.waPhone}</div>
                     </TableCell>
-                    <TableCell className="max-w-xs truncate" title={p.proposedAddress}>
+                    <TableCell className="max-w-xs truncate" title={p.proposedAddress ?? undefined}>
                       {p.proposedAddress}
                     </TableCell>
                     <TableCell className="text-right">{p.routeDistanceM !== null ? `${(p.routeDistanceM / 1000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} km` : "—"}</TableCell>

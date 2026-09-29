@@ -18,7 +18,9 @@ import {
   markPartnerDataExported,
   partnerDashboard,
   partnershipEconomics,
+  portalDashboard,
   portalHome,
+  portalOpenTenant,
   proposeSanction,
   recordSanctionTrigger,
   runSanctionChecks,
@@ -103,6 +105,10 @@ describe("US-P3-06 Dashboard kinerja mitra dan pembina wilayah (Tahap 3, flag)",
     expect(home.summary.salesTotal).toBe(g.salesTotal);
     expect(home.summary.gallons).toBe(g.gallons);
     expect(home.waterBalance).toEqual(g.outlets.map((o) => o.balance));
+    // Dashboard mitra (portal Tahap 3) = angka yang sama persis dengan dashboard EQUA, termasuk skor & sanksi.
+    const own = await portalDashboard(good.portal(at("2026-10-02T03:00:00Z")), { month: "2026-09" });
+    expect(own).toEqual(g);
+    await expect(portalOpenTenant(good.portal(at("2026-10-02T03:00:00Z")), risky.tenantId)).rejects.toBeInstanceOf(ForbiddenError);
   });
 
   it("US-P3-06 KP-5 ekspor dashboard (US-M9-03) Excel/PDF", async () => {

@@ -65,7 +65,10 @@ export async function assertOwnerTenant(tx: Tx, ctx: ActorContext): Promise<void
 export async function assertPartnerActor(tx: Tx, ctx: ActorContext): Promise<TenantRow> {
   const row = await loadTenant(tx, ctx.tenantId);
   if (!row || row.kind !== "partner" || !ctx.scope.tenantIds.includes(row.id)) {
-    throw new ForbiddenError("Portal mitra hanya untuk pemilik mitra pada tenantnya sendiri (NFR-30).", { rule: "NFR-30", objectType: "tenant", objectId: ctx.tenantId });
+    const error = new ForbiddenError("Portal mitra hanya untuk pemilik mitra pada tenantnya sendiri (NFR-30).", { rule: "NFR-30", objectType: "tenant", objectId: ctx.tenantId });
+    // Di luar transaksi terkelola: catat penolakan di log akses (US-M10-03); di dalam `runService` dicatat otomatis.
+    if (!isTransaction(tx)) await recordDenial(ctx, error);
+    throw error;
   }
   return row;
 }

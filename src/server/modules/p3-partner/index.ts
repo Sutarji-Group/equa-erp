@@ -46,14 +46,19 @@ export type { PartnerBill, PartnerInvoiceRow, SubscriptionRunSummary } from "./s
 
 // --- RL-7 US-P3-10: portal pemilik mitra & laporan bulanan ---------------------------------------------------------
 export {
+  portalDashboard,
   portalHome,
   portalInvoice,
   portalInvoices,
   portalMonthlyReport,
   portalMonthlyReports,
   portalOpenTenant,
+  portalOrders,
   portalPurchaseHistory,
+  portalQuality,
+  portalRoyaltyDetail,
   portalSalesReport,
+  portalSanctions,
   portalSupplyReport,
 } from "./service/portal";
 export type { PortalHome, PortalInvoiceDetail } from "./service/portal";

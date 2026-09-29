@@ -81,6 +81,11 @@ export async function submitQualityChecklistFromField(ctx: ActorContext, payload
   const missing = QUALITY_ITEMS.filter((k) => !keys.has(k));
   if (missing.length) throw new DomainError("CHECKLIST_INCOMPLETE", `Butir belum diisi: ${missing.map((k) => label("partner_quality_item", k)).join(", ")}.`);
   const photoIds = new Set(meta.attachments.map((a) => a.id));
+  // Foto bukti per butir: `photoAttachmentId` eksplisit, atau lampiran perintah berjenis `quality_photo_<itemKey>`
+  // (klien POS tidak tahu ID lampiran sebelum `enqueue`, jadi memetakan lewat jenis lampiran).
+  for (const it of payload.items) {
+    if (!it.photoAttachmentId) it.photoAttachmentId = meta.attachments.find((a) => a.kind === `quality_photo_${it.itemKey}`)?.id ?? null;
+  }
   for (const it of payload.items) {
     if (!(QUALITY_ITEMS as readonly string[]).includes(it.itemKey)) throw new DomainError("CHECKLIST_ITEM", `Butir tidak dikenal: ${it.itemKey}.`);
     if (it.result === "fail" && !it.actionNote?.trim()) throw new DomainError("CHECKLIST_ACTION_REQUIRED", `${label("partner_quality_item", it.itemKey)} tidak lulus — tulis tindakan yang dilakukan.`);

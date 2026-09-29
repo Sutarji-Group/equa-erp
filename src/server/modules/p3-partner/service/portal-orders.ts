@@ -360,7 +360,7 @@ export type PortalOrderView = PortalOrderRow & {
   orderNumber: string | null;
   orderStatus: string | null;
   slaDueAt: Date | null;
-  trips: { id: string; number: string; status: string; scheduledDate: string; completedAt: Date | null; deliveredVolumeL: number | null; hasSignature: boolean; receiptStatus: string | null; receivedVolumeL: number | null }[];
+  trips: { id: string; number: string; status: string; scheduledDate: string; completedAt: Date | null; deliveredVolumeL: number | null; hasSignature: boolean; signatureAttachmentId: string | null; receiptStatus: string | null; receivedVolumeL: number | null }[];
   saleNumber: string | null;
 };
 
@@ -398,6 +398,7 @@ export async function portalOrdersOf(tx: Tx, tenantId: string, opts: { limit?: n
             completedAt: t.completedAt,
             deliveredVolumeL: t.deliveredVolumeL,
             hasSignature: !!t.signatureAttachmentId,
+            signatureAttachmentId: t.signatureAttachmentId ?? null,
             receiptStatus: rc?.status ?? null,
             receivedVolumeL: rc?.receivedVolumeL ?? null,
           };

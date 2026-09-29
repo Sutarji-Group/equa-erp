@@ -13,7 +13,7 @@ import "server-only";
 
 import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
-import { invoiceLines, invoices, partnerAudits, partnerContracts, partnerScores, posSales, trips } from "@/db/schema";
+import { invoiceLines, invoices, outlets, partnerAudits, partnerContracts, partnerScores, posSales, tenants, trips } from "@/db/schema";
 import { daysBetween, type BusinessDate } from "@/lib/time";
 
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
@@ -185,7 +185,14 @@ export async function coachPortfolio(ctx: ActorContext, input: { month?: string 
     out.push({ metrics: m, riskPoints: points, risk: points >= 4 ? "high" : points >= 2 ? "medium" : "low", reasons, nextAudit, openFindings });
   }
   out.sort((a, b) => b.riskPoints - a.riskPoints || a.metrics.tenant.name.localeCompare(b.metrics.tenant.name));
-  const upcomingAudits = await tx.select().from(partnerAudits).where(and(eq(partnerAudits.status, "scheduled"))).orderBy(asc(partnerAudits.scheduledDate)).limit(50);
+  const upcomingAudits = await tx
+    .select({ id: partnerAudits.id, tenantId: partnerAudits.tenantId, outletId: partnerAudits.outletId, scheduledDate: partnerAudits.scheduledDate, outletName: outlets.name, tenantName: tenants.name })
+    .from(partnerAudits)
+    .innerJoin(outlets, eq(outlets.id, partnerAudits.outletId))
+    .innerJoin(tenants, eq(tenants.id, partnerAudits.tenantId))
+    .where(eq(partnerAudits.status, "scheduled"))
+    .orderBy(asc(partnerAudits.scheduledDate))
+    .limit(50);
   return { month, rows: out, upcomingAudits };
 }
 

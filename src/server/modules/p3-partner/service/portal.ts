@@ -9,9 +9,9 @@
  */
 import "server-only";
 
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
-import { customerPayments, invoiceLines, invoices, outlets, paymentAllocations, customers } from "@/db/schema";
+import { customerPayments, invoiceLines, invoices, outlets, partnerAudits, paymentAllocations, customers, qualityTests, royaltyCalculations } from "@/db/schema";
 import { addDays, lastDayOfMonth, type BusinessDate } from "@/lib/time";
 
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
@@ -22,7 +22,12 @@ import { dailyOutletReport, shiftReport, voidReport, waterSupplyReport } from "@
 
 import { listPartnerInvoices, type PartnerInvoiceRow } from "./billing";
 import { assertPartnerActor, denyCrossTenant, isValidMonth, latestContractFor, monthKey, monthRange, partnerTerms, portalEnabled, tenantOutlets, bpToPercent } from "./common";
+import { partnerMetrics, type PartnerMetrics } from "./dashboard";
 import { monthlyReportsOf, type MonthlyReportRow } from "./monthly-report";
+import { onboardingViews } from "./onboarding";
+import { portalOrdersOf, portalOrderStatusText, sparePartCatalog } from "./portal-orders";
+import { computeOutletScore } from "./quality";
+import { activeSupplySuspension, sanctionsOfTenant } from "./sanctions";
 import { EQUA_READ_RIGHTS } from "./partners";
 import { partnerWaterBalance, purchaseHistory } from "./supply";
 import { supportSlaSummary } from "./support";
@@ -186,4 +191,113 @@ export async function portalOpenTenant(ctx: ActorContext, tenantId: string, opts
   const tenant = await portalTenant(ctx, opts.tx);
   if (tenantId !== tenant.id) await denyCrossTenant(ctx, "data mitra", "tenant", tenantId, opts.tx);
   return tenant;
+}
+
+// =====================================================================================================================
+// Tahap 3 (flag `phase3.partner_portal` per tenant): dashboard, pesanan, mutu, sanksi, royalti — sudut pandang mitra
+// =====================================================================================================================
+
+/** Bulan 'YYYY-MM' sah atau bulan berjalan pelaku. */
+function monthOf(ctx: ActorContext, month: string | null | undefined): string {
+  return isValidMonth(month) ? month! : monthKey(ctxBusinessDate(ctx));
+}
+
+/**
+ * US-P3-06 KP-4: dashboard outlet mitra sendiri — angka SAMA dengan dashboard EQUA (`partnerMetrics`), termasuk skor
+ * mutu, sanksi, evaluasi berikutnya. `null` bila portal Tahap 3 belum aktif untuk tenant ini (RL-7: `portalHome`).
+ */
+export async function portalDashboard(ctx: ActorContext, input: { month?: string | null } = {}, opts: { tx?: Tx } = {}): Promise<PartnerMetrics | null> {
+  const tx = opts.tx ?? getDb();
+  const tenant = await portalTenant(ctx, opts.tx);
+  if (!(await portalEnabled(tx, tenant.id))) return null;
+  return partnerMetrics(tx, tenant, monthOf(ctx, input.month), ctxBusinessDate(ctx));
+}
+
+/** US-P3-03: pesanan air & spare part dari portal (status, rit, bukti kirim, konfirmasi volume) + katalog harga mitra. */
+export async function portalOrders(ctx: ActorContext, opts: { tx?: Tx } = {}) {
+  const tx = opts.tx ?? getDb();
+  const tenant = await portalTenant(ctx, opts.tx);
+  const enabled = await portalEnabled(tx, tenant.id);
+  const today = ctxBusinessDate(ctx);
+  if (!enabled) return { enabled, orders: [], catalog: [], outlets: [], contract: null, suspension: null, readOnly: tenant.readOnly };
+  const contract = await latestContractFor(tx, tenant.id);
+  const suspension = await activeSupplySuspension(tx, tenant.id, today);
+  const detail = (suspension?.triggerDetail ?? {}) as { proposalReason?: string; recoveryConditions?: string };
+  return {
+    enabled,
+    orders: (await portalOrdersOf(tx, tenant.id)).map((o) => ({ ...o, statusText: portalOrderStatusText(o) })),
+    catalog: await sparePartCatalog(tx, today),
+    outlets: (await tenantOutlets(tx, tenant.id, { depotOnly: true })).filter((o) => o.isActive).map((o) => ({ id: o.id, code: o.code, name: o.name })),
+    contract: contract ? { number: contract.number, option: contract.option, waterDiscountPercent: bpToPercent(contract.waterDiscountBp), creditLimit: contract.creditLimit } : null,
+    suspension: suspension ? { effectiveFrom: suspension.effectiveFrom, reason: String(detail.proposalReason ?? suspension.decisionReason ?? ""), recoveryConditions: String(detail.recoveryConditions ?? "") } : null,
+    readOnly: tenant.readOnly,
+  };
+}
+
+/** US-P3-05 (sudut pandang mitra): skor mutu bulanan per outlet, audit & temuan, uji air, daftar periksa onboarding (SOP). */
+export async function portalQuality(ctx: ActorContext, input: { month?: string | null } = {}, opts: { tx?: Tx } = {}) {
+  const tx = opts.tx ?? getDb();
+  const tenant = await portalTenant(ctx, opts.tx);
+  const enabled = await portalEnabled(tx, tenant.id);
+  const month = monthOf(ctx, input.month);
+  if (!enabled) return { enabled, month, outlets: [], audits: [], tests: [], onboarding: [] };
+  const outletRows = await tenantOutlets(tx, tenant.id, { depotOnly: true });
+  const outletsOut = [];
+  for (const o of outletRows) outletsOut.push({ outletId: o.id, outletName: o.name, score: await computeOutletScore(tx, o.id, month) });
+  const ids = outletRows.map((o) => o.id);
+  const audits = ids.length ? await tx.select().from(partnerAudits).where(inArray(partnerAudits.outletId, ids)).orderBy(desc(partnerAudits.scheduledDate)).limit(24) : [];
+  const tests = ids.length ? await tx.select().from(qualityTests).where(inArray(qualityTests.outletId, ids)).orderBy(desc(qualityTests.testDate)).limit(24) : [];
+  const names = new Map(outletRows.map((o) => [o.id, o.name]));
+  return {
+    enabled,
+    month,
+    outlets: outletsOut,
+    audits: audits.map((a) => ({ id: a.id, outletName: names.get(a.outletId) ?? "-", scheduledDate: a.scheduledDate, status: a.status, score: a.score, findings: (a.findings ?? []) as { text?: string }[], followUpDueDate: a.followUpDueDate, followUpDoneAt: a.followUpDoneAt })),
+    tests: tests.map((t) => ({ id: t.id, outletName: names.get(t.outletId ?? "") ?? "-", testDate: t.testDate, laboratory: t.laboratory, passed: t.passed })),
+    onboarding: await onboardingViews(tx, tenant.id),
+  };
+}
+
+/** US-P3-07 (portal): sanksi berlaku & riwayat, penghentian pasokan (alasan & syarat pemulihan), mode baca-saja, ekspor data. */
+export async function portalSanctions(ctx: ActorContext, opts: { tx?: Tx } = {}) {
+  const tx = opts.tx ?? getDb();
+  const tenant = await portalTenant(ctx, opts.tx);
+  const today = ctxBusinessDate(ctx);
+  const contract = await latestContractFor(tx, tenant.id);
+  return {
+    enabled: await portalEnabled(tx, tenant.id),
+    readOnly: tenant.readOnly,
+    isActive: tenant.isActive,
+    sanctions: await sanctionsOfTenant(tx, tenant.id),
+    suspension: await activeSupplySuspension(tx, tenant.id, today),
+    contract: contract ? { number: contract.number, status: contract.status, endDate: contract.endDate, dataExportDueDate: contract.dataExportDueDate, dataExportedAt: contract.dataExportedAt } : null,
+  };
+}
+
+/** US-P3-04 KP-2 (portal): dasar royalti — omzet per outlet per hari untuk bulan tertagih (kontrak tenant sendiri). */
+export async function portalRoyaltyDetail(ctx: ActorContext, input: { month?: string | null } = {}, opts: { tx?: Tx } = {}) {
+  const tx = opts.tx ?? getDb();
+  const tenant = await portalTenant(ctx, opts.tx);
+  const month = monthOf(ctx, input.month);
+  const rows = await tx
+    .select()
+    .from(royaltyCalculations)
+    .where(and(eq(royaltyCalculations.tenantId, tenant.id), eq(royaltyCalculations.period, month)))
+    .limit(5);
+  type DailyRow = { outletCode?: string; businessDate?: string; sales?: number; transactions?: number };
+  return rows.map((r) => ({
+    period: r.period,
+    grossSales: r.grossSales,
+    royaltyPercent: bpToPercent(r.royaltyBp),
+    royaltyAmount: r.royaltyAmount,
+    subscriptionAmount: r.subscriptionAmount,
+    outletCount: r.outletCount,
+    status: r.status,
+    daily: (((r.detail ?? {}) as { royaltyDetail?: DailyRow[] }).royaltyDetail ?? []).map((d) => ({
+      outletCode: String(d.outletCode ?? ""),
+      businessDate: String(d.businessDate ?? ""),
+      sales: Number(d.sales ?? 0),
+      transactions: Number(d.transactions ?? 0),
+    })),
+  }));
 }
