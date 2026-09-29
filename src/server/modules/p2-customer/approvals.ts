@@ -1,22 +1,14 @@
 /**
- * P2 — handler jenis persetujuan milik modul ini (PRD 6.2a; registri `src/server/core/approvals/registry.ts`).
+ * P2 — jenis persetujuan milik modul ini (PRD 6.2a).
  *
- * ```ts
- * import { registerApprovalHandler } from "@/server/core/approvals";
- * export function registerApprovals(): void {
- *   registerApprovalHandler("<jenis>", {
- *     onApproved: async ({ tx, request, ctx }) => { … ubah objek sumber … },
- *     onRejected: async ({ tx, request, reason }) => { … },
- *     onExpired: async ({ tx, request }) => { … perilaku "bila lewat tenggat" … },
- *   });
- * }
- * ```
- * PERHATIAN: `ctx` handler = pelaku KEPUTUSAN (pemilik/penyetuju), bukan pemohon. Jangan memanggil layanan modul yang
- * `authorize` izin harian (pemilik ditolak SOD-08). Tulis langsung dengan `tx` + `audit.record(tx, { ctx, … })`, atau
- * panggil fungsi internal modul tanpa `authorize` (atau `systemContext({ tenantId: request.tenantId })` + `rule: "6.2a"`).
+ * Tabel 6.2a TIDAK memuat jenis persetujuan Tahap 2: pesanan aplikasi dikonfirmasi/ditolak Dispatcher dalam tenggat
+ * PAR-75 (bukan persetujuan; lewat tenggat → notifikasi `customer_app.order_confirm_overdue`, job
+ * `p2.app_orders.overdue`), pesanan tempo di luar kontrol kredit dari aplikasi DITOLAK dengan alasan singkat
+ * (US-P2-02 KP-3 — pelanggan tidak mengajukan persetujuan pemilik; Dispatcher tetap dapat memakai `credit_order` M2),
+ * dan hapus akun memakai `anonymization` milik M10 (US-M10-06 KP-2). Karena itu tidak ada `registerApprovalHandler`.
  */
 import "server-only";
 
 export function registerApprovals(): void {
-  // Belum ada handler — diisi agen modul P2.
+  // Sengaja kosong — lihat keterangan berkas.
 }

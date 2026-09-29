@@ -595,7 +595,7 @@ async function loadAppOrder(tx: Tx, ctx: ActorContext, orderId: string) {
 }
 
 /** Kirim notifikasi "Dikonfirmasi" (in-app + push + WA; US-P2-02 KP-4, US-P2-03 KP-4). */
-export async function notifyConfirmed(tx: Tx, input: { tenantId: string; order: OrderRow; now: Date }): Promise<void> {
+export async function notifyConfirmed(tx: Tx, input: { tenantId: string; order: OrderRow; now: Date; waEvenWithoutApp?: boolean; skipWa?: boolean }): Promise<void> {
   const { order } = input;
   const slots = await slotDefs(tx, order.requestedDate);
   const slot = slots.find((s) => s.key === order.slot);
@@ -611,7 +611,8 @@ export async function notifyConfirmed(tx: Tx, input: { tenantId: string; order: 
     objectId: order.id,
     dedupeKey: `order_confirmed:${order.id}`,
     now: input.now,
-    wa: {
+    waEvenWithoutApp: input.waEvenWithoutApp ?? false,
+    wa: input.skipWa ? null : {
       kind: "order_confirmation",
       text: `Pesanan EQUA ${order.number} dikonfirmasi: ${order.tankCount} tangki, ${when}, total ${formatRupiah(order.totalAmount)}.`,
       variables: { nomor_pesanan: order.number, jadwal: when, jumlah_tangki: order.tankCount, total: formatRupiah(order.totalAmount) },

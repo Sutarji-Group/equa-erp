@@ -1,30 +1,19 @@
 /**
- * P2 — handler perintah sinkron lapangan (outbox offline, docs/ARCHITECTURE.md §7).
+ * P2 — sinkron lapangan. Aplikasi pelanggan bukan aplikasi lapangan (daring; PWA pelanggan tidak memakai outbox).
  *
- * Registri sinkron tersedia di `@/server/core/sync` (F3c). Pola:
- * ```ts
- * import { z } from "zod";
- * import { registerPullProvider, registerSyncHandler } from "@/server/core/sync";
- * export function registerSync(): void {
- *   registerSyncHandler("<modul>.<objek>.<aksi>", {
- *     permission: "<modul>.<sumberdaya>.<aksi>",        // atau null (semua pengguna lapangan)
- *     // Izin bersyarat (kernet pengganti US-M2-11) — WAJIB untuk izin m3.* yang ada di CONDITIONAL_GRANTS:
- *     conditions: async (ctx, payload, { tx }) => substituteDriverConditions(tx, ctx, truckIdDari(payload), ctxBusinessDate(ctx)),
- *     schema: z.object({ … }),                           // payload divalidasi (pesan Indonesia)
- *     handle: async (ctx, payload, meta) => {
- *       // tulis dengan meta.tx; kolom fieldMeta(): { ...fieldMetaValues(meta) } (device_id, device_time, synced_at,
- *       // sync_command_id, late_sync, clock_skew_flagged); lampiran = meta.attachments (sudah diverifikasi pemiliknya).
- *       // DomainError = ditolak FINAL (disimpan); galat lain = retry. Nomor resmi dokumen perangkat:
- *       // assignOfficialNumber(meta.tx, "pos_sale", { tenantId: meta.device.tenantId, businessDate: meta.command.businessDate, outletCode }).
- *       return { objectType: "…", objectId: "…" };       // atau { status: "conflict", message: "…" } (tabrakan kantor)
- *     },
- *   });
- *   registerPullProvider("<modul>.<nama>", async ({ ctx, tx, since, device }) => ({ … }));
- * }
- * ```
+ * Pull `p2.prepaid_trips` (sopir, kernet): rit hari ini pada truk dalam lingkup harian pelaku yang SUDAH DIBAYAR di
+ * muka lewat pembayaran digital (US-P2-04 KP-4) → aplikasi sopir menampilkan "sudah dibayar" dan tidak menagih tunai
+ * (perubahan kecil M3 — lihat docs/dev/modules/p2-customer.md). Cara bayar rit juga sudah menjadi `digital` di M2.
  */
 import "server-only";
 
+import { registerPullProvider } from "@/server/core/sync";
+
+import { prepaidTripsPull } from "./service/overview";
+
 export function registerSync(): void {
-  // Belum ada handler — diisi agen modul P2 (registri sinkron F3c tersedia: @/server/core/sync).
+  registerPullProvider("p2.prepaid_trips", {
+    roles: ["driver", "helper"],
+    fetch: ({ ctx, tx }) => prepaidTripsPull(tx, ctx),
+  });
 }

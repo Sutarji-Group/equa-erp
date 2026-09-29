@@ -259,13 +259,29 @@ export async function requestAccountDeletion(cctx: CustomerContext, input: { rea
     { reason: "Alasan", confirm: "Konfirmasi" },
   );
   return runInTx(opts.tx, async (tx) => {
-    await tx.update(customerAccounts).set({ status: "inactive", deactivatedAt: cctx.now, updatedAt: cctx.now }).where(eq(customerAccounts.id, cctx.accountId));
+    // Akun tanpa pelanggan M1 tertaut tidak memiliki data bisnis → nomor & nama akun langsung dianonimkan. Akun tertaut:
+    // data pelanggan M1 (dan akun ini) dianonimkan lewat M10 setelah admin sistem mencatat & pemilik menyetujui.
+    const anonymizeNow = !cctx.customerId;
+    await tx
+      .update(customerAccounts)
+      .set({ status: "inactive", deactivatedAt: cctx.now, updatedAt: cctx.now, ...(anonymizeNow ? { phone: `anon-${cctx.accountId}`, displayName: null, anonymizedAt: cctx.now } : {}) })
+      .where(eq(customerAccounts.id, cctx.accountId));
     const revoked = await revokeAccountSessions(tx, cctx.accountId, cctx.now);
     const [req] = await tx
       .insert(customerAccountRequests)
-      .values({ tenantId: cctx.tenantId, customerAccountId: cctx.accountId, kind: "deletion", reason: data.reason || "Pelanggan meminta hapus akun lewat aplikasi.", candidateCustomerId: cctx.customerId, createdAt: cctx.now, updatedAt: cctx.now })
+      .values({
+        tenantId: cctx.tenantId,
+        customerAccountId: cctx.accountId,
+        kind: "deletion",
+        reason: data.reason || "Pelanggan meminta hapus akun lewat aplikasi.",
+        candidateCustomerId: cctx.customerId,
+        ...(anonymizeNow ? { status: "done", handledAt: cctx.now, handledNote: "Akun tanpa data pelanggan — dianonimkan otomatis." } : {}),
+        createdAt: cctx.now,
+        updatedAt: cctx.now,
+      })
       .returning({ id: customerAccountRequests.id });
-    await recordCustomerAudit(tx, cctx, { objectType: "customer_account", objectId: cctx.accountId, action: "deactivate", after: { status: "inactive", sessionsRevoked: revoked, deletionRequestId: req!.id }, reason: data.reason ?? null, rule: "US-P2-01 KP-5, US-M10-06 KP-2" });
+    await recordCustomerAudit(tx, cctx, { objectType: "customer_account", objectId: cctx.accountId, action: "deactivate", after: { status: "inactive", sessionsRevoked: revoked, deletionRequestId: req!.id, anonymized: anonymizeNow }, reason: data.reason ?? null, rule: "US-P2-01 KP-5, US-M10-06 KP-2" });
+    if (anonymizeNow) return { requestId: req!.id, sessionsRevoked: revoked };
     await notify(tx, {
       event: "customer_app.deletion_requested",
       tenantId: cctx.tenantId,

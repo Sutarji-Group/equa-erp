@@ -33,7 +33,7 @@ import { authorize } from "@/server/core/rbac";
 
 import { isReverified } from "./auth";
 import { assertAppEnabled, customerBusinessDate, loadCustomer, loadOwnInvoices, loadOwnOrder, paymentRules, recordCustomerAudit, requireLinked, type CustomerContext } from "./common";
-import { activeGateway, GatewayError, signMockNotification, type GatewayMethod, type GatewayNotification } from "./gateway";
+import { activeGateway, GatewayError, signMockNotification, type GatewayNotification } from "./gateway";
 import { notifyCustomer } from "./messaging";
 
 export type PaymentIntentRow = typeof paymentIntents.$inferSelect;
