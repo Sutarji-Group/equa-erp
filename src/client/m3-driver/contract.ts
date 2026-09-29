@@ -171,6 +171,8 @@ export type DepositSubmitPayload = {
   manifest: DepositManifest;
   /** Angka yang tampil di perangkat saat menekan Setor (server menghitung ulang; selisih dicatat). */
   deviceExpectedNet?: number | null;
+  /** Tanggal ringkasan yang diajukan (tanggal data di layar); lebih awal dari hari ini = setoran tertinggal (terlambat). */
+  depositDate?: string | null;
 };
 
 export type DepositNotePayload = { depositId: string; note: string };
@@ -287,7 +289,24 @@ export type M3InvoiceRef = {
   outstanding: number;
   /** PTB-18: faktur kurang bayar tampil paling atas dengan penanda "tagih kurang bayar". */
   isUnderpayment: boolean;
+  /** Rit asal faktur (faktur kurang bayar / tempo per rit) — agar struk tidak menghitung rit yang sama dua kali. */
+  tripId?: string | null;
 };
+
+/**
+ * "Sisa piutang" pada struk WA rit (US-M3-03 KP-7 / US-M3-04 KP-5): faktur terbuka pelanggan DI LUAR faktur yang
+ * berasal dari rit ini + tagihan rit ini (tempo = harga, tunai/transfer kurang = kurang bayar). Sama sebelum & sesudah
+ * pull (faktur rit ini yang sudah terbit tidak dihitung dua kali).
+ */
+export function receiptOutstanding(
+  invoices: readonly Pick<M3InvoiceRef, "outstanding" | "tripId">[],
+  tripId: string,
+  pay: Pick<M3PaymentRef, "method" | "expectedAmount" | "underpaymentAmount"> | null | undefined,
+): number {
+  const others = invoices.filter((i) => i.tripId !== tripId).reduce((sum, i) => sum + i.outstanding, 0);
+  const thisTrip = pay ? (pay.method === "credit" ? pay.expectedAmount : pay.underpaymentAmount) : 0;
+  return others + thisTrip;
+}
 
 export type M3CollectionRef = {
   id: string;
@@ -374,8 +393,10 @@ export type M3Today = {
   readOnlyReason: string | null;
   lock: M3Lock | null;
   trips: M3TripRef[];
-  /** Rit yang ditarik kantor setelah terbit (penanda "diperbarui"). */
-  withdrawn: { tripId: string; number: string; customerName: string; at: string }[];
+  /** Rit yang ditarik/dikeluarkan kantor dari truk ini setelah terbit (penanda "diperbarui" + ringkasan). */
+  withdrawn: { tripId: string; number: string; customerName: string; at: string; summary?: string }[];
+  /** Setoran hari sebelumnya milik pengguna yang masih Berjalan — dapat diajukan terlambat (US-M3-07 KP-5). */
+  pendingDeposits?: { id: string; number: string; businessDate: string; expectedNet: number }[];
   invoicesByCustomer: Record<string, M3InvoiceRef[]>;
   payments: M3PaymentRef[];
   collections: M3CollectionRef[];

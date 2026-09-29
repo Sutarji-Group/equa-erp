@@ -95,7 +95,7 @@ function CustomerCreditSection({ customerId }: { customerId: string }) {
 }
 
 export function TripDetailView({ tripId }: { tripId: string }) {
-  const { trip, today, go, canAct, prepaid } = useDriver();
+  const { trip, today, go, canAct, prepaid, depositSubmitted } = useDriver();
   const actions = useTripActions();
   const t = trip(tripId);
   if (!t || !today) return <Banner tone="danger">Rit tidak ditemukan (mungkin ditarik Dispatcher). Kembali ke daftar rit.</Banner>;
@@ -181,11 +181,12 @@ export function TripDetailView({ tripId }: { tripId: string }) {
               </li>
             ))}
           </ul>
-          {canAct ? (
+          {canAct && !depositSubmitted ? (
             <BigButton variant="secondary" icon={<HandCoins aria-hidden />} onClick={() => go({ name: "collect", tripId: t.id })}>
               Terima pelunasan
             </BigButton>
           ) : null}
+          {canAct && depositSubmitted ? <p className="text-sm text-muted-foreground">Setoran hari ini sudah diajukan — pelunasan berikutnya lewat Admin Keuangan.</p> : null}
         </Section>
       ) : null}
 
@@ -204,9 +205,12 @@ export function TripDetailView({ tripId }: { tripId: string }) {
           ) : null}
           {t.status === "arrived" || t.status === "departed" ? (
             <>
-              <BigButton size="xl" variant="success" onClick={() => go({ name: "complete", tripId: t.id })}>
-                {paidAhead ? "Selesai" : "Selesai & bayar"}
-              </BigButton>
+              {/* Bab 5.2: Berangkat → Tiba → Selesai — Selesai hanya setelah Tiba dicatat. */}
+              {t.status === "arrived" ? (
+                <BigButton size="xl" variant="success" onClick={() => go({ name: "complete", tripId: t.id })}>
+                  {paidAhead ? "Selesai" : "Selesai & bayar"}
+                </BigButton>
+              ) : null}
               {t.status === "arrived" ? <CreditRequest tripId={t.id} /> : null}
               <div className="grid grid-cols-2 gap-2">
                 <BigButton variant="danger" icon={<XCircle aria-hidden />} onClick={() => go({ name: "fail", tripId: t.id })}>

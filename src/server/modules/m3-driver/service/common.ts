@@ -5,7 +5,7 @@
  */
 import "server-only";
 
-import { and, asc, desc, eq, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 
 import {
   crewAssignments,
@@ -22,9 +22,9 @@ import {
   users,
 } from "@/db/schema";
 import type { EnumValue } from "@/lib/labels";
-import { formatTanggal, type BusinessDate } from "@/lib/time";
+import { addDays, formatTanggal, type BusinessDate } from "@/lib/time";
 
-import { isActingDriver, substituteDriverConditions } from "@/server/core/auth";
+import { isActingDriver } from "@/server/core/auth";
 import { ctxBusinessDate, isSystem, type ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
 import { DomainError, ForbiddenError, NotFoundError } from "@/server/core/errors";
@@ -157,58 +157,139 @@ export async function truckIdOfTrip(tx: Tx, tripId: string): Promise<string> {
   return rows[0]?.truckId ?? "";
 }
 
-/** Kondisi izin bersyarat kernet pengganti (US-M2-11) untuk rit pada tanggal bisnis perintah. */
+/** Kondisi izin bersyarat kernet pengganti (US-M2-11) untuk rit pada tanggal bisnis & waktu perangkat perintah. */
 export async function substituteConditionsForTrip(tx: Tx, ctx: ActorContext, tripId: string) {
-  const truckId = await truckIdOfTrip(tx, tripId);
-  return truckId ? substituteDriverConditions(tx, ctx, truckId, ctxBusinessDate(ctx)) : { substitute_driver: false };
+  const trip = (await tx.select({ truckId: trips.truckId, driverUserId: trips.driverUserId }).from(trips).where(eq(trips.id, tripId)).limit(1))[0];
+  return trip?.truckId ? substituteConditionsAt(tx, ctx, trip.truckId, ctxBusinessDate(ctx), trip) : { substitute_driver: false };
 }
 
 /**
- * Pelaku boleh bertindak atas truk ini hari ini: izin (+ kondisi kernet pengganti) dan ia PENGEMUDI truk itu
- * (sopir yang digantikan kernet/sopir lain hanya membaca — US-M2-11 KP-3). Kantor (dicatat kantor) dilewati.
+ * Status pelaksana pelaku atas truk pada WAKTU PERANGKAT (Bab 6.4 butir 3 — lapangan tidak ditimpa kantor):
+ * - `current`: pengemudi truk itu sekarang (penetapan harian berlaku / cadangan lingkup);
+ * - `trip_driver`: ia yang memberangkatkan rit ini (rit yang sudah Berangkat tetap milik pengemudi lama, US-M2-11 KP-3);
+ * - `at_device_time`: pengemudi truk itu saat tindakan dicatat di ponsel, tetapi Dispatcher menggantinya sebelum data
+ *   tersinkron (penetapan `superseded_at` > waktu perangkat) → diterima sebagai KONFLIK untuk ditinjau;
+ * - `none`: bukan pengemudi truk itu.
  */
-export async function assertActingOnTruck(tx: Tx, ctx: ActorContext, permission: string, truckId: string | null, date: BusinessDate, meta: M3WriteMeta): Promise<void> {
-  if (meta.office || isSystem(ctx)) return;
+export type ActingStatus = "current" | "trip_driver" | "at_device_time" | "none";
+
+export async function actingStatusAt(
+  tx: Tx,
+  ctx: ActorContext,
+  truckId: string,
+  date: BusinessDate,
+  at: Date | null | undefined,
+  trip?: Pick<TripRow, "driverUserId" | "truckId"> | null,
+): Promise<ActingStatus> {
+  if (await isActingDriver(tx, ctx, truckId, date)) return "current";
+  if (trip && ctx.userId && trip.driverUserId === ctx.userId) return "trip_driver";
+  if (!ctx.employeeId || !at) return "none";
+  const rows = await tx
+    .select({ id: crewAssignments.id })
+    .from(crewAssignments)
+    .where(
+      and(
+        eq(crewAssignments.truckId, truckId),
+        eq(crewAssignments.businessDate, date),
+        eq(crewAssignments.driverEmployeeId, ctx.employeeId),
+        isNotNull(crewAssignments.supersededAt),
+        gt(crewAssignments.supersededAt, at),
+        lte(crewAssignments.createdAt, at),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? "at_device_time" : "none";
+}
+
+/**
+ * Kondisi izin bersyarat kernet pengganti (US-M2-11) dinilai pada waktu perangkat (`ctx.deviceTime`), bukan saat
+ * sinkron: kernet yang menjadi pengemudi pengganti saat tindakan dicatat tetap sah walau Dispatcher sudah
+ * mengembalikan pengemudi semula sebelum data terkirim.
+ */
+export async function substituteConditionsAt(
+  tx: Tx,
+  ctx: ActorContext,
+  truckId: string,
+  date: BusinessDate,
+  trip?: Pick<TripRow, "driverUserId" | "truckId"> | null,
+): Promise<{ substitute_driver: boolean }> {
+  if (!ctx.roles.includes("helper")) return { substitute_driver: false };
+  return { substitute_driver: (await actingStatusAt(tx, ctx, truckId, date, ctx.deviceTime ?? null, trip)) !== "none" };
+}
+
+/**
+ * Pelaku boleh bertindak atas truk ini: izin (+ kondisi kernet pengganti) dan ia PENGEMUDI truk itu pada waktu
+ * perangkat (sopir yang digantikan kernet/sopir lain hanya membaca — US-M2-11 KP-3). Rit yang sudah ia Berangkatkan
+ * tetap miliknya. Pengemudi yang digantikan SETELAH tindakan dicatat di ponsel (belum tersinkron) tetap diterima;
+ * fungsi mengembalikan catatan konflik untuk ditinjau (Bab 6.4 butir 3). Kantor (dicatat kantor) dilewati.
+ */
+export async function assertActingOnTruck(
+  tx: Tx,
+  ctx: ActorContext,
+  permission: string,
+  truckId: string | null,
+  date: BusinessDate,
+  meta: M3WriteMeta,
+  trip?: Pick<TripRow, "driverUserId" | "truckId" | "number"> | null,
+): Promise<string | null> {
+  if (meta.office || isSystem(ctx)) return null;
   if (!truckId) throw new DomainError("TRIP_NOT_SCHEDULED", "Rit ini belum ditugaskan ke truk. Hubungi Dispatcher.");
-  const conditions = await substituteDriverConditions(tx, ctx, truckId, date);
+  const status = await actingStatusAt(tx, ctx, truckId, date, meta.deviceTime, trip);
+  const conditions = { substitute_driver: ctx.roles.includes("helper") && status !== "none" };
   await authorize(ctx, permission, { tx, conditions, objectType: "truck", objectId: truckId });
-  if (!inTruckScope(ctx, truckId)) {
+  if (status === "none" && !inTruckScope(ctx, truckId)) {
     throw new ForbiddenError("Rit ini milik truk lain. Sopir tidak dapat mengambil rit truk lain — minta Dispatcher memindahkannya dulu.", {
       rule: "SCOPE",
       objectType: "truck",
       objectId: truckId,
     });
   }
-  if (!(await isActingDriver(tx, ctx, truckId, date))) {
+  if (status === "none") {
     throw new ForbiddenError("Hari ini Anda bukan pengemudi truk ini (pengemudi pengganti ditetapkan Dispatcher). Anda hanya dapat melihat daftar rit.", {
       rule: "US-M2-11",
       objectType: "truck",
       objectId: truckId,
     });
   }
+  if (status === "at_device_time") {
+    return `Pengemudi truk diganti Dispatcher setelah tindakan${trip?.number ? ` rit ${trip.number}` : ""} dicatat di ponsel; data lapangan diterima untuk ditinjau.`;
+  }
+  return null;
 }
 
 /**
- * Rit dapat dikerjakan pelaku: truk dalam lingkupnya, ATAU rit dipindah ke truk lain / ditarik setelah perangkat
- * mengunduhnya (konflik — lapangan tidak ditimpa kantor, Bab 6.4 butir 3). Mengembalikan catatan konflik bila ada.
+ * Rit dapat dikerjakan pelaku: truk dalam lingkupnya, ATAU rit dipindah ke truk lain / ditarik / dikeluarkan dari
+ * jadwal SETELAH perangkat mengunduhnya (konflik — lapangan tidak ditimpa kantor, Bab 6.4 butir 3). Pengecualian
+ * konflik hanya untuk rit yang PERNAH berada di truk dalam lingkup pelaku (truk rit sekarang, riwayat perubahan jadwal
+ * `before.truckId`, atau rit yang ia Berangkatkan) — rit truk lain yang tidak pernah ada di perangkatnya ditolak
+ * (US-M10-03 KP-1, SOD-05). Mengembalikan catatan konflik bila ada.
  */
 export async function tripConflictNote(tx: Tx, ctx: ActorContext, trip: TripRow, meta: M3WriteMeta): Promise<string | null> {
   if (meta.office) return null;
+  const inScopeNow = !!trip.truckId && inTruckScope(ctx, trip.truckId);
+  if (inScopeNow && !trip.withdrawnAt) return null;
+  let wasMine = inScopeNow || (!!ctx.userId && trip.driverUserId === ctx.userId);
+  let moved = false;
+  if (!wasMine) {
+    const logs = await tx
+      .select({ before: scheduleChangeLogs.before, changeType: scheduleChangeLogs.changeType })
+      .from(scheduleChangeLogs)
+      .where(and(eq(scheduleChangeLogs.tripId, trip.id), inArray(scheduleChangeLogs.changeType, ["truck_changed", "withdrawn", "moved"])))
+      .orderBy(desc(scheduleChangeLogs.changedAt));
+    const mine = logs.filter((l) => typeof l.before?.truckId === "string" && inTruckScope(ctx, l.before.truckId as string));
+    wasMine = mine.length > 0;
+    moved = mine.some((l) => l.changeType === "truck_changed");
+  }
+  if (!wasMine) {
+    throw new ForbiddenError("Rit ini milik truk lain. Sopir tidak dapat mengambil rit truk lain — minta Dispatcher memindahkannya dulu.", {
+      rule: "SCOPE",
+      objectType: "trip",
+      objectId: trip.id,
+    });
+  }
   if (trip.withdrawnAt) return `Rit ${trip.number} sudah ditarik Dispatcher dari jadwal, tetapi dikerjakan di lapangan.`;
-  if (trip.truckId && inTruckScope(ctx, trip.truckId)) return null;
-  // Dipindah dari truk pelaku setelah terbit?
-  const logs = await tx
-    .select({ before: scheduleChangeLogs.before })
-    .from(scheduleChangeLogs)
-    .where(and(eq(scheduleChangeLogs.tripId, trip.id), eq(scheduleChangeLogs.changeType, "truck_changed")))
-    .orderBy(desc(scheduleChangeLogs.changedAt));
-  const moved = logs.some((l) => typeof l.before?.truckId === "string" && inTruckScope(ctx, l.before.truckId as string));
-  if (moved) return `Rit ${trip.number} sudah dipindah Dispatcher ke truk lain, tetapi dikerjakan truk ini.`;
-  throw new ForbiddenError("Rit ini milik truk lain. Sopir tidak dapat mengambil rit truk lain — minta Dispatcher memindahkannya dulu.", {
-    rule: "SCOPE",
-    objectType: "trip",
-    objectId: trip.id,
-  });
+  if (moved || trip.truckId) return `Rit ${trip.number} sudah dipindah Dispatcher ke truk lain, tetapi dikerjakan truk ini.`;
+  return `Rit ${trip.number} sudah dikeluarkan Dispatcher dari jadwal truk ini, tetapi dikerjakan di lapangan.`;
 }
 
 /** Truk yang dikemudikan pelaku pada tanggal (penetapan harian, lalu lingkup). */
@@ -305,22 +386,35 @@ export async function depositOf(tx: Tx, userId: string, date: BusinessDate, opts
 }
 
 /**
- * Setoran berjalan pengguna untuk tanggal bisnis (dibuat saat penerimaan tunai pertama — Bab 5.2 "Berjalan").
- * Bila setoran tanggal itu sudah Diajukan/Diterima/Ditutup (mis. data terlambat sinkron, Bab 5.3), uangnya masuk
- * setoran hari server berikutnya yang masih berjalan.
+ * Setoran tempat uang/pengeluaran lapangan pengguna untuk tanggal bisnis (dibuat saat penerimaan tunai pertama —
+ * Bab 5.2 "Berjalan"):
+ * - setoran tanggal itu Berjalan → dipakai;
+ * - setoran tanggal itu Diajukan (belum Diterima) → dipakai: data tercatat SEBELUM Setor yang baru tersinkron
+ *   ("menunggu sinkron", US-M3-09 KP-3); M4 menghitung item tertaut saat menerima;
+ * - setoran tanggal itu sudah Diterima/Ditutup (data terlambat sinkron, Bab 5.3) → uangnya masuk setoran BERJALAN
+ *   berikutnya (hari server bila tanggalnya sudah lewat, selain itu hari berikutnya) dengan penanda terbawa (M4
+ *   menampilkannya sebagai "tunai terlambat sinkron"). Tidak pernah ditautkan ke setoran yang sudah Diterima/Ditutup.
  */
 export async function ensureRunningDeposit(
   tx: Tx,
   ctx: ActorContext,
   input: { tenantId: string; userId: string; date: BusinessDate; truckId: string | null; today: BusinessDate },
 ): Promise<{ deposit: DepositRow; carriedOver: boolean }> {
-  const existing = await depositOf(tx, input.userId, input.date, { forUpdate: true });
-  if (existing?.status === "running") return { deposit: existing, carriedOver: false };
-  if (existing && input.date < input.today) {
-    const next = await ensureRunningDeposit(tx, ctx, { ...input, date: input.today });
-    return { deposit: next.deposit, carriedOver: true };
+  let date = input.date;
+  let carriedOver = false;
+  // Batas aman: setoran pengguna unik per tanggal, jadi paling banyak beberapa hari berturut sudah Diajukan.
+  for (let i = 0; i < 31; i++) {
+    const existing = await depositOf(tx, input.userId, date, { forUpdate: true });
+    if (!existing) return { deposit: await createRunningDeposit(tx, ctx, { ...input, date }), carriedOver };
+    if (existing.status === "running") return { deposit: existing, carriedOver };
+    if (existing.status === "submitted" && !carriedOver) return { deposit: existing, carriedOver };
+    date = date < input.today ? input.today : addDays(date, 1);
+    carriedOver = true;
   }
-  if (existing) return { deposit: existing, carriedOver: false };
+  throw new DomainError("DEPOSIT_CARRY_OVER", "Setoran berjalan tidak ditemukan. Hubungi Admin Keuangan.");
+}
+
+async function createRunningDeposit(tx: Tx, ctx: ActorContext, input: { tenantId: string; userId: string; date: BusinessDate; truckId: string | null }): Promise<DepositRow> {
   const employeeId = (await tx.select({ employeeId: users.employeeId }).from(users).where(eq(users.id, input.userId)).limit(1))[0]?.employeeId ?? null;
   const number = await nextNumber(tx, "deposit", input.date, { tenantId: input.tenantId });
   const [row] = await tx
@@ -339,9 +433,8 @@ export async function ensureRunningDeposit(
     })
     .onConflictDoNothing()
     .returning();
-  if (row) return { deposit: row, carriedOver: false };
-  const again = await depositOf(tx, input.userId, input.date);
-  return { deposit: again!, carriedOver: false };
+  if (row) return row;
+  return (await depositOf(tx, input.userId, input.date))!;
 }
 
 /** Setoran pengguna tanggal itu sudah Diajukan (tanpa dibuka kembali) → tidak ada rit baru (US-M3-07 KP-2). */
@@ -356,6 +449,34 @@ export async function assertDayNotSubmitted(tx: Tx, userId: string, date: Busine
   }
 }
 
+/**
+ * BR-07, US-M3-07 KP-2: setelah Setor tidak ada transaksi kas baru hari itu (pelunasan/pengeluaran). Data yang
+ * dicatat di ponsel SEBELUM Setor tetapi baru tersinkron tetap diterima (menunggu sinkron / terbawa ke setoran
+ * berikutnya, lihat `ensureRunningDeposit`); yang dicatat SETELAH Setor ditolak dengan tindakan.
+ */
+export async function assertCashDayOpen(tx: Tx, userId: string, date: BusinessDate, meta: M3WriteMeta, what: string): Promise<void> {
+  if (meta.office) return;
+  const dep = await depositOf(tx, userId, date);
+  if (!dep || dep.status === "running") return;
+  if (dep.submittedAt && meta.deviceTime.getTime() < dep.submittedAt.getTime()) return;
+  throw new DomainError(
+    "DEPOSIT_ALREADY_SUBMITTED",
+    dep.status === "submitted"
+      ? `Setoran hari ini (${dep.number}) sudah diajukan — ${what} tidak dapat dicatat lagi hari ini. Minta Admin Keuangan membuka kembali setoran, atau serahkan ke Admin Keuangan untuk dicatat di kantor.`
+      : `Setoran hari ini (${dep.number}) sudah diterima Admin Keuangan — ${what} tidak dapat dicatat lagi hari ini. Serahkan ke Admin Keuangan untuk dicatat di kantor.`,
+  );
+}
+
+/** Setoran sopir yang masih Berjalan dari tanggal SEBELUM `before` (belum sempat Setor, mis. lewat tengah malam). */
+export async function staleRunningDeposits(tx: Tx, userId: string, before: BusinessDate, opts: { forUpdate?: boolean } = {}): Promise<DepositRow[]> {
+  const q = tx
+    .select()
+    .from(deposits)
+    .where(and(eq(deposits.sourceType, "driver"), eq(deposits.depositorUserId, userId), eq(deposits.status, "running"), lt(deposits.businessDate, before)))
+    .orderBy(asc(deposits.businessDate));
+  return opts.forUpdate ? q.for("update") : q;
+}
+
 // =====================================================================================================================
 // Kunci BR-10 / PAR-83 (US-M3-01 KP-5)
 // =====================================================================================================================
@@ -366,7 +487,10 @@ export type DriverLock = { kind: "br10" | "par83"; message: string; depositNumbe
  * Kunci tombol Berangkat: setoran sopir hari sebelumnya belum Ditutup (BR-10), atau — hanya bila PAR-83 aktif —
  * selisih kurang ≥ ambang yang belum diputuskan pemilik (PTB-62). Keputusan pemilik atas selisih biasa tidak memengaruhi.
  */
-export async function driverLock(tx: Tx, input: { userId: string; employeeId: string | null; date: BusinessDate; tenantId: string }): Promise<DriverLock | null> {
+export async function driverLock(
+  tx: Tx,
+  input: { userId: string; employeeId: string | null; date: BusinessDate; tenantId: string; /** Hanya kunci yang sudah terbentuk pada waktu ini (waktu perangkat). */ asOf?: Date },
+): Promise<DriverLock | null> {
   const open = await tx
     .select({ number: deposits.number, businessDate: deposits.businessDate, status: deposits.status })
     .from(deposits)
@@ -376,14 +500,19 @@ export async function driverLock(tx: Tx, input: { userId: string; employeeId: st
         ne(deposits.status, "closed"),
         lt(deposits.businessDate, input.date),
         or(eq(deposits.depositorUserId, input.userId), input.employeeId ? eq(deposits.depositorEmployeeId, input.employeeId) : sql`false`),
+        ...(input.asOf ? [lte(deposits.createdAt, input.asOf)] : []),
       ),
     )
     .orderBy(asc(deposits.businessDate))
     .limit(1);
   if (open[0]) {
+    const when = formatTanggal(open[0].businessDate, { weekday: false });
     return {
       kind: "br10",
-      message: `Setoran kemarin belum ditutup Admin Keuangan (${open[0].number}, ${formatTanggal(open[0].businessDate, { weekday: false })}). Hubungi Admin Keuangan — tombol Berangkat terbuka otomatis setelah setoran ditutup.`,
+      message:
+        open[0].status === "running"
+          ? `Setoran ${when} (${open[0].number}) belum diajukan. Buka menu Setor, ajukan setoran ${when}, lalu serahkan uangnya ke Admin Keuangan — tombol Berangkat terbuka otomatis setelah setoran ditutup.`
+          : `Setoran kemarin belum ditutup Admin Keuangan (${open[0].number}, ${when}). Hubungi Admin Keuangan — tombol Berangkat terbuka otomatis setelah setoran ditutup.`,
       depositNumber: open[0].number,
       depositDate: open[0].businessDate,
     };
@@ -399,6 +528,7 @@ export async function driverLock(tx: Tx, input: { userId: string; employeeId: st
         notInArray(discrepancies.status, ["approved", "rejected", "followed_up", "done"]),
         or(eq(discrepancies.userId, input.userId), input.employeeId ? eq(discrepancies.employeeId, input.employeeId) : sql`false`),
         or(eq(discrepancies.locksTrips, true), sql`${discrepancies.amount} <= ${-par83.amount_gte}`),
+        ...(input.asOf ? [lte(discrepancies.createdAt, input.asOf)] : []),
       ),
     )
     .limit(1);
@@ -412,10 +542,18 @@ export async function driverLock(tx: Tx, input: { userId: string; employeeId: st
   };
 }
 
-export async function assertNotLocked(tx: Tx, ctx: ActorContext, date: BusinessDate, meta: M3WriteMeta, actingUserId: string): Promise<void> {
-  if (meta.office) return;
-  const lock = await driverLock(tx, { userId: actingUserId, employeeId: ctx.employeeId, date, tenantId: ctx.tenantId });
-  if (lock) throw new DomainError(lock.kind === "br10" ? "BR10_LOCKED" : "PAR83_LOCKED", lock.message);
+/**
+ * Tolak Berangkat bila kunci BR-10/PAR-83 SUDAH terbentuk pada waktu perangkat. Kunci yang baru terbentuk setelah
+ * tindakan dicatat di ponsel (mis. selisih besar diterima kantor sebelum data tersinkron) tidak menimpa data lapangan:
+ * diterima sebagai konflik untuk ditinjau (Bab 6.4 butir 3). Mengembalikan catatan konflik bila ada.
+ */
+export async function assertNotLocked(tx: Tx, ctx: ActorContext, date: BusinessDate, meta: M3WriteMeta, actingUserId: string): Promise<string | null> {
+  if (meta.office) return null;
+  const input = { userId: actingUserId, employeeId: ctx.employeeId, date, tenantId: ctx.tenantId };
+  const atDevice = await driverLock(tx, { ...input, asOf: meta.deviceTime });
+  if (atDevice) throw new DomainError(atDevice.kind === "br10" ? "BR10_LOCKED" : "PAR83_LOCKED", atDevice.message);
+  const current = await driverLock(tx, input);
+  return current ? `Berangkat dicatat di ponsel sebelum kunci setoran terbentuk (${current.kind === "br10" ? "BR-10" : "PAR-83"}); diterima untuk ditinjau.` : null;
 }
 
 // =====================================================================================================================

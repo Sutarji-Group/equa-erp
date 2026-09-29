@@ -21,7 +21,6 @@ import { formatRupiah } from "@/lib/money";
 import { toBusinessDate } from "@/lib/time";
 
 import { record as auditRecord } from "@/server/core/audit";
-import { substituteDriverConditions } from "@/server/core/auth";
 import type { ActorContext } from "@/server/core/context";
 import { DomainError, ValidationError, parseInput } from "@/server/core/errors";
 import { emit } from "@/server/core/events";
@@ -41,6 +40,7 @@ import {
   fieldValues,
   loadTripContext,
   m3Rules,
+  substituteConditionsAt,
   tripConflictNote,
   type M3WriteMeta,
   type TripContext,
@@ -108,6 +108,12 @@ async function flagConflict(tx: M3WriteMeta["tx"], ctx: ActorContext, trip: Trip
   await auditRecord(tx, { ctx, objectType: "trip", objectId: trip.id, action: "conflict", after: { syncConflict: true }, reason: note, rule: "6.4" });
 }
 
+/** Gabungkan catatan konflik (Bab 6.4 butir 3) menjadi satu kalimat; `null` bila tidak ada. */
+function joinNotes(...notes: (string | null | undefined)[]): string | null {
+  const list = notes.filter((n): n is string => !!n);
+  return list.length ? list.join(" ") : null;
+}
+
 /** Rit sedang dikerjakan pelaku yang sama (idempoten untuk ketukan ganda offline). */
 function sameActor(trip: TripRow, ctx: ActorContext): boolean {
   return !!ctx.userId && trip.driverUserId === ctx.userId;
@@ -122,15 +128,16 @@ export async function departTrip(ctx: ActorContext, input: unknown, meta: M3Writ
   const tx = meta.tx;
   const tc = await loadTripContext(tx, data.tripId, { forUpdate: true });
   const trip = tc.trip;
-  const conflict = await tripConflictNote(tx, ctx, trip, meta);
-  const truckId = conflict ? ((await actingTruckId(tx, ctx, meta.businessDate)) ?? trip.truckId) : trip.truckId;
-  await assertActingOnTruck(tx, ctx, "m3.trip.depart", truckId, meta.businessDate, meta);
+  const scheduleNote = await tripConflictNote(tx, ctx, trip, meta);
+  const truckId = scheduleNote ? ((await actingTruckId(tx, ctx, meta.businessDate)) ?? trip.truckId) : trip.truckId;
+  const actingNote = await assertActingOnTruck(tx, ctx, "m3.trip.depart", truckId, meta.businessDate, meta, trip);
 
   if (trip.status !== "assigned") {
     if ((trip.status === "departed" || trip.status === "arrived") && sameActor(trip, ctx)) return { trip, conflict: null, duplicate: true };
     throw new DomainError("TRIP_STATUS", `Rit ${trip.number} sudah berstatus ${label("trip_status", trip.status)} — tidak dapat Berangkat lagi.`);
   }
-  await assertNotLocked(tx, ctx, meta.businessDate, meta, ctx.userId!);
+  const lockNote = await assertNotLocked(tx, ctx, meta.businessDate, meta, ctx.userId!);
+  const conflict = joinNotes(scheduleNote, actingNote, lockNote);
   await assertDayNotSubmitted(tx, ctx.userId!, meta.businessDate, meta);
   if (truckId) {
     const active = await activeTripOfTruck(tx, truckId, trip.id);
@@ -230,9 +237,9 @@ export async function arriveTrip(ctx: ActorContext, input: unknown, meta: M3Writ
   const tx = meta.tx;
   const tc = await loadTripContext(tx, data.tripId, { forUpdate: true });
   const trip = tc.trip;
-  const conflict = await tripConflictNote(tx, ctx, trip, meta);
-  const truckId = conflict ? ((await actingTruckId(tx, ctx, meta.businessDate)) ?? trip.truckId) : trip.truckId;
-  await assertActingOnTruck(tx, ctx, "m3.trip.arrive", truckId, meta.businessDate, meta);
+  const scheduleNote = await tripConflictNote(tx, ctx, trip, meta);
+  const truckId = scheduleNote ? ((await actingTruckId(tx, ctx, meta.businessDate)) ?? trip.truckId) : trip.truckId;
+  const conflict = joinNotes(scheduleNote, await assertActingOnTruck(tx, ctx, "m3.trip.arrive", truckId, meta.businessDate, meta, trip));
   if (trip.status !== "departed") {
     if (trip.status === "arrived" && sameActor(trip, ctx)) return { trip, conflict: null, duplicate: true };
     throw new DomainError("TRIP_STATUS", `Rit ${trip.number} berstatus ${label("trip_status", trip.status)} — catat Berangkat dulu sebelum Tiba.`);
@@ -312,11 +319,11 @@ export async function completeTrip(ctx: ActorContext, input: unknown, meta: M3Wr
   const tc = await loadTripContext(tx, data.tripId, { forUpdate: true });
   const trip = tc.trip;
   const actingUserId = opts.actingUserId ?? ctx.userId!;
-  const conflict = await tripConflictNote(tx, ctx, trip, meta);
-  const truckId = conflict ? ((await actingTruckId(tx, ctx, meta.businessDate)) ?? trip.truckId) : trip.truckId;
-  await assertActingOnTruck(tx, ctx, "m3.trip.complete", truckId, meta.businessDate, meta);
+  const scheduleNote = await tripConflictNote(tx, ctx, trip, meta);
+  const truckId = scheduleNote ? ((await actingTruckId(tx, ctx, meta.businessDate)) ?? trip.truckId) : trip.truckId;
+  const conflict = joinNotes(scheduleNote, await assertActingOnTruck(tx, ctx, "m3.trip.complete", truckId, meta.businessDate, meta, trip));
   if (!trip.isInternal && !meta.office) {
-    const conditions = truckId ? await substituteDriverConditions(tx, ctx, truckId, meta.businessDate) : {};
+    const conditions = truckId ? await substituteConditionsAt(tx, ctx, truckId, meta.businessDate, trip) : {};
     await authorize(ctx, "m3.trip_payment.create", { tx, conditions, objectType: "trip", objectId: trip.id });
   }
 
@@ -396,7 +403,8 @@ export async function completeTrip(ctx: ActorContext, input: unknown, meta: M3Wr
     .set({
       status: "completed",
       departedAt: trip.departedAt ?? meta.deviceTime,
-      arrivedAt: trip.arrivedAt ?? meta.deviceTime,
+      // Bab 5.2: Tiba tidak direka — bila Tiba tidak dicatat (data lama/dicatat kantor), waktu tiba tetap kosong.
+      arrivedAt: trip.arrivedAt,
       completedAt: meta.deviceTime,
       completedLat: l.lat,
       completedLng: l.lng,
@@ -456,6 +464,7 @@ export async function completeTrip(ctx: ActorContext, input: unknown, meta: M3Wr
       photos: photos.length,
       recordedByOffice: !!meta.office,
       onBehalfOfUserId: meta.office ? actingUserId : undefined,
+      arrivalNotRecorded: !trip.arrivedAt || undefined,
     },
     reason: meta.office?.reason ?? (partialVolume ? `Volume parsial: ${label("partial_volume_reason", data.partialVolumeReason ?? "other")}` : null),
     rule: meta.office ? "Bab 6.1 dicatat kantor" : "US-M3-03",
@@ -646,9 +655,9 @@ export async function failTrip(
   const tc = await loadTripContext(tx, data.tripId, { forUpdate: true });
   const trip = tc.trip;
   const actingUserId = opts.actingUserId ?? ctx.userId!;
-  const conflict = await tripConflictNote(tx, ctx, trip, meta);
-  const truckId = conflict ? ((await actingTruckId(tx, ctx, meta.businessDate)) ?? trip.truckId) : trip.truckId;
-  await assertActingOnTruck(tx, ctx, "m3.trip.fail", truckId, meta.businessDate, meta);
+  const scheduleNote = await tripConflictNote(tx, ctx, trip, meta);
+  const truckId = scheduleNote ? ((await actingTruckId(tx, ctx, meta.businessDate)) ?? trip.truckId) : trip.truckId;
+  const conflict = joinNotes(scheduleNote, await assertActingOnTruck(tx, ctx, "m3.trip.fail", truckId, meta.businessDate, meta, trip));
   if (trip.status === "failed" && sameActor(trip, ctx)) return { trip, conflict: null, duplicate: true };
   if (trip.status === "completed" || trip.status === "failed") {
     const note = `Rit ${trip.number} sudah ${label("trip_status", trip.status)}; laporan gagal dari ${meta.office ? "kantor" : "perangkat"} diterima sebagai konflik untuk ditinjau.`;

@@ -260,7 +260,8 @@ export function CompleteFlow({ tripId }: { tripId: string }) {
             options={[
               { value: "cash", label: "Tunai" },
               { value: "transfer", label: "Transfer" },
-              ...(approvedCredit || t.paymentMethod !== "credit" ? [{ value: "credit" as const, label: "Tempo" }] : []),
+              // US-M3-04 KP-4: Tempo hanya untuk pesanan tempo, atau permintaan tempo (pelanggan berstatus Tempo) yang sudah diajukan.
+              ...(approvedCredit || (t.creditRequest && ["queued", "submitted"].includes(t.creditRequest.status)) ? [{ value: "credit" as const, label: "Tempo" }] : []),
             ]}
           />
           {method === "cash" || method === "transfer" ? (

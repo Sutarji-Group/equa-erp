@@ -15,7 +15,7 @@ import { requirePermission } from "@/server/core/auth/office";
 import { can } from "@/server/core/rbac";
 import * as m3 from "@/server/modules/m3-driver";
 
-import { officeCompleteAction, officeFailAction } from "../actions";
+import { officeCollectionAction, officeCompleteAction, officeDepositAction, officeFailAction } from "../actions";
 
 export const metadata: Metadata = { title: "Dicatat kantor" };
 
@@ -149,6 +149,7 @@ export default async function DicatatKantorPage({ searchParams }: PageProps<"/so
                   <TableHead>Sopir</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Tanda</TableHead>
+                  <TableHead>Pelunasan tertahan</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -165,6 +166,25 @@ export default async function DicatatKantorPage({ searchParams }: PageProps<"/so
                       {t.recordedByOffice ? <ToneBadge tone="warning">Dicatat kantor</ToneBadge> : null}
                       {t.lateSync ? <ToneBadge tone="info">Sinkron terlambat</ToneBadge> : null}
                       {t.syncConflict ? <ToneBadge tone="danger">Tabrakan sinkron</ToneBadge> : null}
+                    </TableCell>
+                    <TableCell>
+                      {t.status === "completed" && !t.isInternal ? (
+                        <details data-testid={`office-collection-${t.number}`}>
+                          <summary className="cursor-pointer text-sm text-primary">Catat pelunasan</summary>
+                          <M3ActionForm action={officeCollectionAction.bind(null, t.id, t.customerId)} submitLabel="Catat pelunasan" className="mt-2 min-w-72">
+                            <TextAreaField label="Alasan dicatat kantor" name="reason" required hint="Mis. HP sopir hilang; pelunasan tercatat di nota kertas." />
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <Field label="Jam kejadian (WIB)" name="occurredTime" type="time" required />
+                              <SelectField label="Cara bayar" name="method" required defaultValue="cash" options={PAYMENT_OPTIONS.filter((o) => o.value !== "credit")} />
+                              <Field label="Jumlah (Rp)" name="amount" inputMode="numeric" required hint="Dialokasikan ke faktur terbuka tertua." />
+                            </div>
+                            <label className="grid gap-1 text-sm font-medium">
+                              Bukti (opsional)
+                              <input name="evidence" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="text-sm" />
+                            </label>
+                          </M3ActionForm>
+                        </details>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -219,6 +239,7 @@ export default async function DicatatKantorPage({ searchParams }: PageProps<"/so
                   <TableHead>Sopir</TableHead>
                   <TableHead className="text-right">Wajib setor</TableHead>
                   <TableHead>Sinkron</TableHead>
+                  <TableHead>Setor</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -230,6 +251,23 @@ export default async function DicatatKantorPage({ searchParams }: PageProps<"/so
                     </TableCell>
                     <TableCell>{d.fullySynced ? <ToneBadge tone="success">Lengkap</ToneBadge> : <ToneBadge tone="warning">Belum lengkap</ToneBadge>}
                       <span className="block text-xs text-muted-foreground">{d.message}</span></TableCell>
+                    <TableCell>
+                      {d.deposit?.status === "running" ? (
+                        <details data-testid={`office-deposit-${d.deposit.number}`}>
+                          <summary className="cursor-pointer text-sm text-primary">Ajukan atas nama sopir</summary>
+                          <M3ActionForm action={officeDepositAction.bind(null, d.deposit.id)} submitLabel="Ajukan setoran" className="mt-2 min-w-64">
+                            <TextAreaField label="Alasan dicatat kantor" name="reason" required hint="Mis. HP sopir rusak sebelum Setor; uang diserahkan langsung." />
+                            <Field label="Jam kejadian (WIB)" name="occurredTime" type="time" required />
+                            <label className="grid gap-1 text-sm font-medium">
+                              Bukti (opsional)
+                              <input name="evidence" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="text-sm" />
+                            </label>
+                          </M3ActionForm>
+                        </details>
+                      ) : d.deposit ? (
+                        <StatusBadge enumName="deposit_status" value={d.deposit.status} />
+                      ) : null}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

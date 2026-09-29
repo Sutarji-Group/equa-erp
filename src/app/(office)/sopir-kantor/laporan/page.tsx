@@ -15,7 +15,7 @@ import * as m3 from "@/server/modules/m3-driver";
 
 export const metadata: Metadata = { title: "Laporan sopir" };
 
-const KIND_LABEL = { trip_completed: "Rit selesai", trip_failed: "Rit gagal", collection: "Pelunasan" } as const;
+const KIND_LABEL = { trip_completed: "Rit selesai", trip_failed: "Rit gagal", collection: "Pelunasan", deposit: "Setor" } as const;
 const METHOD_LABEL: Record<string, string> = { cash: "Tunai", transfer: "Transfer", credit: "Tempo", none: "—" };
 
 /**

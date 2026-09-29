@@ -25,9 +25,8 @@ import "server-only";
 
 import { eq } from "drizzle-orm";
 
-import { fleetEvents } from "@/db/schema";
+import { fleetEvents, trips } from "@/db/schema";
 
-import { substituteDriverConditions } from "@/server/core/auth";
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
 import { registerPullProvider, registerSyncHandler, type SyncHandlerResult } from "@/server/core/sync";
@@ -48,8 +47,8 @@ import {
   receiptSchema,
 } from "./schemas";
 import { recordCollection } from "./service/collections";
-import { actingTruckId, fromSyncMeta, truckIdOfTrip } from "./service/common";
-import { addDepositorNote, submitDeposit } from "./service/deposits";
+import { actingTruckId, fromSyncMeta, substituteConditionsAt } from "./service/common";
+import { addDepositorNote, depositHolderConditions, submitDeposit } from "./service/deposits";
 import { recordExpense } from "./service/expenses";
 import { recordPhonePositions } from "./service/gps";
 import { explainFleetEvent, reportIncident } from "./service/incidents";
@@ -58,10 +57,15 @@ import { buildDepositHistory, buildToday } from "./service/pull";
 import { recordReceipt } from "./service/receipts";
 import { arriveTrip, completeTrip, departTrip, failTrip, type TripActionResult } from "./service/trips";
 
+/**
+ * Kondisi izin kernet pengganti (US-M2-11) dinilai pada WAKTU PERANGKAT (`ctx.deviceTime`, Bab 6.4 butir 3): kernet
+ * yang menjadi pengemudi pengganti saat tindakan dicatat tetap sah walau Dispatcher mengubah penetapan sebelum sinkron.
+ */
 async function conditionsFor(tx: Tx, ctx: ActorContext, tripId?: string | null) {
   const date = ctxBusinessDate(ctx);
-  const truckId = tripId ? await truckIdOfTrip(tx, tripId) : await actingTruckId(tx, ctx, date);
-  return truckId ? substituteDriverConditions(tx, ctx, truckId, date) : { substitute_driver: false };
+  const trip = tripId ? (await tx.select({ truckId: trips.truckId, driverUserId: trips.driverUserId }).from(trips).where(eq(trips.id, tripId)).limit(1))[0] ?? null : null;
+  const truckId = trip?.truckId ?? (await actingTruckId(tx, ctx, date));
+  return truckId ? substituteConditionsAt(tx, ctx, truckId, date, trip) : { substitute_driver: false };
 }
 
 function tripResult(res: TripActionResult): SyncHandlerResult {
@@ -153,7 +157,7 @@ export function registerSync(): void {
     permission: "m3.travel_explanation.create",
     conditions: async (ctx, p, { tx }) => {
       const ev = (await tx.select({ truckId: fleetEvents.truckId }).from(fleetEvents).where(eq(fleetEvents.id, p.fleetEventId)).limit(1))[0];
-      return ev?.truckId ? substituteDriverConditions(tx, ctx, ev.truckId, ctxBusinessDate(ctx)) : { substitute_driver: false };
+      return ev?.truckId ? substituteConditionsAt(tx, ctx, ev.truckId, ctxBusinessDate(ctx)) : { substitute_driver: false };
     },
     schema: explanationSchema,
     labels: { explanation: "Keterangan" },
@@ -173,13 +177,15 @@ export function registerSync(): void {
     description: "Pengeluaran rit dengan foto nota (US-M3-08).",
     handle: async (ctx, p, meta) => {
       const res = await recordExpense(ctx, p, fromSyncMeta(meta));
-      return { objectType: "trip_expense", objectId: res.expense.id, result: { status: res.expense.status, duplicate: res.duplicate } };
+      const base = { objectType: "trip_expense", objectId: res.expense.id, result: { status: res.expense.status, duplicate: res.duplicate } };
+      return res.conflict ? { ...base, status: "conflict" as const, message: res.conflict } : base;
     },
   });
 
   registerSyncHandler("m3.deposit.submit", {
     permission: "m3.deposit.submit",
-    conditions: (ctx, _p, { tx }) => conditionsFor(tx, ctx, null),
+    // US-M2-11 KP-3: masing-masing menyetor kas yang diterimanya — kernet yang memegang kas dari masa pengganti tetap dapat Setor.
+    conditions: (ctx, _p, { tx }) => depositHolderConditions(tx, ctx),
     schema: depositSubmitSchema,
     labels: { method: "Cara setor" },
     description: "Setor: ringkasan terkunci, status Diajukan (US-M3-07).",
@@ -195,7 +201,7 @@ export function registerSync(): void {
 
   registerSyncHandler("m3.deposit.note", {
     permission: "m3.deposit.submit",
-    conditions: (ctx, _p, { tx }) => conditionsFor(tx, ctx, null),
+    conditions: (ctx, _p, { tx }) => depositHolderConditions(tx, ctx, { anyStatus: true }),
     schema: depositNoteSchema,
     labels: { note: "Keterangan" },
     description: "Keterangan sopir atas selisih setoran (US-M3-07 KP-4).",

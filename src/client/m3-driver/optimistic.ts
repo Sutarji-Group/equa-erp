@@ -123,9 +123,13 @@ export function applyM3Command(data: M3Today, type: string, payload: unknown, it
     }
     case M3_COMMANDS.depositSubmit: {
       const p = payload as DepositSubmitPayload;
+      // US-M3-07 KP-5: setoran hari sebelumnya yang tertinggal diajukan terlambat — hari ini tetap terbuka.
+      if (p.depositDate && p.depositDate < data.date) return { ...data, pendingDeposits: (data.pendingDeposits ?? []).filter((d) => d.businessDate !== p.depositDate) };
       if (data.deposit && data.deposit.status !== "running") return data;
       return {
         ...data,
+        // Setor hari ini ikut mengajukan setoran tertinggal (server) — tidak tampil lagi sebagai tertunda.
+        pendingDeposits: [],
         deposit: {
           id: data.deposit?.id ?? null,
           number: data.deposit?.number ?? null,

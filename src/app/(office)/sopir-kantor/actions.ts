@@ -117,6 +117,50 @@ export async function officeFailAction(tripId: string, _prev: M3ActionState, fd:
   );
 }
 
+/** Pelunasan lewat sopir yang tertahan di antrean perangkat rusak/hilang (US-M3-09 KP-5). */
+export async function officeCollectionAction(tripId: string, customerId: string, _prev: M3ActionState, fd: FormData): Promise<M3ActionState> {
+  const { ctx } = await requireOfficeSession();
+  return attempt(
+    () =>
+      withEvidence(
+        fd,
+        (tx, evidenceId) =>
+          m3.officeRecordCollection(
+            ctx,
+            {
+              tripId,
+              customerId,
+              paymentId: crypto.randomUUID(),
+              method: str(fd, "method") ?? "cash",
+              amount: num(fd, "amount") ?? 0,
+              reason: str(fd, "reason") ?? "",
+              occurredTime: str(fd, "occurredTime") ?? "",
+              evidenceAttachmentId: evidenceId,
+            },
+            { tx },
+          ),
+        ctx,
+      ),
+    "Pelunasan dicatat atas nama sopir (dicatat kantor). Pemilik diberi tahu.",
+    ["/sopir-kantor/dicatat-kantor", "/sopir-kantor/laporan"],
+  );
+}
+
+/** Setor atas nama sopir — perangkat rusak/hilang atau setoran Berjalan yang tertinggal (US-M3-09 KP-5, US-M3-07 KP-5). */
+export async function officeDepositAction(depositId: string, _prev: M3ActionState, fd: FormData): Promise<M3ActionState> {
+  const { ctx } = await requireOfficeSession();
+  return attempt(
+    () =>
+      withEvidence(
+        fd,
+        (tx, evidenceId) => m3.officeSubmitDeposit(ctx, { depositId, reason: str(fd, "reason") ?? "", occurredTime: str(fd, "occurredTime") ?? "", evidenceAttachmentId: evidenceId }, { tx }),
+        ctx,
+      ),
+    "Setoran diajukan atas nama sopir (dicatat kantor). Terima uangnya di menu Kas → Setoran.",
+    ["/sopir-kantor/dicatat-kantor", "/sopir-kantor/laporan", "/kas/setoran"],
+  );
+}
+
 export async function confirmIncidentAction(incidentId: string, _prev: M3ActionState, fd: FormData): Promise<M3ActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(

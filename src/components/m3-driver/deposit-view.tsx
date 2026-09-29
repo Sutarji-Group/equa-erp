@@ -62,6 +62,7 @@ export function SetorView() {
           expenseIds: today.expenses.map((e) => e.id),
         },
         deviceExpectedNet: figures.cashOnHand,
+        depositDate: today.date,
       };
       await send(M3_COMMANDS.depositSubmit, payload, `Setor ${formatRupiah(figures.cashOnHand)}`, method === "bank_slip" && slip ? [{ kind: M3_ATTACHMENT_KINDS.depositSlip, blob: slip.blob, capturedAt: slip.capturedAt }] : []);
     } catch (e) {
@@ -70,8 +71,38 @@ export function SetorView() {
       setBusy(false);
     }
   };
+  const pending = today.pendingDeposits ?? [];
+  const submitPending = async (d: { businessDate: string; number: string; expectedNet: number }) => {
+    setError(null);
+    setBusy(true);
+    try {
+      const payload: DepositSubmitPayload = {
+        method: "physical",
+        note: null,
+        manifest: { completedTripIds: [], failedTripIds: [], collectionIds: [], expenseIds: [] },
+        deviceExpectedNet: d.expectedNet,
+        depositDate: d.businessDate,
+      };
+      await send(M3_COMMANDS.depositSubmit, payload, `Setor ${formatTanggal(d.businessDate, { weekday: false })} ${formatRupiah(d.expectedNet)} (terlambat)`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gagal menyimpan setoran.");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="flex flex-col gap-4" data-testid="setor">
+      {pending.map((d) => (
+        <Section key={d.number} title={`Setoran ${formatTanggal(d.businessDate, { weekday: false })} belum diajukan`}>
+          <Banner tone="warning" testId="setoran-tertinggal">
+            Setoran {d.number} masih Berjalan. Ajukan sekarang (ditandai terlambat), lalu serahkan uangnya ke Admin Keuangan — tombol Berangkat terbuka setelah setoran ditutup.
+          </Banner>
+          <FigureRow label="Seharusnya disetor (dihitung sistem)" value={formatRupiah(d.expectedNet)} strong />
+          <BigButton icon={<HandCoins aria-hidden />} loading={busy} onClick={() => submitPending(d)}>
+            Ajukan setoran {formatTanggal(d.businessDate, { weekday: false })}
+          </BigButton>
+        </Section>
+      ))}
       <Section title="Ringkasan hari ini (dihitung sistem)">
         <FigureRow label="Rit Selesai" value={figures.completedTrips} />
         <FigureRow label="Rit Gagal" value={figures.failedTrips} />
@@ -86,9 +117,11 @@ export function SetorView() {
         {figures.expensesPersonal > 0 ? <FigureRow label="Pengeluaran uang pribadi (diganti kantor)" value={formatRupiah(figures.expensesPersonal)} /> : null}
         <FigureRow label="Total seharusnya disetor" value={formatRupiah(figures.cashOnHand)} strong testId="seharusnya-disetor" />
       </Section>
-      <BigButton variant="secondary" icon={<Receipt aria-hidden />} onClick={() => go({ name: "expense", tripId: null })}>
-        Catat pengeluaran (BBM, tol, parkir)
-      </BigButton>
+      {depositSubmitted ? null : (
+        <BigButton variant="secondary" icon={<Receipt aria-hidden />} onClick={() => go({ name: "expense", tripId: null })}>
+          Catat pengeluaran (BBM, tol, parkir)
+        </BigButton>
+      )}
       {depositSubmitted ? (
         <Banner tone="success" testId="setoran-diajukan">
           Setoran {today.deposit?.number ?? ""} diajukan{today.deposit?.local ? " (tersimpan di ponsel, terkirim saat ada sinyal)" : ""}. {today.deposit?.method === "bank_slip" ? "Admin Keuangan mencocokkan slip dengan mutasi bank." : "Serahkan uang ke Admin Keuangan hari ini."}
