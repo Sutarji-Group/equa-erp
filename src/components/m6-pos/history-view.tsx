@@ -11,6 +11,7 @@ import { formatJam, formatTanggal } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { BigButton } from "@/components/field/big-button";
 import { PhotoCapture, type CapturedPhoto } from "@/components/field/photo-capture";
+import { MyCashCard } from "@/components/m4-cash/my-cash-card";
 
 import { usePos } from "./pos-context";
 import { Banner, ChoiceButtons, ErrorText, PosSection } from "./ui";
@@ -91,10 +92,12 @@ function QueueList() {
 }
 
 export function HistoryView() {
-  const { ref } = usePos();
+  const { ref, session } = usePos();
   return (
     <div className="flex flex-col gap-4">
       <DepositHandover />
+      {/* B-28 (US-M4-03 KP-3, US-M4-02 KP-8): hasil penerimaan setoran, keputusan selisih & saldo ganti rugi saya. */}
+      <MyCashCard userId={session.user.id} />
       <PosSection title="Riwayat shift saya (90 hari)" testId="riwayat-shift">
         {ref?.history.length ? (
           <ul className="flex flex-col gap-2">

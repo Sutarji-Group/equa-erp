@@ -232,7 +232,21 @@ export type TripContext = {
   address: { id: string; label: string; addressText: string; lat: number | null; lng: number | null; coordinateLocked: boolean };
   truck: { id: string; code: string } | null;
   outletName: string | null;
+  /** Koordinat depot tujuan rit internal (B-48): acuan jarak Selesai/Tiba, sama dengan M12 (US-M12-04 KP-5). */
+  outletPoint?: { lat: number; lng: number } | null;
 };
+
+/**
+ * Acuan jarak lokasi Tiba/Selesai (BR-23, PAR-16) — B-48: rit internal (pasokan depot) dibandingkan dengan koordinat
+ * DEPOT TUJUAN (sama dengan M12 US-M12-04 KP-5); rit pelanggan dengan titik alamat yang Dikunci. `null` = tidak dinilai.
+ */
+export function deviationTarget(tc: Pick<TripContext, "trip" | "address" | "outletPoint">): { kind: "address" | "depot"; lat: number; lng: number } | null {
+  if (tc.trip.isInternal && tc.trip.destinationOutletId) {
+    return tc.outletPoint ? { kind: "depot", lat: tc.outletPoint.lat, lng: tc.outletPoint.lng } : null;
+  }
+  if (tc.address.coordinateLocked && tc.address.lat !== null && tc.address.lng !== null) return { kind: "address", lat: tc.address.lat, lng: tc.address.lng };
+  return null;
+}
 
 export async function loadTripContext(tx: Tx, tripId: string, opts: { forUpdate?: boolean } = {}): Promise<TripContext> {
   const trip = await loadTrip(tx, tripId, opts);
@@ -256,7 +270,7 @@ export async function loadTripContext(tx: Tx, tripId: string, opts: { forUpdate?
     .limit(1);
   const truck = trip.truckId ? (await tx.select({ id: trucks.id, code: trucks.code }).from(trucks).where(eq(trucks.id, trip.truckId)).limit(1))[0] ?? null : null;
   const outlet = trip.destinationOutletId
-    ? (await tx.select({ name: outlets.name }).from(outlets).where(eq(outlets.id, trip.destinationOutletId)).limit(1))[0]
+    ? (await tx.select({ name: outlets.name, lat: outlets.lat, lng: outlets.lng }).from(outlets).where(eq(outlets.id, trip.destinationOutletId)).limit(1))[0]
     : null;
   return {
     trip,
@@ -272,6 +286,7 @@ export async function loadTripContext(tx: Tx, tripId: string, opts: { forUpdate?
     },
     truck,
     outletName: outlet?.name ?? null,
+    outletPoint: outlet && outlet.lat !== null && outlet.lng !== null ? { lat: outlet.lat, lng: outlet.lng } : null,
   };
 }
 

@@ -144,6 +144,8 @@ export async function buildToday(tx: Tx, ctx: ActorContext, since: Date | null, 
           coordinateStatus: customerAddresses.coordinateStatus,
           truckCode: trucks.code,
           outletName: outlets.name,
+          outletLat: outlets.lat,
+          outletLng: outlets.lng,
         })
         .from(trips)
         .innerJoin(orders, eq(orders.id, trips.orderId))
@@ -238,9 +240,10 @@ export async function buildToday(tx: Tx, ctx: ActorContext, since: Date | null, 
       addressLabel: r.addressLabel,
       addressText: r.addressText,
       addressShort: shortAddress(r.addressText),
-      lat: r.lat,
-      lng: r.lng,
-      coordinateLocked: r.coordinateStatus === "locked",
+      // B-48: rit internal → titik depot tujuan (acuan jarak Selesai & navigasi sama dengan M12 US-M12-04 KP-5).
+      ...(t.isInternal && r.outletLat !== null && r.outletLng !== null
+        ? { lat: r.outletLat, lng: r.outletLng, coordinateLocked: true }
+        : { lat: r.lat, lng: r.lng, coordinateLocked: r.coordinateStatus === "locked" }),
       requestedTime: r.requestedTime?.slice(0, 5) ?? null,
       customerNotes,
       addressNotes: r.addressNotes,

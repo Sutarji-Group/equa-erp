@@ -37,6 +37,7 @@ import {
   assertDayNotSubmitted,
   assertNotLocked,
   attachmentsOfKind,
+  deviationTarget,
   fieldValues,
   loadTripContext,
   m3Rules,
@@ -237,7 +238,9 @@ export async function arriveTrip(ctx: ActorContext, input: unknown, meta: M3Writ
     throw new DomainError("TRIP_STATUS", `Rit ${trip.number} berstatus ${label("trip_status", trip.status)} — catat Berangkat dulu sebelum Tiba.`);
   }
   const l = locValues(data.location);
-  const distance = l.lat !== null && tc.address.lat !== null && tc.address.lng !== null ? Math.round(haversineMeters({ lat: l.lat, lng: l.lng! }, { lat: tc.address.lat, lng: tc.address.lng })) : null;
+  // B-48: rit internal diukur ke depot tujuan; rit pelanggan ke titik alamat (Tiba: informasi, tanpa syarat Dikunci).
+  const arriveTarget = tc.trip.isInternal && tc.trip.destinationOutletId ? (tc.outletPoint ?? null) : tc.address.lat !== null && tc.address.lng !== null ? { lat: tc.address.lat, lng: tc.address.lng } : null;
+  const distance = l.lat !== null && arriveTarget ? Math.round(haversineMeters({ lat: l.lat, lng: l.lng! }, arriveTarget)) : null;
   const [updated] = await tx
     .update(trips)
     .set({
@@ -368,8 +371,10 @@ export async function completeTrip(ctx: ActorContext, input: unknown, meta: M3Wr
   // --- Lokasi (BR-23, PAR-16): server menghitung ulang — hasil server yang berlaku ---
   const l = locValues(data.location);
   let distance: number | null = null;
-  if (l.lat !== null && tc.address.coordinateLocked && tc.address.lat !== null && tc.address.lng !== null) {
-    distance = Math.round(haversineMeters({ lat: l.lat, lng: l.lng! }, { lat: tc.address.lat, lng: tc.address.lng }));
+  // B-48: rit internal → depot tujuan; rit pelanggan → alamat Dikunci (acuan sama dengan M12).
+  const target = deviationTarget(tc);
+  if (l.lat !== null && target) {
+    distance = Math.round(haversineMeters({ lat: l.lat, lng: l.lng! }, target));
   }
   const deviation: "none" | "level1" | "level2" = distance === null ? "none" : distance > rules.ownerReviewGtM ? "level2" : distance > rules.reasonRequiredGtM ? "level1" : "none";
   const clientNeedsReason = (data.clientDistanceM ?? 0) > rules.reasonRequiredGtM;

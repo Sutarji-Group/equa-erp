@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { attachments, crewAssignments, deposits, domainEvents, orders, scheduleChangeLogs, trips, tripStatusEvents } from "@/db/schema";
+import { attachments, crewAssignments, deposits, domainEvents, fleetEvents, orders, outlets, scheduleChangeLogs, trips, tripStatusEvents } from "@/db/schema";
 import { outletId } from "@/db/seed";
 import { addDays } from "@/lib/time";
 
@@ -309,5 +309,40 @@ describe("M3 — daftar rit, Berangkat/Tiba, Selesai (US-M3-01..03)", () => {
     await departArrive(w, a.id);
     expectApplied(await completeCash(w, a.id));
     expectRejected(await w.send(w.sopir, "m3.trip.depart", { tripId: a.id, location: HERE }), /sudah berstatus Selesai/);
+  });
+});
+
+describe("B-48 rit internal: tingkat penyimpangan lokasi Selesai M3 = M12 (acuan depot tujuan)", () => {
+  const t = useTestDb({ seed: true });
+  beforeAll(() => bootstrapForTests());
+
+  it("B-48 US-M12-04 KP-5 US-M3-03 KP-4 rit internal diukur ke koordinat depot tujuan (bukan alamat pesanan); tingkat M3 sama dengan kejadian M12; pull memakai titik depot", async () => {
+    const w = await driverWorld(t.db);
+    const [depot] = await t.db.select({ lat: outlets.lat, lng: outlets.lng }).from(outlets).where(eq(outlets.id, outletId("D05")));
+    const atDepot = { lat: depot!.lat!, lng: depot!.lng!, accuracyM: 8 };
+    const far = { lat: depot!.lat! + 1_500 / 111_320, lng: depot!.lng!, accuracyM: 8 };
+
+    const near = await w.addTrip({ isInternal: true, destinationOutletId: outletId("D05"), paymentMethod: "internal" });
+    const ref = (await w.today()).trips.find((x) => x.id === near.id)!;
+    expect(ref).toMatchObject({ lat: depot!.lat, lng: depot!.lng, coordinateLocked: true });
+    await departArrive(w, near.id);
+    expectApplied(await w.send(w.sopir, "m3.trip.complete", { tripId: near.id, recipientName: null, deliveredVolumeL: 5000, location: atDepot, clientDistanceM: 0, payment: { method: "none" } }, { attach: [PHOTO] }));
+    const [okRow] = await t.db.select().from(trips).where(eq(trips.id, near.id));
+    expect(okRow).toMatchObject({ locationDeviation: "none", completionDistanceM: 0 });
+
+    const away = await w.addTrip({ isInternal: true, destinationOutletId: outletId("D05"), paymentMethod: "internal" });
+    await departArrive(w, away.id);
+    // Perangkat menghitung jarak ke depot (> 1 km) → alasan wajib, sama dengan server.
+    expectRejected(await w.send(w.sopir, "m3.trip.complete", { tripId: away.id, recipientName: null, deliveredVolumeL: 5000, location: far, clientDistanceM: 1_500, payment: { method: "none" } }, { attach: [PHOTO] }), /pilih alasan/);
+    expectApplied(await w.send(w.sopir, "m3.trip.complete", { tripId: away.id, recipientName: null, deliveredVolumeL: 5000, location: far, clientDistanceM: 1_500, locationReason: "gps_inaccurate", payment: { method: "none" } }, { attach: [PHOTO] }));
+    const [row] = await t.db.select().from(trips).where(eq(trips.id, away.id));
+    expect(row!.locationDeviation).toBe("level2");
+    expect(row!.completionDistanceM).toBeGreaterThan(1_400);
+    const ev = (await t.db.select().from(domainEvents).where(and(eq(domainEvents.objectId, away.id), eq(domainEvents.type, "trip.completed"))))[0]!;
+    expect(ev.payload).toMatchObject({ isInternal: true, locationDeviation: "level2", distanceToAddressM: row!.completionDistanceM });
+    // M12 menghitung ulang terhadap depot yang sama → tingkat 2, jarak sama dengan M3.
+    const [fleet] = await t.db.select().from(fleetEvents).where(and(eq(fleetEvents.tripId, away.id), eq(fleetEvents.kind, "location_deviation_l2")));
+    expect(fleet?.distanceM).toBe(row!.completionDistanceM);
+    expect((fleet?.details as { targetKind?: string } | undefined)?.targetKind).toBe("depot");
   });
 });
