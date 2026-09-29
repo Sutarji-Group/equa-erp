@@ -162,3 +162,30 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
 - Bootstrap: `ensureBootstrapped()` juga di `getOfficeSession`, `listReports/getReport`, `listJobs/getJob`, `listSyncHandlerTypes/listPullProviders`, `queryForActor/describeAudit`; `src/instrumentation.ts` memanaskan registri. `ModuleRegistration.registerAudit` + stub `src/server/modules/<modul>/audit.ts` (label audit, `registerFinancialObjectType`, `registerAttachmentAccess`). Registrasi dicatat per modul (galat menyebut modulnya).
 - Klien: Dexie v2 (`moduleStore`; REGISTRI VERSI di db.ts — hanya core menaikkan versi), tanda tangan outbox (`signing.ts`, `rebindOutbox` saat login daring pemilik antrean), `nextDeviceSeq`/`seedDeviceSeqFloors`, `registerOptimistic`/`withOptimistic`.
 - Skema: `users.totp_failed_count` (baru), `document_sequences.tenant_id` NOT NULL (indeks global lama dihapus lewat pre-push.sql).
+
+## S5 pengerasan (paket A) — tambahan inti (hanya tambah, dilaporkan)
+
+- **Auth (B-08)**: `src/server/core/auth/password-change.ts` — `changeOwnPassword(token, input, meta?)`,
+  `passwordPageState(token)`, `passwordChangeRequired(db, userId)`, `FORCED_CHANGE_PASSWORD_URL`. `must_change_password`
+  → `requireOfficeSession`/`requirePortalSession` mengalihkan ke `/akun/kata-sandi`, `webActorFromToken` menolak pelaku
+  (API). Halaman `src/app/(auth)/akun/kata-sandi/*`, formulir `components/auth/change-password-form.tsx`; matcher proxy
+  `/akun/:path*`.
+- **Audit (B-09)**: `queryForActor` menyamarkan data pribadi pelanggan yang sudah dianonimkan (`maskAnonymizedPii`,
+  `AUDIT_CUSTOMER_PII_KEYS`, `AUDIT_PII_MASK`) bagi semua peran kecuali pemilik.
+- **Hardening (B-59)**: `IMMUTABLE_COLUMN_GUARDS.daily_summaries` (saat `OLD.status <> 'running'`: `snapshot` dkk.
+  terkunci, EQ003) + `hardening.sql`.
+- **Notifikasi (B-60)**: `access.request_pending` = alias terdokumentasi (tidak dikirim; `approval.requested`).
+- **RBAC (B-71)**: `ConditionalGrantCondition` + syarat `partner_portal_phase3` di `CONDITIONAL_GRANTS`;
+  `AuthorizeConditions.partner_portal_phase3`.
+- **PWA (B-68)**: `src/app/sw.ts` menangani `push` & `notificationclick` (`src/lib/push-notification.ts`:
+  `buildPushNotification`, `safeNotificationPath` — hanya jalur internal asal yang sama).
+- **WA (B-69)**: `getWhatsAppProvider()` mode Cloud API mendukung pesan template (`templateName`, bahasa `id`);
+  `WA_WEBHOOK_VERIFY_TOKEN` & `WA_APP_SECRET` di `serverEnv()` (wajib bila `WA_PROVIDER=cloud_api` di produksi/preview),
+  `waWebhookSecrets()`; `.env.example`.
+- **Proxy (B-70)**: matcher `/mitra/:path*` (tanpa cookie → `/mitra/masuk`; halaman publik portal dilewatkan).
+- **Event (B-34, B-65)**: field opsional `trip.completed.prepaidAmount/prepaidReference`,
+  `trip.payment_recorded.prepaidAmount`, `trip.corrected.{correctionId,tripNumber,businessDate,approvalId,advanceAmount}`,
+  `trip_payment.reversed.{tripNumber,businessDate,driverUserId,depositId,approvalId}`, `credit_note.issued.purpose`
+  + `trip_correction`.
+- **Nav (B-34)**: `m3.corrections` → `/sopir-kantor/koreksi` (izin `m3.trip.correct`).
+

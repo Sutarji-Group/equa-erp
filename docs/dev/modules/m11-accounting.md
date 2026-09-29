@@ -141,3 +141,12 @@ bank), jurnal berulang sewa kantor (K15), 2 aset tetap (truk T1, peralatan D01).
 Integrasi M9 + M11: laporan M11 `m11.profit_loss`, `m11.balance_sheet`, `m11.cash_flow`, `m11.journals` tampil di katalog
 laporan M9 (`/laporan/katalog`); `period.locked` → M9 menyimpan versi Final laba kotor bulanan (revisi saat dikunci
 ulang). Uji `tests/integration/m9-m11.test.ts` (jurnal otomatis → angka M9 = laba rugi M11 per lini).
+
+S5 paket A (B-34, dilaporkan — perubahan kecil di `service/auto-journals.ts`): jurnal `trip.corrected` kini memakai
+tanggal bisnis payload, nomor rit di uraian, dan baris tambahan `collection.recorded/advance` (D 1-1401 / K 2-1201)
+sebesar `advanceAmount` bila harga rit turun melebihi piutang rit terbuka (bagian itu menjadi uang muka pelanggan di M5);
+`credit_note.issued` purpose `trip_correction` DILEWATI (pendapatan & piutang sudah dikoreksi oleh `trip.corrected`,
+hindari posting ganda). `trip_payment.reversed` tidak berubah. Uji `tests/integration/m3-corrections.test.ts`.
+Untuk paket B (B-65): `trip.completed` rit prabayar digital membawa `prepaidAmount` — jurnal D 2-1201 / K 4-1101 L2
+belum dibuat (kini jurnal `trip.completed` digital tanpa baris → dilewati); kontrak di `docs/dev/modules/m3-driver.md` §2.
+

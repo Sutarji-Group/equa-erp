@@ -42,7 +42,7 @@ function digits(text: string | null): number {
 
 test.describe("M6 — POS depot di tablet (offline-first)", () => {
   test.setTimeout(240_000);
-  test("US-M6-01 KP-1/KP-2 US-M6-02 KP-1/KP-3 US-M6-03 KP-1 US-M6-06 KP-1/KP-2 aktivasi tablet POS → PIN → buka shift → jual tunai → jual QRIS saat offline → terkirim → void + pengganti → tutup shift → serah setoran", async ({
+  test("B-03 US-M10-07 KP-3 US-M6-01 KP-1/KP-2 US-M6-02 KP-1/KP-3 US-M6-03 KP-1 US-M6-06 KP-1/KP-2 aktivasi tablet POS → PIN → buka shift → jual tunai → jual QRIS saat offline → terkirim → void + pengganti → tutup shift → serah setoran", async ({
     page,
     context,
   }) => {
@@ -133,5 +133,11 @@ test.describe("M6 — POS depot di tablet (offline-first)", () => {
     await handover.getByRole("button", { name: "Tandai sudah disetor" }).click();
     await expect(handover).toContainText("Setoran ditandai Disetor");
     await expect(page.getByText("Semua terkirim")).toBeVisible({ timeout: 30_000 });
+
+    // B-03 (US-M10-07 KP-3): menu Bantuan POS — laporan kendala aplikasi (antrean offline) & status sinkron.
+    await page.getByRole("navigation", { name: "Menu POS" }).getByRole("button", { name: "Bantuan" }).click();
+    const help = page.getByTestId("bantuan-pos");
+    await expect(help).toContainText("Laporkan kendala aplikasi");
+    await expect(help).toContainText("Semua data sudah terkirim.");
   });
 });

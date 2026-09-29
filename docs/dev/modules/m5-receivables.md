@@ -159,8 +159,17 @@ Ikon tombol klien dikirim sebagai ELEMEN (`icon={<MessageCircle aria-hidden />}`
 
 - **M1**: ringkasan kartu pelanggan menghitung piutang langsung dari `invoices` (tanpa rit belum ditagih) — ganti ke
   `getReceivableBalance(tx, id).balance` (US-M5-01 KP-3).
-- **M3**: aplikasi sopir belum menampilkan pull `m5.customer_credit` (status kredit/saldo di rincian rit, US-M5-01 KP-3);
-  `trip.corrected` / `trip_payment.reversed` belum dipancarkan M3 → koreksi rit setelah faktur terbit belum diteruskan.
+- ~~**M3**: aplikasi sopir belum menampilkan pull `m5.customer_credit`; `trip.corrected` / `trip_payment.reversed`
+  belum dipancarkan M3~~ — SELESAI S5 paket A (B-33, B-34). Tambahan M5 (berkas baru `service/trip-corrections.ts`,
+  handler `m5-receivables:trip_corrected` & `m5-receivables:trip_payment_reversed`, ekspor `tripOpenReceivable`):
+  koreksi harga naik → faktur koreksi jenis `underpayment` (atau `unbilled_charges` naik bila tagihan bulanan belum
+  terbit); turun → kurangi belum ditagih, nota kredit purpose baru `trip_correction` atas faktur rit bersisa, sisanya
+  (`trip.corrected.advanceAmount`) uang muka; pembalik pembayaran tunai/transfer rit → faktur koreksi sebesar uang yang
+  dibalik. Idempoten per `correctionId`/`reversalId` (tertulis `[kunci]` di keterangan dokumen). Uji
+  `tests/integration/m3-corrections.test.ts`.
+- **B-65 (untuk paket B, kontrak di `docs/dev/modules/m3-driver.md` §2)**: rit prabayar digital Selesai memancarkan
+  `trip.completed.prepaidAmount` (`paymentMethod: "digital"`, tanpa kurang bayar) — M5 perlu memakai uang muka
+  pelanggan sebesar itu (bukan faktur).
 - **M4**: berlangganan `collection.recorded` kanal `office` (tunai → kas kantor; transfer → pencocokan; `internal` =
   tanpa kas), `payment.reversed`, `customer_advance.refunded`; pancarkan `transfer.not_found` / `transfer.matched`
   dengan `customerId` & `sourceKind` — SELESAI (integrasi M4+M5, `tests/integration/m4-m5.test.ts`).

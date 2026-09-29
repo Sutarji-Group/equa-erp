@@ -140,3 +140,18 @@ status kredit pelanggan mitra (batas kredit kontrak).
   sudah otomatis dari `pos_sale.recorded` harga mitra.
 - **Proxy:** `/mitra/*` tidak masuk matcher `src/proxy.ts` (berkas bersama); portal memeriksa sesi di layout server.
 - UAT: uji penetrasi lintas tenant manual sebelum mitra pertama (9.6) melengkapi uji otomatis `tests/p3-partner/portal.test.ts`.
+
+## 9. Pengerasan S5 (paket A)
+- **B-72 SELESAI**: `<PosQualityChecklist />` terpasang di POS depot M6 — layar buka shift (menu Jual & Shift, `shiftId`
+  null) dan menu Shift (shift terbuka). Menyembunyikan diri untuk outlet EQUA / flag Tahap 3 mati.
+- **B-73 SELESAI**: POS toko M7 menampilkan pull `p3.store_partner_orders` + "Isi keranjang" harga mitra
+  (`partner-orders-panel.tsx`); konfirmasi tetap otomatis dari `pos_sale.recorded`. Uji `tests/m7-store/partner-orders.test.ts`.
+- **B-70 SELESAI** (D-11 butir 2): `/mitra/:path*` masuk matcher `src/proxy.ts` — tanpa cookie → `/mitra/masuk`
+  (halaman publik portal `masuk`/`daftar`/`keluar` dilewatkan); pemeriksaan sesi sebenarnya tetap di layout server.
+  Uji `tests/core/proxy.test.ts`.
+- **B-71 SELESAI** (D-11 butir 1): `authorizePortalAction` kini memanggil `authorize(..., { conditions:
+  { partner_portal_phase3 } })` terhadap izin bersyarat katalog (`CONDITIONAL_GRANTS`, tampil di ekspor matriks);
+  syarat tidak terpenuhi → ditolak & tercatat di log akses seperti izin lain.
+- B-08: portal mitra memaksa ganti kata sandi sementara (`requirePortalSession` → `/akun/kata-sandi`) dan menyediakan
+  tombol "Ubah kata sandi" di kepala portal.
+

@@ -129,7 +129,10 @@ Filter umum `from`, `to`, `sourceId`, `outletId`.
   `fill_without_geofence` → handler `m8-production:geofence` menandai `geofence_mismatch` (badge "Tidak cocok geofence"
   di `/produksi/pengisian` & rincian neraca). Uji `tests/integration/m8-m12.test.ts`. Terbuka: kejadian
   `geofence_without_fill` (truk di sumber tanpa pengisian) belum ditampilkan di rincian neraca/investigasi susut
-  (`m12.geofenceFlagsFor`) — backlog B-45.
+  (`m12.geofenceFlagsFor`) — backlog B-45. **SELESAI (S5 paket A):** `/produksi/neraca-air/rincian` menampilkan bagian
+  "Penanda geofence armada" dari `m12.geofenceFlagsForSourceDay(ctx, { sourceId, date })` (`geofence_without_fill` truk
+  di sumber tanpa pengisian + `supply_without_geofence` pasokan depot dari sumber itu) di samping penanda per pengisian;
+  uji `tests/integration/m8-m12.test.ts` (B-45 US-M12-06 KP-4).
 - M9: ringkasan H+0 memakai `utilizationFlags` & `water_balance.computed` (belum dibangun).
 - Foto pembacaan demo tidak disertakan (seed tanpa berkas); unggahan foto kantor (koreksi, sertifikat) lewat Server
   Action tunduk batas 1 MB bawaan Next (B-18).

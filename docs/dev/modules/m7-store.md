@@ -94,6 +94,17 @@ usulan. Reducer optimistis: `registerStoreOptimistic()`.
 | `/toko/utang` | `m7.supplier_payable.read` | Umur utang, nota terbuka, bayar (+bukti), balik pembayaran. |
 | `/toko/laporan` | `m7.report.read` / `m7.product_performance.read` | Laris/mati & margin (pemilik), mitra, diskon, transfer, opname, retur pelanggan (FA). |
 
+## 7a. POS toko — tambahan S5
+
+- Menu **Bantuan** (B-03): `PosHelpView` M6 (`<FieldSupportPanel />` M10 + status sinkron) — sama dengan POS depot.
+- **Riwayat** memuat `<MyCashCard />` M4 (hasil setoran shift toko, keputusan selisih, sisa ganti rugi kasir — B-28) lewat
+  `HistoryView` M6 yang dipakai bersama.
+- **Pesanan spare part mitra** (B-73, US-P3-03 KP-3): layar Jual menampilkan pull P3 `p3.store_partner_orders`
+  (`partner-orders-panel.tsx`; lencana jumlah di menu Jual). "Isi keranjang" memasang ulang `StoreSaleView` dengan
+  `prefill` (pelanggan mitra + barang pesanan, harga mitra master saat ini, jumlah dibatasi stok perangkat; kendala
+  ditampilkan) — `partnerOrderCart` di `src/client/m7-store/contract.ts`. Konfirmasi pesanan tetap otomatis di server
+  (`pos_sale.recorded` harga mitra → P3). Uji `tests/m7-store/partner-orders.test.ts`.
+
 ## 8. Uji & data demo
 
 - Vitest `tests/m7-store/*.test.ts` — setiap KP bertanda `US-M7-0x KP-n`; toko uji baru per kasus (`makeStore`) agar
@@ -108,6 +119,8 @@ usulan. Reducer optimistis: `registerStoreOptimistic()`.
   (manual) dengan batas & tempo dari perjanjian di master pelanggan (M1). Belum ada tautan otomatis perjanjian → batas.
 - Pesan sukses Server Action hilang bila formulirnya ikut hilang setelah revalidasi (mis. terima nota pengganti);
   status baru tetap terlihat di halaman (ringkasan/daftar).
+- (S5, B-25) Perluasan M7 atas berkas M6 sudah ditinjau pemilik M6 — tanpa regresi depot (lihat
+  `docs/dev/modules/m6-pos.md` §12, uji `tests/m6-pos/store-extension-regression.test.ts`).
 - Nomor faktur tempo di struk bergantung M5 (`pos_sales.invoice_id`); sampai M5 ada, struk menulis "terbit setelah terkirim".
 - Pembayaran pemasok belum membuat mutasi kas kantor/bank — M4 berlangganan `supplier_payment.recorded`.
 - `docs/ARCHITECTURE.md` §8 perlu menambahkan `store_return.recorded` (berkas milik PM).

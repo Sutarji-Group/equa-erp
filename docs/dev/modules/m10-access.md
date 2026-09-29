@@ -137,3 +137,24 @@ PAR-52, PAR-87, `app.min_supported_version`, `notifications.digest_recipients`.
 - Aplikasi lapangan (M3/M6/M8) perlu memasang `<FieldSupportPanel />` di menu Bantuan.
 - Jejak audit menyimpan riwayat nilai lama (termasuk data pribadi sebelum anonimisasi) — append-only NFR-11; dicatat
   sebagai risiko kepatuhan untuk komite (penyamaran per kolom di jejak audit butuh keputusan PM).
+
+## Pengerasan S5 (paket A) — status butir di atas
+- **B-08 SELESAI**: login web/portal dengan `must_change_password = true` → sesi hanya membuka `/akun/kata-sandi`
+  (`requireOfficeSession`/`requirePortalSession` mengalihkan; `webActorFromToken` menolak API). Ubah kata sandi mandiri
+  untuk SEMUA pengguna web (menu pengguna kantor "Ubah kata sandi", tombol di portal mitra): `changeOwnPassword(token,
+  input)` di `src/server/core/auth/password-change.ts` — kata sandi saat ini wajib, ≥ 10 karakter, beda dari lama &
+  nama pengguna; sesi web lain dicabut; jejak audit + log akses `password_changed`; salah kata sandi dihitung PAR-36.
+  Uji `tests/core/auth-password-change.test.ts`, E2E `e2e/m10-access.spec.ts`.
+- **B-09 SELESAI** (D-09 butir 1): `queryForActor` (halaman `/audit`, ekspor `core.audit_log`) menyamarkan nilai data
+  pribadi (`AUDIT_CUSTOMER_PII_KEYS`) pada baris milik pelanggan yang sudah dianonimkan bagi semua peran KECUALI pemilik
+  (`maskAnonymizedPii`, dapat dipakai modul lain). Jejak tetap append-only. Uji `tests/m10-access/audit-pii.test.ts`.
+- **B-42 SELESAI**: `/akses/perangkat/[id]` perangkat GPS menyematkan `GpsHealthCard` M12 (`getGpsDeviceHealth`, izin
+  `m12.fleet_event.read`); job `m10.monitor.health` hanya MENGHITUNG GPS mati untuk ringkasan — insiden & peringatan
+  `gps.device_dead` milik M12 (tidak ada ganda). Uji `tests/m10-access/monitoring.test.ts`.
+- **B-60 SELESAI** (D-10 butir 5): `access.request_pending` dipertahankan sebagai alias terdokumentasi di katalog
+  (komentar), tidak dikirim; permintaan akses tetap `approval.requested` (satu notifikasi). Uji
+  `tests/m10-access/notification-alias.test.ts`.
+- **B-71 SELESAI** (D-11 butir 1): izin portal Tahap 3 terdaftar sebagai izin bersyarat `partner_portal_phase3` di
+  `CONDITIONAL_GRANTS` (tampil "Bersyarat" di ekspor matriks peran). Uji `tests/core/rbac.test.ts`.
+- `<FieldSupportPanel />` kini terpasang di /sopir (M3), /produksi (M8), dan /pos depot & toko (M6/M7, B-03).
+

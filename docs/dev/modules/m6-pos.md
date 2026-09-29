@@ -101,7 +101,11 @@ diatur pemilik di `/outlet/[id]?tab=pengaturan` (`setOutletThreshold` → `param
 
 ## 9. Rute UI
 
-- PWA: `/pos` (FieldGate + PIN; menu Jual, Shift & void, Pasokan air, Stok bahan, Riwayat + antrean data).
+- PWA: `/pos` (FieldGate + PIN; menu Jual, Shift & void, Pasokan air, Stok bahan, Riwayat + antrean data, Bantuan).
+  Tambahan S5: menu **Bantuan** (`help-view.tsx`: `<FieldSupportPanel />` M10 + status sinkron & Kirim sekarang — B-03,
+  dipakai juga layar toko M7); **Riwayat** memasang `<MyCashCard />` M4 (hasil setoran, keputusan selisih, sisa ganti
+  rugi — B-28, depot & toko); layar buka shift & menu Shift memasang `<PosQualityChecklist shiftId />` P3 (daftar periksa
+  mutu harian outlet mitra, US-P3-05 KP-1 — B-72; komponen menyembunyikan diri untuk outlet EQUA / flag Tahap 3 mati).
 - Kantor: `/outlet` (pemantauan per outlet, konflik shift), `/outlet/[id]` (`?tab=ringkasan|shift|transaksi|stok|air|
   opname|pengaturan`), `/outlet/shift/[id]` (angka, status sinkron, pembalik FA), `/outlet/laporan`
   (`?tab=harian|void|pemakaian|air|pasokan|shift|opname`), `/outlet/tenant` (izin `m10.tenant.read`; buat tenant
@@ -135,3 +139,20 @@ diatur pemilik di `/outlet/[id]?tab=pengaturan` (`setOutletThreshold` → `param
 - Belum ada layar kantor untuk stok air awal depot (seed demo mengisi D02/D03).
 - Portal pemilik mitra (P3) sebaiknya memakai fungsi laporan M6 di atas (izin `p3.partner_report.read` sudah diterima).
 - Seed demo menulis langsung (tanpa event): modul lain tidak menerima `shift.closed` untuk shift demo D02.
+
+## 12. Tinjauan pemilik M6 atas perluasan M7 (S5, B-25)
+
+Ditinjau: `service/policy.ts` (kait `validateSale`/`afterSalePending`/`resolvePriceKind`, `paymentMethods`,
+`allowsDiscount`), `service/sales.ts` (skema menerima `credit`/diskon/`requestApproval`/`creditOffline`, status
+`pending_approval` + `completePendingSale`/`rejectPendingSale`, efek transaksi dipindah ke `applySaleEffects`),
+`index.ts` (ekspor tambahan), klien `contract.ts`/`optimistic.ts` (diskon & status menunggu), `pos-app.tsx`
+(`PosScreen` diekspor), `(field)/pos/page.tsx` → `PosEntry` (toko → layar M7, selain itu depot). Kesimpulan: **tidak ada
+regresi depot** — kebijakan depot tidak menerima tempo/diskon/pelanggan dan tidak mengembalikan keputusan
+`pending_approval`, sehingga `requestApproval`/`customerId` dari perangkat depot diabaikan dan transaksi langsung Sah
+dengan harga standar; urutan jejak audit → efek → `pos_sale.recorded` tetap satu transaksi. Uji regresi:
+`tests/m6-pos/store-extension-regression.test.ts` (B-25). Catatan kecil (tidak diubah): `completePendingSale` /
+`rejectPendingSale` memakai jam server untuk `updated_at` (kolom teknis kursor pull), sama dengan jalur void lain.
+Butir §11 yang sudah selesai di integrasi: `correction` lintas modul (D-09 butir 3), `createUser`/`registerDevice` tenant
+mitra (B-07), `isShiftFullySynced` (B-04), `trip.completed` internal (B-01), stok air awal depot (B-10), laporan portal
+(B-13).
+

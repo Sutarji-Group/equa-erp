@@ -47,7 +47,7 @@ async function addProduct(page: Page, query: string, name: RegExp): Promise<void
 
 test.describe("M7 — POS toko di tablet (offline-first)", () => {
   test.setTimeout(240_000);
-  test("US-M7-01 KP-1/KP-2/KP-3/KP-4 US-M7-04 KP-2 US-M7-03 KP-2 US-M7-09 KP-1/KP-2 aktivasi tablet toko → PIN → buka shift → jual harga mitra → jual umum berdiskon saat offline → tempo mitra → tandai pesan ulang → tutup shift & setoran", async ({
+  test("B-03 US-M10-07 KP-3 US-M7-01 KP-1/KP-2/KP-3/KP-4 US-M7-04 KP-2 US-M7-03 KP-2 US-M7-09 KP-1/KP-2 aktivasi tablet toko → PIN → buka shift → jual harga mitra → jual umum berdiskon saat offline → tempo mitra → tandai pesan ulang → tutup shift & setoran", async ({
     page,
     context,
   }) => {
@@ -138,5 +138,9 @@ test.describe("M7 — POS toko di tablet (offline-first)", () => {
     await expect(handover).toBeVisible({ timeout: 30_000 });
     await expect(handover).toContainText(rp("30.200"));
     await expect(page.getByText("Semua terkirim")).toBeVisible({ timeout: 30_000 });
+
+    // B-03 (US-M10-07 KP-3): menu Bantuan POS toko (kerangka POS yang sama dengan depot).
+    await page.getByRole("navigation", { name: "Menu POS toko" }).getByRole("button", { name: "Bantuan" }).click();
+    await expect(page.getByTestId("bantuan-pos")).toContainText("Laporkan kendala aplikasi");
   });
 });
