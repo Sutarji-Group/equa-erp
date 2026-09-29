@@ -20,10 +20,11 @@ import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { formatTanggal, formatTanggalJam, isBusinessDate } from "@/lib/time";
 import { requirePermission } from "@/server/core/auth/office";
+import { isEmailDeliveryConfigured } from "@/server/core/notifications";
 import { can } from "@/server/core/rbac";
 import * as m5 from "@/server/modules/m5-receivables";
 
-import { deferHoldAction, endDeferralAction, releaseHoldAction, requestHoldReleaseAction, sendStatementAction } from "../../actions";
+import { deferHoldAction, emailStatementAction, endDeferralAction, releaseHoldAction, requestHoldReleaseAction, sendStatementAction } from "../../actions";
 
 export const metadata: Metadata = { title: "Kartu piutang" };
 
@@ -56,6 +57,7 @@ export default async function CustomerCardPage({ params, searchParams }: { param
   const canRequest = can(ctx, "m5.credit_hold.release_request");
   const canDefer = can(ctx, "m5.credit_hold.defer");
   const canSend = can(ctx, "m5.invoice.send");
+  const emailServer = isEmailDeliveryConfigured();
   const canExport = can(ctx, "m5.aging.export");
 
   return (
@@ -72,7 +74,23 @@ export default async function CustomerCardPage({ params, searchParams }: { param
             {statement?.customer.monthlyBilling ? <ToneBadge tone="info">Tagihan bulanan</ToneBadge> : null}
           </div>
         }
-        actions={canSend && statement ? <M5ActionButton label="Kirim pernyataan piutang (WA)" icon={<MessageCircle aria-hidden />} action={sendStatementAction.bind(null, id)} testId="kirim-pernyataan" /> : null}
+        actions={
+          canSend && statement ? (
+            <div className="flex flex-wrap items-start gap-2">
+              <M5ActionButton label="Kirim pernyataan piutang (WA)" icon={<MessageCircle aria-hidden />} action={sendStatementAction.bind(null, id)} testId="kirim-pernyataan" />
+              <details className="relative">
+                <summary className="inline-flex h-8 cursor-pointer items-center rounded-md border px-3 text-sm font-medium" data-testid="kirim-pernyataan-email">
+                  Kirim lewat e-mail
+                </summary>
+                <div className="absolute right-0 z-10 mt-2 w-80 rounded-md border bg-popover p-3 shadow-md">
+                  <M5ActionForm action={emailStatementAction.bind(null, id)} submitLabel={emailServer ? "Kirim dengan PDF" : "Buka draf e-mail"} testId="form-email-pernyataan">
+                    <FormInput label="E-mail pelanggan" name="email" type="email" required={emailServer} hint={emailServer ? "PDF kartu piutang terlampir otomatis (tercatat di log ekspor)." : "Pengirim e-mail server belum aktif: draf e-mail dibuka."} />
+                  </M5ActionForm>
+                </div>
+              </details>
+            </div>
+          ) : null
+        }
       />
 
       {exposure ? (

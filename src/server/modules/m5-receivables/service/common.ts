@@ -169,3 +169,15 @@ export function invoiceLink(id: string): string {
 export function customerCardLink(id: string): string {
   return `/piutang/pelanggan/${id}`;
 }
+
+/**
+ * Label cara kirim faktur (`invoices.sent_via`, B-36): `email` = terkirim dari server dengan PDF terlampir; `email_link` =
+ * draf e-mail dibuka di perangkat pengguna (belum pasti terkirim); `wa` = tautan WhatsApp dibuka.
+ */
+export function invoiceSentViaLabel(via: string | null | undefined): string {
+  if (!via) return "";
+  if (via === "email") return "E-mail (terkirim, PDF terlampir)";
+  if (via === "email_link") return "Draf e-mail (dibuka)";
+  if (via === "wa") return "WhatsApp (dibuka)";
+  return via;
+}

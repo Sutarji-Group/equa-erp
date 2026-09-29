@@ -21,10 +21,11 @@ import { formatRupiah } from "@/lib/money";
 import { formatTanggal, formatTanggalJam } from "@/lib/time";
 import { requirePermission } from "@/server/core/auth/office";
 import { NotFoundError } from "@/server/core/errors";
+import { isEmailDeliveryConfigured } from "@/server/core/notifications";
 import { can } from "@/server/core/rbac";
 import * as m5 from "@/server/modules/m5-receivables";
 
-import { cancelOpeningAction, convertUnderpaymentAction, creditNoteAction, decideDisputeAction, disputeInvoiceAction, sendInvoiceAction } from "../../actions";
+import { cancelOpeningAction, convertUnderpaymentAction, creditNoteAction, decideDisputeAction, disputeInvoiceAction, emailInvoiceAction, sendInvoiceAction } from "../../actions";
 
 export const metadata: Metadata = { title: "Rincian faktur" };
 
@@ -50,6 +51,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   if (!d) notFound();
   const inv = d.invoice;
   const canSend = can(ctx, "m5.invoice.send");
+  // B-36: e-mail dari server (Resend + PDF) bila dikonfigurasi; bila tidak, draf e-mail (mailto).
+  const emailServer = isEmailDeliveryConfigured();
   const canDispute = can(ctx, "m5.invoice.dispute");
   const canDecide = can(ctx, "m5.dispute.decide");
   const canCredit = can(ctx, "m5.credit_note.create");
@@ -89,7 +92,17 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             {canSend ? (
               <>
                 <M5ActionButton label="Kirim WA" icon={<MessageCircle aria-hidden />} action={sendInvoiceAction.bind(null, inv.id, "wa")} testId="kirim-wa-faktur" />
-                <M5ActionButton label="Kirim e-mail" icon={<Mail aria-hidden />} action={sendInvoiceAction.bind(null, inv.id, "email")} testId="kirim-email-faktur" />
+                <details className="relative">
+                  <summary className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md border px-3 text-sm font-medium" data-testid="kirim-email-faktur">
+                    <Mail className="size-4" aria-hidden />
+                    Kirim e-mail
+                  </summary>
+                  <div className="absolute right-0 z-10 mt-2 w-80 rounded-md border bg-popover p-3 shadow-md">
+                    <M5ActionForm action={emailInvoiceAction.bind(null, inv.id)} submitLabel={emailServer ? "Kirim dengan PDF" : "Buka draf e-mail"} testId="form-email-faktur">
+                      <FormInput label="E-mail pelanggan" name="email" type="email" required={emailServer} hint={emailServer ? "PDF faktur terlampir otomatis." : "Pengirim e-mail server belum aktif: draf e-mail dibuka, lampirkan PDF dari tombol Unduh PDF."} />
+                    </M5ActionForm>
+                  </div>
+                </details>
               </>
             ) : null}
           </div>
@@ -125,7 +138,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             { label: "Nota kredit", value: inv.creditedAmount ? formatRupiah(inv.creditedAmount) : null },
             { label: "Dihapusbukukan (PTB-28)", value: inv.writtenOffAmount ? formatRupiah(inv.writtenOffAmount) : null },
             { label: "Sisa", value: <span data-testid="sisa-faktur">{formatRupiah(inv.outstandingAmount)}</span> },
-            { label: "Dikirim", value: inv.sentAt ? `${formatTanggalJam(inv.sentAt)} lewat ${inv.sentVia === "email" ? "e-mail" : "WhatsApp"}` : "Belum dikirim" },
+            { label: "Dikirim", value: inv.sentAt ? `${formatTanggalJam(inv.sentAt)} lewat ${m5.invoiceSentViaLabel(inv.sentVia).toLowerCase()}` : "Belum dikirim" },
             ...(disputed || inv.disputeStatus !== "none"
               ? [{ label: "Sengketa", value: inv.disputeNote ?? "", hint: inv.disputeUntil ? `Pengingat & penahanan ditunda sampai ${formatTanggal(inv.disputeUntil, { weekday: false })} (PAR-45)` : undefined, full: true }]
               : []),

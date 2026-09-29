@@ -13,6 +13,7 @@ import { formatTanggal } from "@/lib/time";
 import { registerReport } from "@/server/core/export";
 
 import { agingReport, customerStatement } from "./service/aging";
+import { invoiceSentViaLabel } from "./service/common";
 import { creditEligibleCustomers, creditStatusBoard } from "./service/credit-hold";
 import { listInvoices } from "./service/invoices";
 import { monthlyBoard } from "./service/monthly";
@@ -228,7 +229,7 @@ export function registerReports(): void {
       { key: "amount", header: "Nilai", type: "rupiah", total: true },
       { key: "outstandingAmount", header: "Sisa", type: "rupiah", total: true },
       { key: "sentAt", header: "Dikirim", type: "datetime" },
-      { key: "sentVia", header: "Lewat" },
+      { key: "sentVia", header: "Lewat", value: (r) => invoiceSentViaLabel(r.sentVia as string | null) },
     ],
     fetch: async (ctx, _f, { tx }) => {
       const b = await monthlyBoard(ctx, { tx });

@@ -32,13 +32,16 @@ status berubah **Dibuka**. Faktur bersengketa **Ditunda**. Pelanggan tagihan bul
   rit tetap tercatat tunai (tanpa uang berpindah).
 
 **Faktur.** Saring per status/jenis/pelanggan/lewat tempo. Di rincian faktur: **Unduh PDF**, **Kirim WA**, **Kirim
-e-mail**; **Terbitkan nota kredit** (alasan wajib); **Tandai bersengketa** bila pelanggan membantah volume/harga (pengingat &
+e-mail** (isi alamat e-mail pelanggan → bila pengirim e-mail server aktif, faktur terkirim dengan **PDF terlampir** dan
+tercatat "terkirim"; bila belum aktif, draf e-mail terbuka di perangkat Anda — lampirkan PDF dari **Unduh PDF**, tercatat
+"draf dibuka"); **Terbitkan nota kredit** (alasan wajib); **Tandai bersengketa** bila pelanggan membantah volume/harga (pengingat &
 penahanan faktur itu ditunda maks. PAR-45 hari sampai pemilik memutuskan); faktur kurang bayar yang disetujui menjadi
 tempo → **Konversi ke tempo**.
 
 **Umur piutang & kartu piutang.** Umur per pelanggan (belum jatuh tempo, 1–7, 8–30, > 30 hari), per segmen dan per lini,
 plus **% lewat tempo (KPI-04)** dibanding sasaran. Klik pelanggan → **kartu piutang** (faktur, pelunasan, nota kredit,
-uang muka; saldo berjalan) → **Kirim pernyataan piutang (WA)**. Ekspor Excel/PDF berisi data pelanggan: isi **Tujuan
+uang muka; saldo berjalan) → **Kirim pernyataan piutang (WA)** atau **Kirim lewat e-mail** (PDF kartu piutang terlampir bila pengirim server aktif;
+tercatat di log ekspor karena berisi data pelanggan). Ekspor Excel/PDF berisi data pelanggan: isi **Tujuan
 ekspor** terlebih dulu (tercatat).
 
 **Faktur bulanan.** Tanggal 1: faktur bulan lalu terbit otomatis → daftar **Siap kirim** → **WA** / **E-mail** hari

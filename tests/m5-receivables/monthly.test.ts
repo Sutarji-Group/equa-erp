@@ -174,7 +174,9 @@ describe("US-M5-06 Faktur bulanan untuk pelanggan tagihan bulanan", () => {
     const mail = await m5.sendInvoice(finance(), { invoiceId: inv.invoiceId, via: "email" });
     expect(mail.link).toMatch(/^mailto:\?subject=/);
     expect(decodeURIComponent(mail.link!)).toContain(inv.number);
-    expect(await invoiceRow(t.db, inv.invoiceId)).toMatchObject({ sentVia: "email" });
+    // B-36: draf e-mail tercatat "dibuka" (email_link), bukan "terkirim".
+    expect(await invoiceRow(t.db, inv.invoiceId)).toMatchObject({ sentVia: "email_link" });
+    expect(m5.invoiceSentViaLabel("email_link")).toBe("Draf e-mail (dibuka)");
     // Hanya Admin Keuangan yang mengirim; Dispatcher tidak melihat daftar.
     await expect(m5.sendInvoice(owner(), { invoiceId: inv.invoiceId, via: "wa" })).rejects.toThrow();
     await expect(m5.monthlyBoard(dispatcher())).rejects.toThrow();

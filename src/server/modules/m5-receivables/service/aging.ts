@@ -277,22 +277,29 @@ export async function customerStatement(ctx: ActorContext, customerId: string, i
 }
 
 /** Kirim kartu piutang sebagai pernyataan piutang lewat WA (tercatat). */
+/** Teks pernyataan piutang dari template + subjek e-mail (dipakai `sendStatement` & `emailStatement`, B-36). */
+export async function statementMessage(tx: Tx, ctx: ActorContext, customerId: string) {
+  const today = ctxBusinessDate(ctx);
+  const c = await loadCustomer(tx, customerId, { ctx });
+  const st = await computeStatement(tx, c.id, { from: addDays(today, -365), to: today, asOf: today });
+  const tpl = await activeTemplate(tx, c.tenantId, "statement");
+  const company = await companyName(tx, c.tenantId, today);
+  const { text } = renderTemplate(tpl.body, {
+    nama_pelanggan: c.name,
+    tanggal: formatTanggal(today, { weekday: false }),
+    saldo: formatRupiah(st.closingBalance + st.unbilled),
+    jumlah_faktur: st.openInvoices.length,
+    rincian: st.openInvoices.map((i) => `- ${i.number} jatuh tempo ${formatTanggal(i.dueDate, { weekday: false })}: ${formatRupiah(i.outstanding)}`).join("\n") + (st.unbilled ? `\n- Belum ditagih (faktur bulanan): ${formatRupiah(st.unbilled)}` : ""),
+    nama_usaha: company,
+  });
+  return { customer: c, statement: st, tpl, text, subject: `Pernyataan piutang ${c.name} per ${formatTanggal(today, { weekday: false })} — ${company}` };
+}
+
 export async function sendStatement(ctx: ActorContext, input: { customerId: string }, opts: { tx?: Tx } = {}): Promise<{ link: string; text: string }> {
   await authorize(ctx, "m5.invoice.send", { tx: opts.tx });
   const data = parseInput(z.object({ customerId: z.string().uuid() }), input);
   return runService(ctx, opts, async (tx) => {
-    const today = ctxBusinessDate(ctx);
-    const c = await loadCustomer(tx, data.customerId, { ctx });
-    const st = await computeStatement(tx, c.id, { from: addDays(today, -365), to: today, asOf: today });
-    const tpl = await activeTemplate(tx, c.tenantId, "statement");
-    const { text } = renderTemplate(tpl.body, {
-      nama_pelanggan: c.name,
-      tanggal: formatTanggal(today, { weekday: false }),
-      saldo: formatRupiah(st.closingBalance + st.unbilled),
-      jumlah_faktur: st.openInvoices.length,
-      rincian: st.openInvoices.map((i) => `- ${i.number} jatuh tempo ${formatTanggal(i.dueDate, { weekday: false })}: ${formatRupiah(i.outstanding)}`).join("\n") + (st.unbilled ? `\n- Belum ditagih (faktur bulanan): ${formatRupiah(st.unbilled)}` : ""),
-      nama_usaha: await companyName(tx, c.tenantId, today),
-    });
+    const { customer: c, statement: st, tpl, text } = await statementMessage(tx, ctx, data.customerId);
     const link = buildWaLink(c.waPhone, text);
     await recordWaOpened(tx, ctx, { kind: "statement", toPhone: c.waPhone, renderedText: text, templateId: tpl.id, customerId: c.id, objectType: "customer", objectId: c.id });
     await auditRecord(tx, { ctx, objectType: "customer", objectId: c.id, action: "statement_sent", after: { balance: st.closingBalance, unbilled: st.unbilled }, rule: "US-M5-04 KP-2" });

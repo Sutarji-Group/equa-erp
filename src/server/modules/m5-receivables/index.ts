@@ -36,7 +36,9 @@ export {
 export type { CreditNoteRequestResult, InvoiceListFilter, InvoiceListRow } from "./service/invoices";
 export { renderInvoicePdf, renderPaymentReceiptPdf } from "./service/pdf";
 export { pendingTransferInvoice, prepaidAmountOfTrip } from "./service/sources";
-export { INVOICE_REVENUE_SOURCES } from "./service/common";
+export { INVOICE_REVENUE_SOURCES, invoiceSentViaLabel } from "./service/common";
+// E-mail faktur/pernyataan dari server (Resend + PDF) atau draf mailto (B-36, D-10 butir 2)
+export { emailInvoice, emailStatement, type EmailDeliveryResult } from "./service/delivery";
 
 // --- Pelunasan & uang muka (US-M5-02, 7.5.6) -------------------------------------------------------------------------
 export {

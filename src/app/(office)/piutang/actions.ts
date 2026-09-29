@@ -83,6 +83,36 @@ export async function sendInvoiceAction(invoiceId: string, via: "wa" | "email"):
   );
 }
 
+/** B-36: kirim faktur lewat e-mail — dari server dengan PDF terlampir, atau draf e-mail bila server belum dikonfigurasi. */
+export async function emailInvoiceAction(invoiceId: string, _prev: M5ActionState, fd: FormData): Promise<M5ActionState> {
+  const { ctx } = await requireOfficeSession();
+  return attempt(
+    async () => {
+      const r = await m5.emailInvoice(ctx, { invoiceId, email: str(fd, "email") });
+      return r.mode === "email"
+        ? { message: `Faktur terkirim ke ${r.to} dengan PDF terlampir.` }
+        : { link: r.link, message: "Draf e-mail dibuka — lampirkan PDF faktur dari tombol Unduh PDF (tercatat dibuka, belum terkirim)." };
+    },
+    "Pengiriman tercatat.",
+    [`/piutang/faktur/${invoiceId}`],
+  );
+}
+
+/** B-36: kirim pernyataan piutang lewat e-mail (PDF kartu piutang terlampir) atau draf e-mail. */
+export async function emailStatementAction(customerId: string, _prev: M5ActionState, fd: FormData): Promise<M5ActionState> {
+  const { ctx } = await requireOfficeSession();
+  return attempt(
+    async () => {
+      const r = await m5.emailStatement(ctx, { customerId, email: str(fd, "email") });
+      return r.mode === "email"
+        ? { message: `Pernyataan piutang terkirim ke ${r.to} dengan PDF kartu piutang terlampir.` }
+        : { link: r.link, message: "Draf e-mail pernyataan dibuka — lampirkan PDF kartu piutang dari tombol ekspor." };
+    },
+    "Pernyataan piutang dikirim.",
+    [`/piutang/pelanggan/${customerId}`],
+  );
+}
+
 /** Tandai faktur bersengketa (7.5.6). */
 export async function disputeInvoiceAction(invoiceId: string, _prev: M5ActionState, fd: FormData): Promise<M5ActionState> {
   const { ctx } = await requireOfficeSession();
