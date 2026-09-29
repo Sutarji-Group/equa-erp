@@ -81,7 +81,7 @@ export default async function OpeningBalancesPage() {
                 <FormInput label="Jumlah (Rp)" name="amount" inputMode="numeric" required />
               </div>
               <FormInput label="Keterangan" name="description" required placeholder="Mis. nota kertas no. 0457, rit Juli" />
-              <FormInput label="Bukti konfirmasi pelanggan" name="confirmation" type="file" accept="application/pdf,image/jpeg,image/png" required hint="Surat/foto konfirmasi saldo dari pelanggan (maks. 1 MB)." />
+              <FormInput label="Bukti konfirmasi pelanggan" name="confirmation" type="file" accept="application/pdf,image/jpeg,image/png" required hint="Surat/foto konfirmasi saldo dari pelanggan (maks. 4 MB; foto dikompres otomatis)." />
             </M5ActionForm>
           </SectionCard>
         ) : (

@@ -5,9 +5,10 @@
  * pesan berhasil tampil di bawah formulir + toast. Tetap berfungsi tanpa JavaScript (form action).
  */
 import { LoaderCircle } from "lucide-react";
-import { type ReactNode, useActionState, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import { useFlashActionState } from "@/components/shared/use-flash-action";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -38,11 +39,10 @@ export function P2ActionForm({
   /** Isi tambahan setelah berhasil (mis. kode mode uji). */
   after?: (state: P2ActionState) => ReactNode;
 }) {
-  const [state, formAction, pending] = useActionState(action, {} as P2ActionState);
+  const [state, formAction, pending] = useFlashActionState(action, {} as P2ActionState);
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (state.ok) {
-      if (state.message) toast.success(state.message);
       if (resetOnSuccess) ref.current?.reset();
     }
   }, [state, resetOnSuccess]);
@@ -72,9 +72,8 @@ export function P2ActionForm({
 
 /** Tombol aksi tunggal (tanpa isian) yang memanggil Server Action terikat argumen. */
 export function P2ActionButton({ action, label, variant = "outline", size = "sm", testId }: { action: () => Promise<P2ActionState>; label: string; variant?: "default" | "outline" | "destructive" | "secondary"; size?: "default" | "sm" | "lg"; testId?: string }) {
-  const [state, formAction, pending] = useActionState(async () => action(), {} as P2ActionState);
+  const [state, formAction, pending] = useFlashActionState(async () => action(), {} as P2ActionState);
   useEffect(() => {
-    if (state.ok && state.message) toast.success(state.message);
     if (state.error) toast.error(state.error);
   }, [state]);
   return (

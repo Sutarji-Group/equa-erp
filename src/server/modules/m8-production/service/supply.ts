@@ -46,6 +46,8 @@ export type SupplyRow = {
   outOfTolerance: boolean;
   /** Nilai transfer internal = diterima × harga transfer (BR-33, K20). */
   transferValue: number | null;
+  /** Penerimaan pasokan depot (M6) — sumber jurnal `water_supply.confirmed` (tautan "Lihat jurnal", B-55). */
+  receiptId?: string | null;
 };
 
 type SupplyQuery = { from: BusinessDate; to: BusinessDate; outletId?: string | null; tripIds?: readonly string[] };
@@ -115,6 +117,7 @@ export async function supplyRows(tx: Tx, tenantId: string, q: SupplyQuery): Prom
       differencePct,
       outOfTolerance: differencePct !== null && differencePct > rules.supplyTolerancePct,
       transferValue: receivedL !== null ? await transferValueFor(tx, r.outlet, receivedL, date) : null,
+      receiptId: rc?.id ?? null,
     });
   }
   return out;

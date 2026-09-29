@@ -1,8 +1,9 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { useActionState, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 
+import { useFlashActionState } from "@/components/shared/use-flash-action";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { enumOptions } from "@/lib/labels";
@@ -40,7 +41,7 @@ export function ReceiveDepositForm({
   cutoff: string;
   threshold: number;
 }) {
-  const [state, formAction, pending] = useActionState(action, {} as CashActionState);
+  const [state, formAction, pending] = useFlashActionState(action, {} as CashActionState);
   const [preparing, startPreparing] = useTransition();
   const busy = pending || preparing;
   const submit = (fd: FormData) => {

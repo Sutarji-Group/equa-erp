@@ -71,7 +71,7 @@ export function FileField({ label, name, required, accept = "image/jpeg,image/pn
     <label className="grid gap-1 text-sm font-medium">
       {label}
       <input type="file" name={name} required={required} accept={accept} className="text-sm file:mr-3 file:rounded-md file:border file:border-input file:bg-secondary file:px-3 file:py-2" />
-      {hint ? <span className="text-xs font-normal text-muted-foreground">{hint ?? "Foto atau PDF, maksimal 1 MB."}</span> : null}
+      {hint ? <span className="text-xs font-normal text-muted-foreground">{hint ?? "Foto atau PDF, maksimal 4 MB."}</span> : null}
     </label>
   );
 }

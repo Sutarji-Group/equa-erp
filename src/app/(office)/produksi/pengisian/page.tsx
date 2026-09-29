@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButtons } from "@/components/shared/export-buttons";
 import { KpiTile } from "@/components/shared/kpi-tile";
 import { MoneyText } from "@/components/shared/money-text";
+import { JournalLink } from "@/components/shared/journal-link";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { ToneBadge } from "@/components/shared/status-badge";
@@ -410,7 +411,10 @@ async function SupplyTab({ ctx, from, to, granularity }: { ctx: ActorContext; fr
                       <M8Badge enumName="trip_status" value={s.tripStatus} />
                       {s.receiptStatus ? <span className="block text-xs text-muted-foreground">{label("water_supply_status", s.receiptStatus)}</span> : null}
                     </TableCell>
-                    <TableCell className="text-right">{s.transferValue !== null ? <MoneyText value={s.transferValue} /> : "—"}</TableCell>
+                    <TableCell className="text-right">
+                      {s.transferValue !== null ? <MoneyText value={s.transferValue} /> : "—"}
+                      {s.transferValue && s.receiptStatus === "confirmed" ? <JournalLink ctx={ctx} sourceType="water_supply_receipt" sourceId={s.receiptId} label="Jurnal" className="flex justify-end text-xs" /> : null}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

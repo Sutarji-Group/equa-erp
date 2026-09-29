@@ -1,9 +1,10 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { type ReactNode, useActionState, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import { useFlashActionState } from "@/components/shared/use-flash-action";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -27,11 +28,10 @@ export type ActionFormProps = {
  * memblokir), toast saat berhasil, dan pengosongan isian.
  */
 export function ActionForm({ action, children, submitLabel = "Simpan", resetOnSuccess = true, className, variant = "default", size = "default", ...rest }: ActionFormProps) {
-  const [state, formAction, pending] = useActionState(action, EMPTY_ACTION_STATE);
+  const [state, formAction, pending] = useFlashActionState(action, EMPTY_ACTION_STATE);
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (state.ok) {
-      if (state.message) toast.success(state.message);
       for (const w of state.warnings ?? []) toast.warning(w);
       if (resetOnSuccess) ref.current?.reset();
     }

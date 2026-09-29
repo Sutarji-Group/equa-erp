@@ -8,6 +8,7 @@ import { ReceiveDepositForm } from "@/components/m4-cash/receive-form";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KeyValueList } from "@/components/shared/key-value-list";
 import { OfficeBreadcrumbLabel } from "@/components/shared/office-shell";
+import { JournalLink } from "@/components/shared/journal-link";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge, ToneBadge } from "@/components/shared/status-badge";
@@ -79,7 +80,8 @@ export default async function DepositDetailPage({ params }: PageProps<"/kas/seto
           </>
         }
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <JournalLink ctx={ctx} sourceType="deposit" sourceId={dep.id} />
             {dep.status === "received" && canReceive ? <CashActionButton label="Tutup setoran" action={closeDepositAction.bind(null, dep.id)} testId="tutup-setoran" /> : null}
             {d.canReopen && canReopen ? (
               <CashReasonButton

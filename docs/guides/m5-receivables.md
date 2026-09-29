@@ -22,7 +22,7 @@ total sisa. **Buka WhatsApp** → pesan terisi (nomor faktur, jumlah, jatuh temp
 status berubah **Dibuka**. Faktur bersengketa **Ditunda**. Pelanggan tagihan bulanan diingatkan atas faktur bulanannya.
 
 **Pelunasan kantor.** **Pelunasan** → pilih pelanggan → isi tanggal, jumlah, cara bayar:
-- **Tunai kantor** (masuk kas kantor) atau **Transfer bank** + **bukti transfer** (wajib; JPEG/PNG/PDF maks. 1 MB).
+- **Tunai kantor** (masuk kas kantor) atau **Transfer bank** + **bukti transfer** (wajib; JPEG/PNG/PDF maks. 4 MB; foto dikompres otomatis).
 - Alokasi per faktur boleh dikosongkan → otomatis ke **faktur tertua dulu**. Kelebihan bayar → **uang muka** pelanggan,
   otomatis memotong faktur berikutnya (atau **Ajukan pengembalian** — diputuskan pemilik).
 - Pelunasan lewat sopir masuk sendiri dari aplikasi sopir (jangan dicatat ulang).

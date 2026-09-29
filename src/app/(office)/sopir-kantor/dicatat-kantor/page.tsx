@@ -108,7 +108,7 @@ export default async function DicatatKantorPage({ searchParams }: PageProps<"/so
                       <label className="grid gap-1 text-sm font-medium">
                         Bukti (opsional)
                         <input name="evidence" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="text-sm" />
-                        <span className="text-xs font-normal text-muted-foreground">Foto nota/tanda terima dari sopir, maks 1 MB.</span>
+                        <span className="text-xs font-normal text-muted-foreground">Foto nota/tanda terima dari sopir, maks. 4 MB (foto dikompres otomatis).</span>
                       </label>
                     </M3ActionForm>
                   </div>

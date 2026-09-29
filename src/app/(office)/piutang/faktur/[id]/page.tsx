@@ -9,6 +9,7 @@ import { BucketBadge, DisputeBadge, FormInput, FormSelect, FormTextarea, Invoice
 import { EmptyState } from "@/components/shared/empty-state";
 import { KeyValueList } from "@/components/shared/key-value-list";
 import { OfficeBreadcrumbLabel } from "@/components/shared/office-shell";
+import { JournalLink } from "@/components/shared/journal-link";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge, ToneBadge } from "@/components/shared/status-badge";
@@ -76,7 +77,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           </div>
         }
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* B-55: jurnal peristiwa sumber faktur (rit / penjualan POS / tagihan langganan) — pendapatan diakui di sana (D-10). */}
+            <JournalLink ctx={ctx} sourceType={inv.tripId ? "trip" : inv.posSaleId ? "pos_sale" : "invoice"} sourceId={inv.tripId ?? inv.posSaleId ?? (inv.kind === "partner_subscription" ? inv.id : null)} />
             <Button asChild variant="outline" size="sm">
               <a href={`/piutang/faktur/${inv.id}/pdf`} download data-testid="unduh-pdf-faktur">
                 <FileDown aria-hidden />

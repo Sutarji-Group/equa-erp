@@ -98,7 +98,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
                   ]}
                 />
               </div>
-              <FormInput label="Bukti transfer" name="proof" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" hint="Wajib untuk transfer (JPEG/PNG/PDF, maks. 1 MB)." />
+              <FormInput label="Bukti transfer" name="proof" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" hint="Wajib untuk transfer (JPEG/PNG/PDF, maks. 4 MB; foto dikompres otomatis)." />
               {selectedInvoices.length ? (
                 <fieldset className="grid gap-2">
                   <legend className="text-sm font-medium">Alokasi per faktur (opsional; bawaan tertua dulu)</legend>

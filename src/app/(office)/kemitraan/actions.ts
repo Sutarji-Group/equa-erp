@@ -42,7 +42,7 @@ async function attempt(fn: () => Promise<unknown>, message: string | ((r: unknow
   }
 }
 
-/** Unggah berkas formulir (maks. 1 MB; foto/PDF) → ID lampiran. */
+/** Unggah berkas formulir (maks. 4 MB, B-18; foto/PDF) → ID lampiran. */
 async function upload(ctx: ActorContext, fd: FormData, name: string, kind: string): Promise<string | null> {
   const file = fd.get(name);
   if (!(file instanceof File) || file.size === 0) return null;

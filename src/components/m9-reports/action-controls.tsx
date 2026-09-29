@@ -1,9 +1,10 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { type ReactNode, useActionState, useEffect, useRef, useTransition } from "react";
+import { type ReactNode, useEffect, useRef, useTransition } from "react";
 import { toast } from "sonner";
 
+import { useFlashActionState } from "@/components/shared/use-flash-action";
 import { ConfirmWithReasonDialog, type ReasonOption } from "@/components/shared/confirm-with-reason-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -132,11 +133,10 @@ export function ReportActionForm({
   inline?: boolean;
   resetOnSuccess?: boolean;
 }) {
-  const [state, formAction, pending] = useActionState(action, {} as ReportActionState);
+  const [state, formAction, pending] = useFlashActionState(action, {} as ReportActionState);
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (state.ok) {
-      if (state.message) toast.success(state.message);
       if (resetOnSuccess) ref.current?.reset();
     }
   }, [state, resetOnSuccess]);

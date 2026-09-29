@@ -11,6 +11,7 @@ import { WaConfirmButton } from "@/components/m2-orders/wa-button";
 import { KeyValueList } from "@/components/shared/key-value-list";
 import { MoneyText } from "@/components/shared/money-text";
 import { OfficeBreadcrumbLabel } from "@/components/shared/office-shell";
+import { canSeeJournalLink, JournalLink } from "@/components/shared/journal-link";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusBadge, ToneBadge } from "@/components/shared/status-badge";
@@ -91,6 +92,9 @@ export default async function PesananDetailPage({ params }: PageProps<"/pesanan/
       status: t.action === "status" && typeof after.status === "string" ? { enumName: "order_status", value: after.status } : t.action === "cancel" ? { enumName: "order_status", value: "cancelled" } : undefined,
     };
   });
+
+  // B-55: tautan jurnal rit Selesai (hanya peran yang berhak membaca jurnal).
+  const showJournal = canSeeJournalLink(ctx);
 
   return (
     <div className="grid gap-6">
@@ -223,6 +227,7 @@ export default async function PesananDetailPage({ params }: PageProps<"/pesanan/
                 <TableHead>Pengemudi</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Harga</TableHead>
+                {showJournal ? <TableHead>Jurnal</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -243,6 +248,7 @@ export default async function PesananDetailPage({ params }: PageProps<"/pesanan/
                   <TableCell className="text-right">
                     <MoneyText value={t.price} />
                   </TableCell>
+                  {showJournal ? <TableCell>{t.status === "completed" ? <JournalLink ctx={ctx} sourceType="trip" sourceId={t.id} label="Jurnal" /> : "—"}</TableCell> : null}
                 </TableRow>
               ))}
             </TableBody>

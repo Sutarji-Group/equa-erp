@@ -2,9 +2,9 @@
 
 import { LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useActionState, useEffect, useRef } from "react";
-import { toast } from "sonner";
+import { type ReactNode, useEffect, useRef } from "react";
 
+import { useFlashActionState } from "@/components/shared/use-flash-action";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -36,12 +36,11 @@ export function M11ActionForm({
   /** Tombol kirim tambahan (mis. `name="mode" value="preview"`). */
   extraButtons?: ReactNode;
 }) {
-  const [state, formAction, pending] = useActionState(action, {} as M11ActionState);
+  const [state, formAction, pending] = useFlashActionState(action, {} as M11ActionState);
   const ref = useRef<HTMLFormElement>(null);
   const router = useRouter();
   useEffect(() => {
     if (!state.ok) return;
-    if (state.message) toast.success(state.message);
     if (state.redirectTo) router.push(state.redirectTo);
     else if (resetOnSuccess && !state.preview) ref.current?.reset();
   }, [state, resetOnSuccess, router]);
