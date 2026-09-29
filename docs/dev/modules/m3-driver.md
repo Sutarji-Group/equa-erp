@@ -55,7 +55,10 @@ kantor), 6.2a (PTB-19), 6.3, 6.4 (tabrakan sinkron), BR-07/08/10/19/22/23/25/37/
   amount (uang yang dibalik), profitCenter, reason, tripNumber, businessDate, driverUserId, depositId, approvalId }`.
   Baris asal ditandai `reversed_at`/`reversed_by_id`; baris pembalik bertanda negatif (`reversal_of_id`). **M4**
   membatalkan transfer rit yang belum cocok; **M5** (`m5-receivables:trip_payment_reversed`) faktur koreksi jenis
-  `underpayment` sebesar `amount`; **M11** D 1-1401 / K kas atau transfer. Tempo & digital tidak dibalik di M3.
+  `underpayment` sebesar `amount`; **M11** D 1-1401 / K kas atau transfer. Tempo & digital tidak dibalik di M3. Tunai
+  yang sudah masuk setoran sopir berstatus Diterima/Ditutup DITOLAK (`DEPOSIT_ALREADY_RECEIVED`: hari kas terkunci —
+  kekurangan lewat selisih setoran M4, tagihan lewat Piutang M5); selama setoran Berjalan/Diajukan, pembalik
+  mengurangi kas di tangan/tunai seharusnya disetor.
 - **(S5, B-65, D-11 butir 4) KONTRAK prabayar digital untuk M5/M11 (paket B):** rit `trips.payment_method = digital`
   (P2 menandai saat pembayaran di muka Berhasil) diselesaikan sopir dengan `payment: { method: "prepaid" }` (UI "Sudah
   dibayar", tanpa tunai). Server memverifikasi pembayaran P2 Berhasil (`p2.prepaidTrips`) lalu mencatat

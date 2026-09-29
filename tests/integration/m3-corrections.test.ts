@@ -5,7 +5,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { creditNotes, customerAdvances, domainEvents, incomingTransfers, invoices, tripPayments, trips } from "@/db/schema";
+import { creditNotes, customerAdvances, deposits, domainEvents, incomingTransfers, invoices, tripPayments, trips } from "@/db/schema";
 import * as approvals from "@/server/core/approvals";
 import { DomainError, ForbiddenError, ValidationError } from "@/server/core/errors";
 import * as m3 from "@/server/modules/m3-driver";
@@ -118,6 +118,29 @@ describe("B-34 koreksi rit & pembalik pembayaran rit (M3 → M5, M4, M11)", () =
     // Tidak dapat dibalik dua kali; baris pembalik tidak dapat dibalik.
     await expect(m3.reverseTripPayment(finance(), { tripPaymentId: pay.id, reason: "Coba balik lagi (uji)" })).rejects.toMatchObject({ code: "ALREADY_REVERSED" });
     await expect(m3.reverseTripPayment(finance(), { tripPaymentId: reversal.id, reason: "Coba balik pembalik (uji)" })).rejects.toMatchObject({ code: "REVERSAL_OF_REVERSAL" });
+  });
+
+  it("B-34 US-M3-07 KP-1 BR-38 pembalik tunai rit selama setoran sopir Berjalan → kas di tangan berkurang & jurnal D piutang / K kas sopir; setelah setoran Diterima ditolak dengan arahan ke selisih setoran", async () => {
+    const w = await driverWorld(t.db);
+    const a = await w.addTrip();
+    await departArrive(w, a.id);
+    expectApplied(await completeCash(w, a.id));
+    const b = await w.addTrip();
+    await departArrive(w, b.id);
+    expectApplied(await completeCash(w, b.id));
+    expect((await m3.dayFigures(t.db, w.driver.userId, w.date)).cashOnHand).toBe(2 * PRICE);
+
+    const payA = (await m3.livePaymentOf(t.db, a.id))!;
+    expect((await m3.reverseTripPayment(finance(), { tripPaymentId: payA.id, reason: "Tunai dicatat ganda — pelanggan belum bayar" })).status).toBe("reversed");
+    expect((await m3.dayFigures(t.db, w.driver.userId, w.date)).cashOnHand).toBe(PRICE);
+    const lines = await linesOfSourceType(t.db, "trip", a.id, "trip_payment.reversed");
+    expect(amountOn(lines, "1-1401", "debit")).toBe(PRICE);
+    expect(amountOn(lines, "1-1102", "credit")).toBe(PRICE);
+
+    // Setoran sopir sudah Diterima Admin Keuangan → hari kas terkunci; pembalik tunai ditolak.
+    const payB = (await m3.livePaymentOf(t.db, b.id))!;
+    await t.db.update(deposits).set({ status: "received" }).where(eq(deposits.id, payB.depositId!));
+    await expect(m3.reverseTripPayment(finance(), { tripPaymentId: payB.id, reason: "Tunai salah catat (uji setoran diterima)" })).rejects.toMatchObject({ code: "DEPOSIT_ALREADY_RECEIVED" });
   });
 
   it("B-34 BR-38 PAR-21 koreksi > Rp 500.000 menunggu persetujuan pemilik (tanpa efek) → disetujui → berlaku sekali dengan rujukan persetujuan", async () => {

@@ -17,7 +17,7 @@ import "server-only";
 
 import { and, desc, eq, isNull } from "drizzle-orm";
 
-import { customers, tripPayments, trips } from "@/db/schema";
+import { customers, deposits, tripPayments, trips } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
@@ -200,9 +200,26 @@ function assertReversible(pay: TripPaymentRow): void {
   if (pay.receivedAmount <= 0) throw new DomainError("NOTHING_TO_REVERSE", "Tidak ada uang diterima pada pembayaran ini — tidak ada yang dibalik.");
 }
 
+/**
+ * Tunai rit yang sudah masuk setoran sopir yang DITERIMA/DITUTUP Admin Keuangan tidak dibalik di sini: setoran & hari
+ * kasnya terkunci (US-M4-06 KP-7) — kekurangan uang ditangani lewat selisih setoran (M4) dan tagihan pelanggan lewat
+ * Piutang (M5). Selama setoran masih Berjalan/Diajukan, pembalik mengurangi tunai seharusnya disetor.
+ */
+async function assertDepositOpen(tx: Tx, pay: TripPaymentRow): Promise<void> {
+  if (pay.method !== "cash" || !pay.depositId) return;
+  const [dep] = await tx.select({ status: deposits.status, number: deposits.number }).from(deposits).where(eq(deposits.id, pay.depositId)).limit(1);
+  if (dep && (dep.status === "received" || dep.status === "closed")) {
+    throw new DomainError(
+      "DEPOSIT_ALREADY_RECEIVED",
+      `Tunai rit ini sudah masuk setoran ${dep.number} yang ${label("deposit_status", dep.status).toLowerCase()}. Koreksi kekurangan lewat selisih setoran (menu Kas) dan tagih pelanggan lewat Piutang.`,
+    );
+  }
+}
+
 /** Terapkan pembalik pembayaran rit (setelah persetujuan bila perlu). */
 export async function applyTripPaymentReversal(tx: Tx, ctx: ActorContext, pay: TripPaymentRow, reason: string, approvalId: string | null): Promise<TripPaymentRow> {
   assertReversible(pay);
+  await assertDepositOpen(tx, pay);
   const trip = await loadTrip(tx, pay.tripId);
   const date = ctxBusinessDate(ctx);
   const [reversal] = await tx
@@ -271,6 +288,7 @@ export async function reverseTripPayment(ctx: ActorContext, input: unknown, opts
     const pay = await loadLivePayment(tx, data.tripPaymentId);
     if (pay.tenantId !== ctx.tenantId) throw new NotFoundError("Pembayaran rit tidak ditemukan.");
     assertReversible(pay);
+    await assertDepositOpen(tx, pay);
     const limit = await correctionLimit(tx, ctx);
     if (pay.receivedAmount > limit) {
       const trip = await loadTrip(tx, pay.tripId);
