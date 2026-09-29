@@ -91,7 +91,11 @@ test.describe("P3 — Kemitraan (Paket Minimum Mitra Fase 1)", () => {
     const respond = page.getByTestId("form-tanggapi-dukungan");
     await respond.getByLabel("Tanggapan untuk mitra").fill("Teknisi EQUA datang besok pukul 09.00; matikan pompa booster sementara.");
     await respond.getByRole("button", { name: "Kirim tanggapan" }).click();
-    await expect(respond.getByRole("status")).toContainText("Tanggapan dikirim ke mitra.");
+    // Setelah tersimpan, halaman memuat ulang: status Ditanggapi, waktu tanggap & SLA tercatat, formulir berganti "Tandai selesai".
+    await expect(page.getByRole("main")).toContainText("Teknisi EQUA datang besok pukul 09.00");
+    await expect(page.getByRole("main")).toContainText("Ditanggapi");
+    await expect(page.getByRole("main")).toContainText("Tepat waktu");
+    await expect(page.getByTestId("form-selesai-dukungan")).toBeVisible();
 
     await page.goto("/kemitraan/pasokan");
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
