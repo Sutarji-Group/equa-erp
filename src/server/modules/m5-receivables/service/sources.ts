@@ -19,6 +19,7 @@ import { and, desc, eq, isNull, like, lt, sql } from "drizzle-orm";
 import { creditNotes, customerAddresses, customers, invoices, notifications, posSaleLines, posSales, products, shifts, trips, unbilledCharges } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
+import { formatUnderpaymentReason } from "@/lib/reasons";
 import { addDays, firstDayOfMonth, formatTanggal, type BusinessDate } from "@/lib/time";
 
 import { record as auditRecord } from "@/server/core/audit";
@@ -183,7 +184,7 @@ export async function receivablesFromTrip(tx: Tx, ctx: ActorContext, input: Trip
         lines: [
           {
             component: "underpayment",
-            description: `Kurang bayar rit ${trip.number}: diterima ${formatRupiah(received)} dari ${formatRupiah(input.expectedAmount ?? trip.price)}${input.underpaymentReason ? ` (${input.underpaymentReason})` : ""}`,
+            description: `Kurang bayar rit ${trip.number}: diterima ${formatRupiah(received)} dari ${formatRupiah(input.expectedAmount ?? trip.price)}${input.underpaymentReason ? ` (${formatUnderpaymentReason(input.underpaymentReason)})` : ""}`,
             tripId: trip.id,
             serviceDate,
             quantity: 1,

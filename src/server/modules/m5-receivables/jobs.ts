@@ -76,12 +76,14 @@ export function registerJobs(): void {
 
   registerJob({
     key: "m5.monthly_invoices",
-    description: "Faktur bulanan terbit otomatis pada tanggal PAR-12 untuk periode layanan sebelumnya (US-M5-06 KP-2).",
+    description: "Faktur bulanan terbit otomatis mulai tanggal PAR-12 untuk periode layanan sebelumnya; job terlewat/gagal disusul otomatis hari berikutnya (US-M5-06 KP-2).",
     schedule: { kind: "daily", atParam: { key: "PAR-07", field: "start" } },
     run: async ({ now, db }) => {
       const date = toBusinessDate(now);
       const period = await monthlyPeriod(db, date);
-      if (!period.isIssueDay) return { skipped: "bukan tanggal terbit PAR-12", date };
+      // Susulan otomatis: setiap hari ≥ tanggal terbit PAR-12 (idempoten per pelanggan & bulan) — cron terlewat atau
+      // jalan gagal pada tanggal 1 tidak membuat faktur bulan itu tidak pernah terbit (tanggal faktur = tanggal jalan).
+      if (date < period.issueDate) return { skipped: "sebelum tanggal terbit PAR-12", date };
       const out: Record<string, unknown> = {};
       for (const tenantId of await tenantsWithReceivables(db)) {
         out[tenantId] = await withTx((tx) => issueMonthlyInvoices(tx, systemContext({ tenantId, now, businessDate: date }), tenantId, date), { db });

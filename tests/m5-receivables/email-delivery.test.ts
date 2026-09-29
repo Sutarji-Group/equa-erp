@@ -88,7 +88,7 @@ describe("B-36 e-mail faktur & pernyataan piutang dari server dengan PDF terlamp
     expect(await invoiceRow(t.db, inv.id)).toMatchObject({ sentAt: null, sentVia: null });
   });
 
-  it("B-36 US-M5-04 KP-2 pernyataan piutang terkirim lewat e-mail dengan PDF kartu piutang (ekspor data pribadi tercatat bertujuan)", async () => {
+  it("B-36 US-M5-04 KP-2 pernyataan piutang terkirim lewat e-mail dengan PDF kartu piutang (PDF internal, pengiriman tercatat di jejak audit — D-12 butir 2)", async () => {
     useResend(true);
     resendSend.mockResolvedValue({ data: { id: "msg-b36-2" }, error: null });
     const c = await creditCustomer(t.db, { name: "Restoran Pernyataan Surel" });
@@ -99,10 +99,10 @@ describe("B-36 e-mail faktur & pernyataan piutang dari server dengan PDF terlamp
     expect(sent.subject).toContain("Pernyataan piutang Restoran Pernyataan Surel");
     expect(sent.text).toContain("Restoran Pernyataan Surel");
     expect(sent.attachments![0]!.content.subarray(0, 4).toString()).toBe("%PDF");
-    const logs = await t.db.select().from(exportLogs).where(eq(exportLogs.reportKey, "m5.customer_card"));
-    expect(logs.some((l) => (l.purpose ?? "").includes("owner@resto.contoh"))).toBe(true);
+    // D-12 butir 2 (B-77): PDF internal — bukan ekspor laporan; pengiriman (penerima + lampiran) tercatat di jejak audit.
+    expect(await t.db.select().from(exportLogs).where(eq(exportLogs.reportKey, "m5.customer_card"))).toHaveLength(0);
     const [audit] = await t.db.select().from(auditLogs).where(and(eq(auditLogs.objectType, "customer"), eq(auditLogs.objectId, c.id), eq(auditLogs.action, "statement_sent")));
-    expect(audit!.after).toMatchObject({ via: "email", to: "owner@resto.contoh" });
+    expect(audit!.after).toMatchObject({ via: "email", to: "owner@resto.contoh", attachment: sent.attachments![0]!.filename });
 
     useResend(false);
     const draft = await m5.emailStatement(finance(), { customerId: c.id, email: "owner@resto.contoh" });

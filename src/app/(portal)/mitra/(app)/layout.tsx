@@ -65,7 +65,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
       </header>
       <main className="mx-auto grid w-full max-w-6xl flex-1 gap-6 px-4 py-6">{children}</main>
       <footer className="border-t bg-background py-3 text-center text-xs text-muted-foreground">
-        Data outlet Anda hanya terlihat oleh Anda dan EQUA sesuai hak baca di perjanjian (NFR-30).
+        Data outlet Anda hanya terlihat oleh Anda dan EQUA sesuai hak baca di perjanjian.
       </footer>
     </div>
   );

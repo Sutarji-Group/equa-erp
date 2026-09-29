@@ -117,7 +117,10 @@ export default async function CustomerCardPage({ params, searchParams }: { param
               </div>
             </SectionCard>
           ) : null}
-          {canDefer && limit ? (
+          {canDefer && limit && !limit.maxUntil ? (
+            <SectionCard title="Masa transisi (tunda penahanan otomatis)" description="Tanggal go-live belum ditetapkan. Isi tanggal go-live di Pengaturan > Parameter (masa transisi penahanan otomatis) agar penundaan dapat ditetapkan." />
+          ) : null}
+          {canDefer && limit?.maxUntil ? (
             <SectionCard
               title="Masa transisi (tunda penahanan otomatis)"
               description={`Keputusan langsung pemilik (6.2b), paling lama ${limit.months} bulan sejak go-live${limit.goLive ? ` (${formatTanggal(limit.goLive, { weekday: false })})` : ""}: tanggal berakhir ≤ ${formatTanggal(limit.maxUntil, { weekday: false })}.`}

@@ -31,7 +31,7 @@ import {
   userRef,
 } from "./core";
 import { customerAddresses, customers, products } from "./m1-master";
-import { trips } from "./m2-orders";
+import { orders, trips } from "./m2-orders";
 import { deposits, incomingTransfers, officeCashMovements } from "./m4-cash";
 import { posSaleLines, posSales } from "./m6-pos";
 import { journals } from "./m11-accounting";
@@ -257,6 +257,11 @@ export const customerAdvances = pgTable(
       .notNull()
       .references((): AnyPgColumn => customers.id),
     sourcePaymentId: uuid("source_payment_id").references((): AnyPgColumn => customerPayments.id),
+    /**
+     * B-81 / D-12 butir 1: uang muka dari pembayaran di muka pesanan (P2) ditandai pesanannya — hanya dipakai faktur rit
+     * pesanan itu; tanda dilepas (NULL) bila pesanan dibatalkan (tercatat di jejak audit).
+     */
+    orderId: uuid("order_id").references((): AnyPgColumn => orders.id),
     amount: money("amount").notNull(),
     remainingAmount: money("remaining_amount").notNull(),
     status: advanceStatusEnum("status").notNull().default("open"),
@@ -267,7 +272,7 @@ export const customerAdvances = pgTable(
     ...timestamps(),
     createdBy: createdBy(),
   },
-  (t) => [index("customer_advances_customer_idx").on(t.customerId, t.status)],
+  (t) => [index("customer_advances_customer_idx").on(t.customerId, t.status), index("customer_advances_order_idx").on(t.orderId)],
 );
 
 /** Nota kredit (koreksi faktur, sengketa, retur toko PTB-46). */

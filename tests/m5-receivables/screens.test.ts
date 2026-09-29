@@ -70,7 +70,7 @@ describe("Layanan layar Piutang (rincian pelunasan, reklasifikasi, status kredit
     await params.set(owner(d), "PAR-41", { max_months_since_go_live: 2, go_live_date: addDays(d, -3) }, d, "Go-live pilot (uji layar)");
     const limit = await m5.holdDeferralLimit(dispatcher(d));
     expect(limit).toMatchObject({ goLive: addDays(d, -3), months: 2, today: d });
-    expect(limit.maxUntil > addDays(d, 50)).toBe(true);
+    expect(limit.maxUntil! > addDays(d, 50)).toBe(true);
     await expect(m5.holdDeferralLimit(seededContext("sopir1"))).rejects.toThrow();
   });
 

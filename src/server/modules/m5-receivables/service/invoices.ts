@@ -16,6 +16,7 @@ import {
   customerAdvances,
   customerPayments,
   customers,
+  domainEvents,
   invoiceLines,
   invoices,
   paymentAllocations,
@@ -365,7 +366,10 @@ export async function requestCreditNote(ctx: ActorContext, input: unknown, opts:
       throw ValidationError.field("amount", `Nota kredit ${formatRupiah(data.amount)} melebihi sisa faktur ${formatRupiah(inv.outstandingAmount)}.`);
     }
     const par21 = await params.get(tx, "PAR-21", ctxBusinessDate(ctx));
-    if (data.amount > par21.amount_gt) {
+    // BR-38 / 6.2a: ambang PAR-21 tidak dapat dipecah — nota kredit koreksi TANPA persetujuan yang sudah terbit pada
+    // faktur ini (dan pada pelanggan ini hari ini) serta permintaan koreksi yang masih menunggu ikut dijumlahkan.
+    const prior = await unapprovedCorrectionTotal(tx, { tenantId: inv.tenantId, invoiceId: inv.id, customerId: inv.customerId, date: ctxBusinessDate(ctx) });
+    if (data.amount + prior > par21.amount_gt) {
       const req = await approvals.submit(
         ctx,
         { type: "correction", objectType: "invoice", objectId: inv.id, amount: data.amount, reason: data.reason, payload: { action: "credit_note", amount: data.amount, invoiceNumber: inv.number, link: invoiceLink(inv.id) } },
@@ -377,6 +381,29 @@ export async function requestCreditNote(ctx: ActorContext, input: unknown, opts:
     await afterReceivablesChanged(tx, ctx, [inv.customerId]);
     return { status: "issued", creditNoteId: res.creditNote!.id };
   });
+}
+
+/**
+ * Σ nota kredit koreksi yang terbit TANPA persetujuan pemilik — pada faktur ini (kapan pun) atau pada pelanggan yang sama
+ * hari ini — ditambah permintaan nota kredit koreksi atas faktur ini yang masih menunggu keputusan (BR-38, PAR-21).
+ */
+async function unapprovedCorrectionTotal(tx: Tx, q: { tenantId: string; invoiceId: string; customerId: string; date: BusinessDate }): Promise<number> {
+  const [issued] = await tx
+    .select({ v: sql<string>`coalesce(sum((${domainEvents.payload}->>'amount')::bigint), 0)` })
+    .from(domainEvents)
+    .where(
+      and(
+        eq(domainEvents.tenantId, q.tenantId),
+        eq(domainEvents.type, "credit_note.issued"),
+        sql`${domainEvents.payload}->>'purpose' = 'correction'`,
+        sql`${domainEvents.payload}->>'approvalId' is null`,
+        or(sql`${domainEvents.payload}->>'invoiceId' = ${q.invoiceId}`, and(sql`${domainEvents.payload}->>'customerId' = ${q.customerId}`, eq(domainEvents.businessDate, q.date))),
+      ),
+    );
+  const pending = (await approvals.listForObject(tx, "invoice", q.invoiceId)).filter(
+    (a) => a.type === "correction" && a.status === "submitted" && (a.payload as { action?: string } | null)?.action === "credit_note",
+  );
+  return Number(issued?.v ?? 0) + pending.reduce((s, a) => s + (a.amount ?? 0), 0);
 }
 
 /** Penerapan nota kredit yang disetujui pemilik (handler `correction` objek `invoice`). */

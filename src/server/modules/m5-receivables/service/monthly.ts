@@ -22,12 +22,13 @@ import { formatTanggal, isBusinessDate, type BusinessDate } from "@/lib/time";
 import * as approvals from "@/server/core/approvals";
 import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
-import { getDb, type Tx } from "@/server/core/db";
+import { getDb, withSavepoint, type Tx } from "@/server/core/db";
 import { DomainError, ValidationError, parseInput } from "@/server/core/errors";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
 import { linkAttachment } from "@/server/core/storage";
+import * as m10 from "@/server/modules/m10-access";
 
 import { customerCardLink, loadCustomer } from "./common";
 import { issueInvoice } from "./ledger";
@@ -64,7 +65,13 @@ export async function monthlyPeriod(tx: Tx, date: BusinessDate): Promise<Monthly
   };
 }
 
-export type MonthlyRunSummary = { serviceMonth: BusinessDate; issued: { customerId: string; invoiceId: string; number: string; amount: number; lateLines: number }[]; skipped: number };
+export type MonthlyRunSummary = {
+  serviceMonth: BusinessDate;
+  issued: { customerId: string; invoiceId: string; number: string; amount: number; lateLines: number }[];
+  skipped: number;
+  /** Pelanggan yang gagal diterbitkan (terisolasi savepoint; dicatat insiden, dicoba lagi pada jalan berikutnya). */
+  failed: { customerId: string; message: string }[];
+};
 
 /**
  * Terbitkan faktur bulanan periode (idempoten per pelanggan & bulan): semua `unbilled_charges` belum ditagih dengan
@@ -72,71 +79,90 @@ export type MonthlyRunSummary = { serviceMonth: BusinessDate; issued: { customer
  */
 export async function issueMonthlyInvoices(tx: Tx, ctx: ActorContext, tenantId: string, date: BusinessDate): Promise<MonthlyRunSummary> {
   const period = await monthlyPeriod(tx, date);
-  const summary: MonthlyRunSummary = { serviceMonth: period.serviceMonth, issued: [], skipped: 0 };
+  const summary: MonthlyRunSummary = { serviceMonth: period.serviceMonth, issued: [], skipped: 0, failed: [] };
   const pending = await tx
     .select({ customerId: unbilledCharges.customerId })
     .from(unbilledCharges)
     .where(and(eq(unbilledCharges.tenantId, tenantId), eq(unbilledCharges.status, "unbilled"), isNull(unbilledCharges.invoiceId), lt(unbilledCharges.serviceDate, period.periodEnd)))
     .groupBy(unbilledCharges.customerId);
   for (const { customerId } of pending) {
-    const [existing] = await tx
-      .select({ id: invoices.id })
-      .from(invoices)
-      .where(and(eq(invoices.customerId, customerId), eq(invoices.kind, "monthly"), eq(invoices.periodMonth, period.serviceMonth)))
-      .limit(1);
-    if (existing) {
-      summary.skipped++;
-      continue;
+    // Satu pelanggan bermasalah tidak membatalkan faktur pelanggan lain (US-M5-06 KP-2): savepoint per pelanggan,
+    // kegagalan dicatat sebagai insiden dan dicoba lagi pada jalan berikutnya (susulan otomatis).
+    try {
+      await withSavepoint(tx, async (tx) => {
+        const [existing] = await tx
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(and(eq(invoices.customerId, customerId), eq(invoices.kind, "monthly"), eq(invoices.periodMonth, period.serviceMonth)))
+          .limit(1);
+        if (existing) {
+          summary.skipped++;
+          return;
+        }
+        const customer = await loadCustomer(tx, customerId, { forUpdate: true });
+        const charges = await tx
+          .select()
+          .from(unbilledCharges)
+          .where(and(eq(unbilledCharges.customerId, customerId), eq(unbilledCharges.status, "unbilled"), isNull(unbilledCharges.invoiceId), lt(unbilledCharges.serviceDate, period.periodEnd)))
+          .orderBy(asc(unbilledCharges.serviceDate), asc(unbilledCharges.createdAt))
+          .for("update");
+        if (!charges.length) return;
+        const lateLines = charges.filter((c) => c.lateSync || c.serviceDate < period.serviceMonth).length;
+        // Terbit pada tanggal PAR-12 (job). Bila diterbitkan susulan setelah tanggal jatuh tempo PAR-12 (job gagal),
+        // jatuh tempo tidak boleh sebelum tanggal faktur.
+        const issueDate = date < period.issueDate ? period.issueDate : date;
+        const inv = await issueInvoice(tx, ctx, {
+          tenantId,
+          customerId,
+          kind: "monthly",
+          periodMonth: period.serviceMonth,
+          issueDate,
+          dueDate: period.dueDate < issueDate ? issueDate : period.dueDate,
+          description: `Faktur bulanan layanan ${formatTanggal(period.serviceMonth, { weekday: false }).replace(/^\d+ /, "")}`,
+          lines: charges.map((c) => ({
+            component: "trip" as const,
+            description: c.lateSync || c.serviceDate < period.serviceMonth ? `${c.description} (susulan: tersinkron setelah faktur bulan layanannya terbit)` : c.description,
+            tripId: c.tripId,
+            serviceDate: c.serviceDate,
+            quantity: 1,
+            unitPrice: c.amount,
+            amount: c.amount,
+            volumeL: c.volumeL,
+            unbilledChargeId: c.id,
+          })),
+          rule: "US-M5-06 KP-2, PAR-12",
+        });
+        await tx
+          .update(unbilledCharges)
+          .set({ status: "billed", invoiceId: inv.id, updatedAt: ctx.now })
+          .where(inArray(unbilledCharges.id, charges.map((c) => c.id)));
+        summary.issued.push({ customerId, invoiceId: inv.id, number: inv.number, amount: inv.amount, lateLines });
+        await notify(tx, {
+          event: "receivable.monthly_ready",
+          tenantId,
+          title: `Faktur bulanan ${inv.number} siap kirim: ${customer.name}`,
+          body: `${charges.length} rit, ${formatRupiah(inv.amount)}; jatuh tempo ${formatTanggal(inv.dueDate, { weekday: false })}.${lateLines ? ` ${lateLines} rit susulan bertanda.` : ""} Kirim PDF lewat WA/e-mail hari ini.`,
+          objectType: "invoice",
+          objectId: inv.id,
+          valueAmount: inv.amount,
+          link: "/piutang/faktur-bulanan",
+          now: ctx.now,
+        });
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      summary.failed.push({ customerId, message });
+      await m10.raiseIncident(tx, {
+        tenantId,
+        kind: "other",
+        severity: "major",
+        title: "Faktur bulanan gagal terbit untuk satu pelanggan",
+        description: `Periode ${formatTanggal(period.serviceMonth, { weekday: false })}: ${message}. Faktur pelanggan lain tetap terbit; job mencoba lagi besok, atau terbitkan dari Piutang > Faktur bulanan.`.slice(0, 2000),
+        objectType: "customer",
+        objectId: customerId,
+        now: ctx.now,
+      });
     }
-    const customer = await loadCustomer(tx, customerId, { forUpdate: true });
-    const charges = await tx
-      .select()
-      .from(unbilledCharges)
-      .where(and(eq(unbilledCharges.customerId, customerId), eq(unbilledCharges.status, "unbilled"), isNull(unbilledCharges.invoiceId), lt(unbilledCharges.serviceDate, period.periodEnd)))
-      .orderBy(asc(unbilledCharges.serviceDate), asc(unbilledCharges.createdAt))
-      .for("update");
-    if (!charges.length) continue;
-    const lateLines = charges.filter((c) => c.lateSync || c.serviceDate < period.serviceMonth).length;
-    // Terbit pada tanggal PAR-12 (job). Bila diterbitkan susulan setelah tanggal jatuh tempo PAR-12 (job gagal),
-    // jatuh tempo tidak boleh sebelum tanggal faktur.
-    const issueDate = date < period.issueDate ? period.issueDate : date;
-    const inv = await issueInvoice(tx, ctx, {
-      tenantId,
-      customerId,
-      kind: "monthly",
-      periodMonth: period.serviceMonth,
-      issueDate,
-      dueDate: period.dueDate < issueDate ? issueDate : period.dueDate,
-      description: `Faktur bulanan layanan ${formatTanggal(period.serviceMonth, { weekday: false }).replace(/^\d+ /, "")}`,
-      lines: charges.map((c) => ({
-        component: "trip" as const,
-        description: c.lateSync || c.serviceDate < period.serviceMonth ? `${c.description} (susulan: tersinkron setelah faktur bulan layanannya terbit)` : c.description,
-        tripId: c.tripId,
-        serviceDate: c.serviceDate,
-        quantity: 1,
-        unitPrice: c.amount,
-        amount: c.amount,
-        volumeL: c.volumeL,
-        unbilledChargeId: c.id,
-      })),
-      rule: "US-M5-06 KP-2, PAR-12",
-    });
-    await tx
-      .update(unbilledCharges)
-      .set({ status: "billed", invoiceId: inv.id, updatedAt: ctx.now })
-      .where(inArray(unbilledCharges.id, charges.map((c) => c.id)));
-    summary.issued.push({ customerId, invoiceId: inv.id, number: inv.number, amount: inv.amount, lateLines });
-    await notify(tx, {
-      event: "receivable.monthly_ready",
-      tenantId,
-      title: `Faktur bulanan ${inv.number} siap kirim: ${customer.name}`,
-      body: `${charges.length} rit, ${formatRupiah(inv.amount)}; jatuh tempo ${formatTanggal(inv.dueDate, { weekday: false })}.${lateLines ? ` ${lateLines} rit susulan bertanda.` : ""} Kirim PDF lewat WA/e-mail hari ini.`,
-      objectType: "invoice",
-      objectId: inv.id,
-      valueAmount: inv.amount,
-      link: "/piutang/faktur-bulanan",
-      now: ctx.now,
-    });
   }
   return summary;
 }
