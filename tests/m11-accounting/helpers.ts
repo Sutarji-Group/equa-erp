@@ -130,10 +130,17 @@ export async function evidence(ctx: ActorContext = finance()): Promise<string> {
 }
 
 /** Baris jurnal dua sisi sederhana. */
-export function pair(debitCode: string, creditCode: string, amount: number, pc: { debit?: ProfitCenter; credit?: ProfitCenter; outletId?: string | null } = {}) {
+export function pair(
+  debitCode: string,
+  creditCode: string,
+  amount: number,
+  pc: { debit?: ProfitCenter; credit?: ProfitCenter; outletId?: string | null; waterSourceId?: string | null } = {},
+) {
+  // Baris beban L1 wajib bersumber air atau eksplisit "gabungan" (PTB-39) — pembantu uji memilih "gabungan" bila kosong.
+  const l1 = (p: ProfitCenter | undefined) => (p === "L1" ? { waterSourceId: pc.waterSourceId ?? null, waterSourceShared: !pc.waterSourceId } : {});
   return [
-    { accountId: acc(debitCode), profitCenter: pc.debit ?? "SHARED", outletId: pc.outletId ?? null, debit: amount, credit: 0 },
-    { accountId: acc(creditCode), profitCenter: pc.credit ?? "SHARED", outletId: null, debit: 0, credit: amount },
+    { accountId: acc(debitCode), profitCenter: pc.debit ?? "SHARED", outletId: pc.outletId ?? null, debit: amount, credit: 0, ...l1(pc.debit) },
+    { accountId: acc(creditCode), profitCenter: pc.credit ?? "SHARED", outletId: null, debit: 0, credit: amount, ...l1(pc.credit) },
   ] as const;
 }
 
@@ -167,6 +174,17 @@ export function shiftMonth(period: string, n: number): string {
 
 /** Selesaikan rekonsiliasi bank & kas periode yang diwajibkan (saldo rekening/fisik = buku + item penyesuai). */
 export async function settleReconciliations(periodId: string, ctx: ActorContext = finance()) {
+  // Kas di tangan sopir harus NOL (US-M11-06 KP-2): simulasikan setoran sopir diterima M4 untuk sisa saldonya.
+  const before = await m11.reconciliationOverview(ctx, { periodId });
+  const driver = before.cash.find((c) => c.kind === "driver_cash");
+  if (driver && driver.systemBalance > 0) {
+    const date = before.period.endDate < TODAY ? before.period.endDate : TODAY;
+    await emitEvent(
+      "deposit.received",
+      { depositId: newId(), sourceType: "driver", expectedAmount: driver.systemBalance, receivedAmount: driver.systemBalance, discrepancyAmount: 0, receivedBy: ctx.userId!, late: false },
+      { businessDate: date },
+    );
+  }
   const view = await m11.reconciliationOverview(ctx, { periodId });
   for (const b of view.bank.filter((x) => x.required && !x.zero)) {
     const items = b.autoItems.reduce((s, i) => s + i.amount, 0);

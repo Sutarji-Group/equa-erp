@@ -202,7 +202,7 @@ export async function setAccountingActive(ctx: ActorContext, input: z.input<type
           "MAPPING_INCOMPLETE",
           `M11 belum dapat diaktifkan: ${problems.length} pemetaan wajib belum lengkap (${problems
             .slice(0, 5)
-            .map((p) => `${p.event}/${p.entry}`)
+            .map((p) => p.label)
             .join(", ")}${problems.length > 5 ? ", …" : ""}). Lengkapi di Akuntansi > Pemetaan jurnal otomatis.`,
         );
       }

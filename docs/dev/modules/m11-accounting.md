@@ -178,3 +178,52 @@ Untuk paket B (B-65): `trip.completed` rit prabayar digital membawa `prepaidAmou
   parameter `m11.it_cost_report` (tambahan registri parameter) + biaya pesan WhatsApp (`p2.waCostForMonth`) vs anggaran;
   laporan ekspor terdaftar, tampil di `/akuntansi/laporan`. Uji `tests/m11-accounting/tax.test.ts` (`B-67 …`).
 - **B-57** (kategori arus kas) tetap menunggu tinjauan akuntan saat UAT.
+
+## 13. S5-B perbaikan temuan audit (tim B)
+
+- **Pasokan air dijurnal sekali per penerimaan (US-M11-02 KP-1, BR-33).** `water_supply.confirmed` bisa terbit dua kali
+  untuk satu `waterSupplyReceiptId` (diterima otomatis PAR-61, lalu konfirmasi operator luring tersinkron). Spec
+  `waterSupply` kini asinkron: nilai yang SUDAH dijurnal = `transferValue` event terakhir yang jurnal otomatisnya masih
+  hidup untuk objek `water_supply_receipt/<id>`; yang dijurnal hanya selisihnya (0 → dilewati "sudah dijurnal", negatif →
+  sisi ditukar, uraian "Penyesuaian pasokan air depot …").
+- **Alokasi susulan (US-M11-01 KP-3, US-M11-10 KP-1).** `AllocationPreview` + `allocated` & `remaining`;
+  `required = remaining ≠ 0`. `postCostAllocation(tx, ctx, period, kind)` (ekspor layanan): run pertama membuat baris
+  `cost_allocation_runs`; run berikutnya = TAMBAHAN sebesar sisa (jurnal sendiri, uraian "— tambahan atas biaya susulan",
+  `totalAmount` kumulatif, `result.supplements[]`, audit `post_supplement`). Prasyarat `allocations_posted` ok hanya bila
+  sisa L1 & biaya bersama = 0 ("alokasi L1: sisa Rp … belum dialokasikan"). `closePeriod` menyusulkan alokasi otomatis
+  setelah memposting penyusutan (bila run sudah ada & tidak terblokir). Run ulang tanpa sisa ditolak
+  `ALLOCATION_NOT_REQUIRED` ("sudah mencakup seluruh biaya").
+- **Rekonsiliasi basi & kas sopir (US-M11-06 KP-1/KP-2).** `BankRecView.stale` / `CashRecView.stale`: tersimpan "nol
+  selisih" tetapi saldo buku/sistem (bank: juga total item penyesuai otomatis) berubah → `zero = false`, layar menampilkan
+  "perlu direkonsiliasi ulang". `driver_cash`: saldo fisik WAJIB 0 (`DRIVER_CASH_NOT_ZERO`); `zero` hanya bila saldo
+  sistem 0 (setoran sudah diterima M4). Pembantu uji `settleReconciliations` menyimulasikan setoran sopir untuk sisanya.
+- **Nilai perolehan aset impor = penyesuaian saldo awal (US-M11-09 KP-3, PTB-44, NFR-34).** `updateAssetEstimate`
+  menerima `accountantNote` (wajib bila nilai perolehan berubah) + `attachmentId`; membuat jurnal `opening_adjustment`
+  Diajukan + `manual_journal_details.accountant_note` + persetujuan `opening_balance_adjustment` (payload `assetCost`),
+  hanya dalam jendela PAR-62 setelah cut-over (lewat → `ADJUSTMENT_WINDOW_CLOSED`, arahkan jurnal manual biasa); hasil
+  `pendingApprovalId`. Nilai & penyusutan baru berlaku setelah disetujui (`applyApprovedAssetCost` dari
+  `onOpeningAdjustmentApproved`), tanda tangan daftar aset yang sudah ditandatangani kembali Draf. Umur/nilai sisa tetap
+  langsung (keputusan akuntan, US-M11-05 KP-2).
+- **Pelepasan aset (BR-35, US-M11-05 KP-4).** `disposeAsset` wajib `attachmentId` (bukti jual/berita acara); akun
+  penerimaan hanya aset kas/bank (`isCash`) atau piutang (`1-14…`); jurnal dibuat sebagai DRAF manual +
+  `manual_journal_details.asset_disposal` (kolom jsonb baru) lalu `submitDraftJournal` (> PAR-20 → persetujuan
+  `manual_journal`; ≤ → terposting + tinjauan pemilik). Aset ditandai "Dilepas" oleh `applyAssetDisposal`
+  (`service/asset-disposal.ts`) saat jurnal terposting. Pengajuan ganda ditolak `DISPOSAL_PENDING`. Hasil: `{ asset,
+  journal, status, approvalId, gainLoss, bookValue }`.
+- **Penghapusan piutang selalu disetujui pemilik (PTB-28).** `submitDraftJournal` (inti `submitManualJournal`, diekspor)
+  mengajukan `manual_journal` bila `details.writeOff` ada berapa pun nilainya; `m5.writeOffInvoice` menolak tanpa
+  `approvalId` kecuali pelaku pemilik (`WRITE_OFF_NEEDS_APPROVAL`).
+- **Sumber air pada jurnal manual (US-M9-02 KP-6, PTB-39, K22).** `journalLineSchema` + `waterSourceId`,
+  `waterSourceShared` (pilihan eksplisit "gabungan"), `truckId`; baris BEBAN berpusat L1 wajib salah satunya
+  (`ValidationError` field `lines`). Template berulang menyimpan `waterSourceId`/`waterSourceShared`
+  (`TemplateJournalLine`). UI `JournalLinesInput` menampilkan pilihan "Sumber air (L1)" bila prop `waterSources` diisi.
+- **Ekspor Final identik (US-M11-04 KP-2, US-M9-03 KP-4).** Laporan terdaftar M11 (neraca saldo, laba rugi, neraca, arus
+  kas) mengembalikan `final: { key: "<periode>|<dasar>|r<revisi>", at }` untuk versi Final; inti ekspor menyimpan berkas
+  pertama per (laporan, versi, format, filter, varian data pribadi) dan mengirim ulang berkas yang sama (lihat
+  `docs/dev/sprint0-notes.md` — tambahan inti ekspor). Log ekspor tetap per unduhan.
+- **Teks tanpa kunci teknis (aturan #1).** `mappingMissingMessage(event, entry)` (constants.ts) memakai label
+  `REQUIRED_MAPPINGS` + tindakan "Lengkapi di Akuntansi > Pemetaan jurnal otomatis"; dipakai daftar tunggu, notifikasi
+  `journal.queued`, `mappingAccounts`; `MAPPING_INCOMPLETE` mencantumkan label; akun nonaktif memakai label katalog event.
+- **Konsolidasi M9 = M11.** `INTERNAL_TRANSFER_SOURCES` & `computeInternalMarkup` diekspor dari index untuk M9.
+- Terbuka: flag `accounting.m11_active` masih `defaultEnabled: true` (temuan #18) — lihat laporan tim B.
+- Uji: `tests/m11-accounting/audit-s5b.test.ts`.

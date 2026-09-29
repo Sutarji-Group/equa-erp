@@ -103,7 +103,7 @@ describe("M11 bagan akun, pemetaan & pusat laba (US-M11-01)", () => {
       .set({ isActive: false })
       .where(and(eq(eventAccountMappings.eventKey, "stock.adjusted"), eq(eventAccountMappings.entryKey, "depot")));
     expect((await m11.listMappings(accountant())).mappings.find((m) => m.event === "stock.adjusted" && m.entry === "depot")!.status).toBe("missing");
-    await expect(m11.setAccountingActive(owner(), { enabled: true, reason: "Aktifkan jurnal otomatis" })).rejects.toThrow(/belum dapat diaktifkan.*stock\.adjusted\/depot/);
+    await expect(m11.setAccountingActive(owner(), { enabled: true, reason: "Aktifkan jurnal otomatis" })).rejects.toThrow(/belum dapat diaktifkan.*Penyesuaian opname depot.*Lengkapi di Akuntansi/);
     await expect(m11.setAccountingActive(fa, { enabled: true, reason: "Aktifkan jurnal otomatis" })).rejects.toBeInstanceOf(ForbiddenError);
     await m11.saveMapping(fa, { eventKey: "stock.adjusted", entryKey: "depot", description: "Selisih opname depot", debitAccountId: acc("6-1701"), creditAccountId: acc("1-1502"), debitProfitCenter: "L3", creditProfitCenter: "L3", profitCenterRule: "from_outlet", effectiveFrom: TODAY, reason: "Dilengkapi" });
     await expect(m11.setAccountingActive(owner(), { enabled: true, reason: "Aktifkan jurnal otomatis" })).resolves.toMatchObject({ enabled: true });
@@ -129,7 +129,7 @@ describe("M11 bagan akun, pemetaan & pusat laba (US-M11-01)", () => {
       ["5-1501", "L3", 250_000, 0],
       ["5-1502", "L1", 0, 1_000_000],
     ]);
-    await expect(m11.runCostAllocation(finance(), { periodId: period.id, kind: "l1_allocation" })).rejects.toThrow(/sudah terposting/);
+    await expect(m11.runCostAllocation(finance(), { periodId: period.id, kind: "l1_allocation" })).rejects.toThrow(/sudah mencakup seluruh biaya/);
 
     const st2 = await m11.getStatements(accountant(), { period: THIS_PERIOD });
     const pl = st2.profitLoss;

@@ -25,7 +25,7 @@ import type { ApprovalRow } from "@/server/core/approvals";
 import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
-import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
+import { DomainError, NotFoundError, ValidationError, parseInput } from "@/server/core/errors";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, can, runService } from "@/server/core/rbac";
@@ -33,6 +33,7 @@ import { linkAttachment } from "@/server/core/storage";
 import * as m5 from "@/server/modules/m5-receivables";
 
 import { MANUAL_TEMPLATES } from "../constants";
+import { applyAssetDisposal } from "./asset-disposal";
 import {
   accountsByCode,
   assertBalancedLines,
@@ -60,6 +61,11 @@ export const journalLineSchema = z
     debit: zRupiahNonNegative.default(0),
     credit: zRupiahNonNegative.default(0),
     memo: z.string().trim().max(200).nullable().optional(),
+    /** Sumber air baris beban produksi (L1) — biaya produksi air per liter per sumber (US-M9-02 KP-6, PTB-39). */
+    waterSourceId: z.uuid().nullable().optional(),
+    /** Pilihan eksplisit "gabungan semua sumber" untuk baris beban L1 (dibagi menurut liter pengisian). */
+    waterSourceShared: z.boolean().optional(),
+    truckId: z.uuid().nullable().optional(),
   })
   .strict();
 
@@ -111,6 +117,11 @@ async function validateJournalPayload(tx: Tx, ctx: ActorContext, data: z.output<
     ctx.tenantId,
     lines.map((l) => l.accountId),
   );
+  // PTB-39 / K22: beban produksi air (L1) wajib bersumber air — atau eksplisit "gabungan semua sumber".
+  const l1NoSource = lines.findIndex((l) => l.profitCenter === "L1" && accs.get(l.accountId)?.type === "expense" && !l.waterSourceId && !l.waterSourceShared);
+  if (l1NoSource >= 0) {
+    throw ValidationError.field("lines", `Baris ${l1NoSource + 1}: beban produksi air (L1) wajib memilih sumber air, atau "Gabungan semua sumber" bila biaya itu untuk semua sumber.`);
+  }
   let payableAmount = 0;
   if (data.payable) {
     payableAmount = lines.filter((l) => accs.get(l.accountId)?.type === "liability").reduce((s, l) => s + l.credit, 0);
@@ -142,7 +153,7 @@ export async function createManualJournal(ctx: ActorContext, input: ManualJourna
       status: "draft",
       date: data.date,
       description: data.description,
-      lines: lines.map((l) => ({ accountId: l.accountId, profitCenter: l.profitCenter, outletId: l.outletId ?? null, debit: l.debit, credit: l.credit, memo: l.memo ?? null })),
+      lines: lines.map((l) => ({ accountId: l.accountId, profitCenter: l.profitCenter, outletId: l.outletId ?? null, waterSourceId: l.waterSourceId ?? null, truckId: l.truckId ?? null, debit: l.debit, credit: l.credit, memo: l.memo ?? null })),
       ctx,
       attachmentId: data.attachmentId ?? null,
       templateKey: data.template ?? null,
@@ -212,6 +223,7 @@ async function afterManualPosted(tx: Tx, ctx: ActorContext, journal: JournalRow,
   if (d.writeOff) {
     await m5.writeOffInvoice(tx, { ctx, invoiceId: d.writeOff.invoiceId, amount: d.writeOff.amount, journalId: journal.id, approvalId, reason: journal.description });
   }
+  if (d.assetDisposal) await applyAssetDisposal(tx, ctx, journal, d.assetDisposal);
 }
 
 async function settlePayable(tx: Tx, payableId: string, journalId: string, amount: number): Promise<void> {
@@ -274,8 +286,13 @@ export type SubmitResult = { status: "posted"; journal: JournalRow } | { status:
 export async function submitManualJournal(ctx: ActorContext, input: z.input<typeof submitSchema>, opts: { tx?: Tx } = {}): Promise<SubmitResult> {
   await authorize(ctx, "m11.journal.submit", { tx: opts.tx });
   const data = parseInput(submitSchema, input);
-  return runService(ctx, opts, async (tx) => {
-    const j = await loadJournal(tx, ctx.tenantId, data.journalId, { forUpdate: true });
+  return runService(ctx, opts, (tx) => submitDraftJournal(tx, ctx, data.journalId));
+}
+
+/** Inti pengajuan draf jurnal manual (pemanggil sudah `authorize`) — dipakai juga pelepasan aset (BR-35). */
+export async function submitDraftJournal(tx: Tx, ctx: ActorContext, journalId: string): Promise<SubmitResult> {
+  {
+    const j = await loadJournal(tx, ctx.tenantId, journalId, { forUpdate: true });
     if (!MANUAL_KINDS.includes(j.kind) || j.kind === "opening_adjustment") throw new DomainError("NOT_MANUAL", "Hanya jurnal manual yang diajukan dari sini.");
     if (j.status !== "draft" && j.status !== "rejected") throw new DomainError("JOURNAL_STATUS", `Jurnal ini berstatus ${label("journal_status", j.status)}.`);
     if (!j.attachmentId) throw new DomainError("ATTACHMENT_REQUIRED", "Lampiran bukti (foto/PDF) wajib sebelum jurnal diajukan (BR-35).");
@@ -287,7 +304,11 @@ export async function submitManualJournal(ctx: ActorContext, input: z.input<type
     );
     await postingPeriodFor(tx, ctx.tenantId, j.journalDate, "strict");
     const { amount_gt } = await params.get(tx, "PAR-20", j.journalDate);
-    if (j.totalDebit > amount_gt) {
+    // PTB-28: penghapusan piutang SELALU dengan persetujuan pemilik (berapa pun nilainya); pelepasan aset tetap juga
+    // butuh persetujuan di atas PAR-20 (BR-35) — keduanya lewat `manual_journal`.
+    const details = await loadDetails(tx, j.id);
+    const needsOwner = j.totalDebit > amount_gt || !!details?.writeOff;
+    if (needsOwner) {
       const req = await approvals.submit(
         ctx,
         {
@@ -303,7 +324,7 @@ export async function submitManualJournal(ctx: ActorContext, input: z.input<type
         { tx },
       );
       const [row] = await tx.update(journals).set({ status: "submitted", approvalRequestId: req.id, updatedAt: new Date() }).where(eq(journals.id, j.id)).returning();
-      await auditRecord(tx, { ctx, objectType: "journal", objectId: j.id, action: "submit", before: { status: j.status }, after: { status: "submitted", approval: req.number, amount: j.totalDebit, threshold: amount_gt }, rule: "BR-35, PAR-20" });
+      await auditRecord(tx, { ctx, objectType: "journal", objectId: j.id, action: "submit", before: { status: j.status }, after: { status: "submitted", approval: req.number, amount: j.totalDebit, threshold: amount_gt, writeOff: !!details?.writeOff }, rule: details?.writeOff ? "PTB-28, BR-35" : "BR-35, PAR-20" });
       return { status: "submitted", journal: row!, approvalId: req.id };
     }
     if (!can(ctx, "m11.journal.post")) throw new DomainError("POST_FORBIDDEN", "Anda tidak berwenang memposting jurnal manual.");
@@ -321,7 +342,7 @@ export async function submitManualJournal(ctx: ActorContext, input: z.input<type
       now: ctx.now,
     });
     return { status: "posted", journal: posted };
-  });
+  }
 }
 
 const cancelSchema = z.object({ journalId: z.uuid(), reason: z.string().trim().min(5, { error: "Alasan wajib diisi (minimal 5 karakter)." }) }).strict();
@@ -505,6 +526,8 @@ export async function saveRecurringJournal(ctx: ActorContext, input: z.input<typ
       side: l.debit > 0 ? "debit" : "credit",
       amount: l.debit > 0 ? l.debit : l.credit,
       memo: l.memo ?? null,
+      waterSourceId: l.waterSourceId ?? null,
+      waterSourceShared: l.waterSourceShared ?? false,
     }));
     const values = { name: data.name, template: data.template, description: data.description, lines: stored, dayOfMonth: data.dayOfMonth, isAccrual: data.isAccrual, isActive: data.isActive };
     if (data.id) {
@@ -538,7 +561,7 @@ export async function generateRecurringDraftsFor(tx: Tx, tenantId: string, perio
       status: "draft",
       date,
       description: `${r.description} (${period})`,
-      lines: r.lines.map((l) => ({ accountId: l.accountId, profitCenter: l.profitCenter as never, outletId: l.outletId ?? null, debit: l.side === "debit" ? l.amount : 0, credit: l.side === "credit" ? l.amount : 0, memo: l.memo ?? null })),
+      lines: r.lines.map((l) => ({ accountId: l.accountId, profitCenter: l.profitCenter as never, outletId: l.outletId ?? null, waterSourceId: l.waterSourceId ?? null, debit: l.side === "debit" ? l.amount : 0, credit: l.side === "credit" ? l.amount : 0, memo: l.memo ?? null })),
       ctx,
       templateKey: r.template,
       sourceType: "manual",

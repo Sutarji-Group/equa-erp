@@ -100,6 +100,8 @@ export type BankRecView = {
   saved: typeof bankReconciliations.$inferSelect | null;
   required: boolean;
   zero: boolean;
+  /** Tersimpan "nol selisih" tetapi saldo buku/item otomatis sudah berubah → perlu direkonsiliasi ulang. */
+  stale: boolean;
 };
 
 async function bankAutoItems(tx: Tx, period: PeriodRow, bankAccountId: string, includeUnassigned: boolean): Promise<AdjustingItem[]> {
@@ -179,10 +181,23 @@ export async function bankReconciliationViews(tx: Tx, period: PeriodRow): Promis
       suggestedStatementBalance: stmt?.balance ?? null,
       saved: saved ?? null,
       required: activity || book !== 0 || autoItems.length > 0,
-      zero: saved?.status === "zero_difference",
+      // "Nol selisih" berlaku selama saldo buku & item penyesuai otomatis sama dengan saat disimpan; posting sesudahnya
+      // (rit terlambat sinkron, pencocokan, setor bank) → perlu direkonsiliasi ulang (US-M11-06 KP-1, US-M11-10 KP-1).
+      zero: saved?.status === "zero_difference" && !bankStale(saved, book, autoItems),
+      stale: !!saved && saved.status === "zero_difference" && bankStale(saved, book, autoItems),
     });
   }
   return out;
+}
+
+function autoSum(items: readonly AdjustingItem[]): number {
+  return items.filter((i) => i.auto).reduce((s, i) => s + i.amount, 0);
+}
+
+/** Rekonsiliasi bank tersimpan basi: saldo buku atau total item penyesuai otomatis sudah berubah. */
+function bankStale(saved: typeof bankReconciliations.$inferSelect, book: number, autoItems: readonly AdjustingItem[]): boolean {
+  const savedItems = (saved.adjustingItems ?? []) as unknown as AdjustingItem[];
+  return saved.bookBalance !== book || autoSum(savedItems) !== autoSum(autoItems);
 }
 
 const manualItemSchema = z
@@ -253,6 +268,8 @@ export type CashRecView = {
   saved: typeof cashReconciliations.$inferSelect | null;
   required: boolean;
   zero: boolean;
+  /** Tersimpan "nol selisih" tetapi saldo sistem sudah berubah → perlu direkonsiliasi ulang. */
+  stale: boolean;
 };
 
 export async function cashReconciliationViews(tx: Tx, period: PeriodRow): Promise<CashRecView[]> {
@@ -281,7 +298,11 @@ export async function cashReconciliationViews(tx: Tx, period: PeriodRow): Promis
     const system = accountId ? await accountBalanceAt(tx, period.tenantId, [accountId], period.period, { outletId }) : 0;
     const activity = accountId ? await activityOn(tx, period.tenantId, period.id, accountId, outletId) : false;
     const s = savedFor(kind, outletId);
-    views.push({ kind, outletId, label: text, accountId, systemBalance: system, suggestedPhysical: suggested, saved: s, required: activity || system !== 0, zero: s?.status === "zero_difference" });
+    // Nol selisih basi bila saldo sistem berubah sesudah disimpan (US-M11-06 KP-2); kas di tangan sopir hanya nol bila
+    // saldo sistemnya nol (setoran sudah diterima).
+    const stale = !!s && s.status === "zero_difference" && s.systemBalance !== system;
+    const driverOk = kind !== "driver_cash" || system === 0;
+    views.push({ kind, outletId, label: text, accountId, systemBalance: system, suggestedPhysical: suggested, saved: s, required: activity || system !== 0, zero: s?.status === "zero_difference" && !stale && driverOk, stale });
   };
   await add("office_cash", "Kas kantor", office, null, lastDay?.officeCashPhysical ?? null);
   await add("driver_cash", "Kas di tangan sopir (harus 0 setelah setoran diterima)", driver, null, 0);
@@ -314,6 +335,11 @@ export async function saveCashReconciliation(ctx: ActorContext, input: z.input<t
     if (!isOpenStatus(period.status)) throw new DomainError("PERIOD_NOT_OPEN", `Periode ${period.period} sudah ditutup/dikunci.`);
     const view = (await cashReconciliationViews(tx, period)).find((v) => v.kind === data.kind && v.outletId === (data.outletId ?? null));
     if (!view) throw new NotFoundError("Jenis rekonsiliasi kas tidak ditemukan.");
+    // US-M11-06 KP-2: kas di tangan sopir harus NOL setelah setoran diterima — saldo fisik yang diakui selalu 0;
+    // saldo sistem ≠ 0 berarti setoran belum diterima → diselesaikan lewat alur setoran/selisih M4.
+    if (data.kind === "driver_cash" && data.physicalBalance !== 0) {
+      throw new DomainError("DRIVER_CASH_NOT_ZERO", "Kas di tangan sopir harus nol setelah setoran diterima. Isi 0; bila saldo sistem belum nol, terima setoran sopir di Kas & Setoran lalu simpan ulang.");
+    }
     const difference = data.physicalBalance - view.systemBalance;
     if (difference !== 0 && (data.reason?.length ?? 0) < 5) {
       throw new DomainError("REASON_REQUIRED", "Selisih kas wajib beralasan (minimal 5 karakter) dan diselesaikan lewat alur Selisih di Kas & Setoran.");

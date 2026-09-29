@@ -20,6 +20,8 @@ import { resolveMapping, resolvePostingPeriod } from "@/server/core/ledger";
 import { nextNumber } from "@/server/core/numbering";
 import * as params from "@/server/core/params";
 
+import { mappingMissingMessage } from "../constants";
+
 export type AccountRow = typeof accounts.$inferSelect;
 export type JournalRow = typeof journals.$inferSelect;
 export type JournalLineRow = typeof journalLines.$inferSelect;
@@ -134,7 +136,7 @@ export async function mappingAccounts(
 ): Promise<{ debitAccountId: string; creditAccountId: string; debitProfitCenter: ProfitCenter | null; creditProfitCenter: ProfitCenter | null }> {
   const mapping = await resolveMapping(tx, eventKey, entryKey, date, tenantId);
   if (!mapping) {
-    throw new DomainError("MAPPING_MISSING", `Pemetaan akun ${eventKey} / ${entryKey} belum ada. Lengkapi di Akuntansi > Pemetaan jurnal otomatis.`);
+    throw new DomainError("MAPPING_MISSING", mappingMissingMessage(eventKey, entryKey));
   }
   return mapping;
 }

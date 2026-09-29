@@ -170,7 +170,8 @@ describe("M11 jurnal otomatis dari transaksi operasional (US-M11-02)", () => {
     expect(await journalOfEvent(t.db, ev.id)).toBeNull();
     const q = await queueOfEvent(t.db, ev.id);
     expect(q).toMatchObject({ status: "pending", reason: "mapping_missing", eventKey: "trip.completed" });
-    expect(q!.message).toMatch(/trip\.completed \/ transfer/);
+    expect(q!.message).toMatch(/"Rit Selesai transfer" belum ada\. Lengkapi di Akuntansi > Pemetaan jurnal otomatis/);
+    expect(q!.message).not.toMatch(/trip\.completed/);
     expect((await notificationsOf(t.db, "journal.queued")).some((n) => n.objectId === q!.id || (n.body ?? "").includes("trip.completed"))).toBe(true);
     const queue = await m11.listJournalQueue(accountant(), { status: "pending" });
     expect(queue.some((r) => r.id === q!.id)).toBe(true);

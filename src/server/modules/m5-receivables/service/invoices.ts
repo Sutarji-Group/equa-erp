@@ -484,6 +484,10 @@ export async function writeOffInvoice(
   tx: Tx,
   input: { ctx: ActorContext; invoiceId: string; amount?: number | null; journalId?: string | null; approvalId?: string | null; reason: string },
 ): Promise<InvoiceRow> {
+  // PTB-28: penghapusan piutang hanya lewat jurnal manual M11 DENGAN persetujuan pemilik (atau keputusan pemilik sendiri).
+  if (!input.approvalId && !input.ctx.roles.includes("owner")) {
+    throw new DomainError("WRITE_OFF_NEEDS_APPROVAL", "Penghapusan piutang wajib disetujui pemilik. Ajukan lewat jurnal manual Akuntansi (penghapusan piutang).");
+  }
   const inv = await applyWriteOff(tx, input.ctx, input);
   const customer = await loadCustomer(tx, inv.customerId, { forUpdate: true });
   if (customer.creditStatus === "credit" || customer.creditStatus === "credit_migrated") {

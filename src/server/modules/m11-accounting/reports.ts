@@ -163,7 +163,12 @@ export function registerReports(): void {
       columns,
       fetch: async (ctx, f: StatementFilters, { tx }) => {
         const s = await getStatements(ctx, { period: f.period ?? currentPeriod(ctx.now), basis: (f.basis ?? "period") as Basis }, { tx });
-        return { rows: pick(s), status: `${s.status === "final" ? "Final" : "Sementara"}${s.revision > 1 ? ` (revisi ${s.revision})` : ""}${s.retroactive ? " — dibangkitkan retroaktif, diverifikasi akuntan" : ""}` };
+        return {
+          rows: pick(s),
+          status: `${s.status === "final" ? "Final" : "Sementara"}${s.revision > 1 ? ` (revisi ${s.revision})` : ""}${s.retroactive ? " — dibangkitkan retroaktif, diverifikasi akuntan" : ""}`,
+          // Versi Final: ekspor ulang mengirim berkas yang identik (US-M11-04 KP-2, US-M9-03 KP-4).
+          final: s.status === "final" ? { key: `${s.period}|${s.basis}|r${s.revision}`, at: new Date(s.generatedAt) } : null,
+        };
       },
     });
 

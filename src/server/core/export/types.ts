@@ -39,6 +39,11 @@ export type ReportResult<Row = Record<string, unknown>> = {
   summary?: ReportSummaryItem[];
   /** Label status laporan (mis. "Sementara" / "Final"). */
   status?: string;
+  /**
+   * (Tambahan S5-B) Laporan berstatus FINAL: `key` = identitas versi Final (mis. periode + dasar + revisi), `at` = waktu
+   * versi Final dibentuk. Ekspor ulang versi yang sama mengirim berkas yang IDENTIK (US-M9-03 KP-4, US-M11-04 KP-2).
+   */
+  final?: { key: string; at: Date } | null;
 };
 
 export type ReportDef<Row = Record<string, unknown>, Filters = Record<string, unknown>> = {

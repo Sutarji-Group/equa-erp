@@ -44,7 +44,7 @@ function pc(value: string | null): ProfitCenter {
   return value && isEnumValue("profit_center", value) ? value : "SHARED";
 }
 
-type LineIn = { accountId: string; profitCenter: ProfitCenter; outletId: string | null; debit: number; credit: number; memo: string | null };
+type LineIn = { accountId: string; profitCenter: ProfitCenter; outletId: string | null; debit: number; credit: number; memo: string | null; waterSourceId?: string | null; waterSourceShared?: boolean };
 
 /** Baris jurnal dari editor baris tetap (`line_*_<i>`); baris tanpa akun diabaikan. */
 function linesFrom(fd: FormData, max = 20): LineIn[] {
@@ -59,9 +59,17 @@ function linesFrom(fd: FormData, max = 20): LineIn[] {
       debit: int(fd, `line_debit_${i}`) ?? 0,
       credit: int(fd, `line_credit_${i}`) ?? 0,
       memo: str(fd, `line_memo_${i}`),
+      ...sourceOf(str(fd, `line_source_${i}`)),
     });
   }
   return out;
+}
+
+/** Pilihan "Sumber air (L1)" baris jurnal: id sumber, "shared" = gabungan semua sumber, kosong = tidak diisi. */
+function sourceOf(value: string | null): { waterSourceId?: string | null; waterSourceShared?: boolean } {
+  if (!value) return {};
+  if (value === "shared") return { waterSourceShared: true };
+  return { waterSourceId: value };
 }
 
 async function uploadFile(fd: FormData, name: string, kind: string): Promise<string | null> {
@@ -436,28 +444,37 @@ export async function signAssetsAction(signoffId: string): Promise<M11ActionStat
 export async function updateEstimateAction(_: M11ActionState, fd: FormData): Promise<M11ActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(async () => {
+    const attachmentId = await uploadFile(fd, "evidence", "journal_evidence");
     const r = await m11.updateAssetEstimate(ctx, {
       assetId: str(fd, "assetId") ?? "",
       usefulLifeMonths: int(fd, "usefulLifeMonths"),
       residualValue: int(fd, "residualValue"),
       acquisitionCost: int(fd, "acquisitionCost"),
       reason: str(fd, "reason") ?? "",
+      accountantNote: str(fd, "accountantNote"),
+      attachmentId,
     });
-    return r.adjustment ? `Umur/nilai diperbarui; jurnal penyesuaian ${r.journalNumber} (${formatRupiah(r.adjustment)}).` : "Umur/nilai diperbarui; tidak ada penyesuaian penyusutan.";
+    const pending = r.pendingApprovalId ? " Perubahan nilai perolehan diajukan ke pemilik sebagai penyesuaian saldo awal." : "";
+    return (r.adjustment ? `Umur/nilai diperbarui; jurnal penyesuaian ${r.journalNumber} (${formatRupiah(r.adjustment)}).` : "Umur/nilai diperbarui; tidak ada penyesuaian penyusutan.") + pending;
   }, "Diperbarui.");
 }
 
 export async function disposeAssetAction(_: M11ActionState, fd: FormData): Promise<M11ActionState> {
   const { ctx } = await requireOfficeSession();
   return attempt(async () => {
+    const attachmentId = await uploadFile(fd, "evidence", "journal_evidence");
     const r = await m11.disposeAsset(ctx, {
       assetId: str(fd, "assetId") ?? "",
       date: str(fd, "date") ?? "",
       proceeds: int(fd, "proceeds") ?? 0,
       proceedsAccountId: str(fd, "proceedsAccountId"),
       reason: str(fd, "reason") ?? "",
+      attachmentId: attachmentId ?? "",
     });
-    return `Aset dilepas; ${r.gainLoss >= 0 ? "laba" : "rugi"} pelepasan ${formatRupiah(Math.abs(r.gainLoss))} (jurnal ${r.journal.number}).`;
+    const gl = `${r.gainLoss >= 0 ? "laba" : "rugi"} pelepasan ${formatRupiah(Math.abs(r.gainLoss))}`;
+    return r.status === "submitted"
+      ? `Pelepasan diajukan ke pemilik (jurnal ${r.journal.number}, ${gl}); aset dilepas setelah disetujui.`
+      : `Aset dilepas; ${gl} (jurnal ${r.journal.number}) — masuk daftar tinjauan pemilik.`;
   }, "Aset dilepas.");
 }
 

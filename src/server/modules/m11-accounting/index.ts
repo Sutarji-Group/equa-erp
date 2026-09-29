@@ -70,6 +70,7 @@ export {
   loadStatements,
   computeTrialBalance,
   computeProfitLoss,
+  computeInternalMarkup,
   computeBalanceSheet,
   computeCashFlow,
   finalVersions,
@@ -126,3 +127,6 @@ export {
 
 // Periode (US-M11-10)
 export { listPeriods, periodDetail, closePeriod, lockPeriod, reopenPeriod, addPeriodReviewNote, periodPrerequisites, runPeriodReminders, type Prerequisite } from "./service/periods";
+
+// Sumber jurnal transfer internal yang dieliminasi pada konsolidasi (dipakai M9 — satu definisi, US-M9-02 KP-2).
+export { INTERNAL_TRANSFER_SOURCES } from "./constants";

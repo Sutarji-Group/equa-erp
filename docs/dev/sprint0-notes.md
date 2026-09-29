@@ -205,3 +205,13 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
   `.env.example` mendokumentasikan variabelnya. Uji: `tests/core/e2e-clock.test.ts` (NFR-09 tidak aktif di produksi).
 - Data awal skenario: `src/db/seed/e2e-scenarios.ts` (`seedE2eScenarioData`, pelanggan Tempo PLG-0951) — HANYA dari
   `pnpm e2e:prepare`, tidak termasuk `runSeed`. Rincian suite: `docs/qa/skenario-uji.md`.
+
+## S5-B perbaikan temuan audit (tim B) — tambahan inti (hanya tambah, dilaporkan)
+
+- `ReportResult.final?: { key, at } | null` (`src/server/core/export/types.ts`): laporan berstatus Final memberi identitas
+  versi (mis. `periode|dasar|r<revisi>`) + waktu Final. `exportReport` (`service.ts`) untuk hasil `final`: kunci berkas =
+  sha256(laporan, format, versi Final, varian data pribadi, filter terurut); berkas pertama dirender dengan waktu cetak =
+  `final.at`, pembuat "Laporan Final", Excel `fixedTimestamp`, lalu disimpan sebagai lampiran (`objectType
+  "report_final_export"`, `kind "report_final_<format>"`, lewat `put` + `systemContext`); ekspor berikutnya mengirim berkas
+  tersimpan apa adanya (sha & nama sama). Log ekspor tetap satu baris per unduhan. Laporan non-Final tidak berubah.
+- `src/lib/reasons.ts` (baru, isomorfik): `formatUnderpaymentReason(raw)` — label Indonesia alasan kurang bayar (M3/M5).
