@@ -27,6 +27,8 @@ import { seedDemoM6Pos } from "./demo-m6-pos";
 import { seedDemoM7Store } from "./demo-m7-store";
 import { seedDemoM8Production } from "./demo-m8-production";
 import { seedDemoM9Reports } from "./demo-m9-reports";
+// Tambahan P2 (hanya tambah): demo aplikasi pelanggan (Tahap 2).
+import { seedDemoP2Customer } from "./demo-p2-customer";
 import { seedId } from "./ids";
 import { seedOrganization } from "./org";
 import { DEFAULT_FEATURE_FLAGS, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS, PARAMETER_EFFECTIVE_FROM } from "./parameters";
@@ -122,6 +124,8 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoM11Accounting(tx);
     // M9 (Laporan & Dashboard): input KPI-10 & periode paralel; angka laporan dihitung dari demo modul di atas.
     await seedDemoM9Reports(tx);
+    // P2 (Aplikasi Pelanggan, Tahap 2 — flag tetap mati): akun, pesanan aplikasi, penilaian & keluhan demo (memakai demo M2).
+    await seedDemoP2Customer(tx);
 
     const counts = await countRows(tx);
     return { parameters: paramRows.length, users: org.usersInserted, customers: cust.customers, counts };
