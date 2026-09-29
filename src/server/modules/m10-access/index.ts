@@ -50,6 +50,7 @@ export { initialAccountsStatus, prepareInitialAccountsSignoff, signInitialAccoun
 export { handleEmployeeExited, runExitDateSweep } from "./service/exits";
 export {
   accessChangesOn,
+  accessChangesBetween,
   accessReviewList,
   dailyAccessSummary,
   markAccessReviewed,

@@ -198,6 +198,21 @@ describe("US-M10-01 Pengguna, peran, dan lingkup akses", () => {
     expect(notes[0]!.body).toMatch(/peran dicabut/);
   });
 
+  it("US-M10-01 KP-7 perubahan akses sesudah ringkasan 22.15 (sampai tengah malam) masuk ringkasan berikutnya — tidak ada yang hilang", async () => {
+    const first = new Date();
+    await dailyAccessSummary(first);
+    // Perubahan SESUDAH ringkasan hari ini (mis. 23.00 WIB).
+    const u = await activeUser("dispatcher");
+    const roleRow = (await t.db.select().from(userRoles).where(and(eq(userRoles.userId, u.userId), eq(userRoles.status, "active"))))[0]!;
+    await revokeRole(admin(), { userId: u.userId, roleId: roleRow.id, reason: "Salah peran, dicabut malam hari" });
+    // Ringkasan besok: jendela = sejak akhir ringkasan terakhir, bukan hanya tanggal besok.
+    const next = new Date(first.getTime() + 24 * 3_600_000);
+    await dailyAccessSummary(next);
+    const notes = (await notificationsOf(t.db, "pemilik", "access.daily_summary")).filter((n) => n.objectId === toBusinessDate(next));
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.body).toMatch(/peran dicabut/);
+  });
+
   it("US-M10-01 KP-8 akun/peran/lingkup baru aktif setelah disetujui pemilik; ditolak → tidak aktif; pencabutan seketika tanpa persetujuan", async () => {
     const emp = await newEmployee(t.db);
     const r = await createUser(admin(), { employeeId: emp, username: uniqueName("p"), role: "depot_operator", scopes: [{ type: "outlet", refId: outletId("D03") }], reason: "Operator depot baru" });

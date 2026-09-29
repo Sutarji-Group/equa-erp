@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { accessLogs, anonymizationRequests, attachments, customerAddresses, customers, employees, exportLogs, gpsPositions, invoices, tenants, users } from "@/db/schema";
+import { accessLogs, anonymizationRequests, attachments, customerAddresses, customers, employees, exportLogs, gpsPositions, invoices, tenants, unbilledCharges, users } from "@/db/schema";
 import { customerId, employeeId, EQUA_TENANT_ID, truckId, userIdByUsername } from "@/db/seed";
 import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
@@ -101,6 +101,23 @@ describe("US-M10-06 Data pribadi, retensi, dan pencadangan", () => {
     expect(again.approval).not.toBeNull();
     await approvals.decide(seededContext("pemilik"), again.approval!.id, "approve");
     expect((await t.db.select().from(customers).where(eq(customers.id, cust)))[0]!.anonymizedAt).not.toBeNull();
+  });
+
+  it("US-M10-06 KP-2 PTB-36 rit tempo BELUM DITAGIH (pelanggan tagihan bulanan sebelum faktur terbit) juga piutang terbuka → anonimisasi ditunda", async () => {
+    const cust = customerId("PLG-0005");
+    const [charge] = await t.db
+      .insert(unbilledCharges)
+      .values({ tenantId: EQUA_TENANT_ID, customerId: cust, serviceDate: toBusinessDate(new Date()), description: "Rit tempo belum ditagih", amount: 450_000, status: "unbilled" })
+      .returning();
+    const r = await requestAnonymization(seededContext("admin1"), { subjectType: "customer", subjectId: cust, reason: "Permintaan penghapusan lewat WA" });
+    expect(r.request.status).toBe("deferred");
+    expect(r.approval).toBeNull();
+    expect(r.deferredReason).toMatch(/Rp 450\.000 belum ditagih/);
+    expect((await t.db.select().from(customers).where(eq(customers.id, cust)))[0]!.anonymizedAt).toBeNull();
+    // Setelah masuk faktur & lunas → dapat diajukan ulang.
+    await t.db.update(unbilledCharges).set({ status: "billed" }).where(eq(unbilledCharges.id, charge!.id));
+    const again = await resubmitAnonymization(seededContext("admin1"), r.request.id);
+    expect(again.approval).not.toBeNull();
   });
 
   it("US-M10-06 KP-2 karyawan hanya dianonimkan setelah keluar; kredensial dibersihkan, transaksi tetap", async () => {

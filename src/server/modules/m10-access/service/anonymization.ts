@@ -10,7 +10,7 @@
  */
 import "server-only";
 
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -19,7 +19,6 @@ import {
   customerAddresses,
   customers,
   employees,
-  invoices,
   trips,
   users,
   waMessageLogs,
@@ -34,17 +33,24 @@ import { ConflictError, DomainError, NotFoundError, parseInput, ValidationError 
 import { notify } from "@/server/core/notifications";
 import { authorize, runService } from "@/server/core/rbac";
 
+import { getReceivableBalance } from "@/server/modules/m5-receivables";
+
 import { userNames } from "./shared";
 
 export type AnonymizationRow = typeof anonymizationRequests.$inferSelect;
 
-/** Total piutang terbuka pelanggan (faktur Terbuka/Sebagian dibayar dengan sisa > 0). */
-export async function openReceivableOf(tx: Tx, customerId: string): Promise<{ count: number; amount: number }> {
-  const rows = await tx
-    .select({ n: sql<number>`count(*)::int`, total: sql<number>`coalesce(sum(${invoices.outstandingAmount}), 0)::bigint` })
-    .from(invoices)
-    .where(and(eq(invoices.customerId, customerId), inArray(invoices.status, ["open", "partial"]), gt(invoices.outstandingAmount, 0)));
-  return { count: Number(rows[0]?.n ?? 0), amount: Number(rows[0]?.total ?? 0) };
+/**
+ * Piutang terbuka pelanggan menurut definisi M5 (US-M5-01 KP-3): faktur bersisa + rit/penjualan tempo BELUM DITAGIH
+ * (`unbilled_charges`, mis. pelanggan tagihan bulanan sebelum faktur bulanannya terbit) — US-M10-06 KP-2, PTB-36.
+ */
+export async function openReceivableOf(tx: Tx, customerId: string): Promise<{ count: number; amount: number; unbilled: number; blocked: boolean }> {
+  const bal = await getReceivableBalance(tx, customerId);
+  return { count: bal.openInvoiceCount, amount: bal.balance, unbilled: bal.unbilledCharges, blocked: bal.balance > 0 };
+}
+
+function receivableText(open: { count: number; amount: number; unbilled: number }): string {
+  const parts = [open.count ? `${open.count} faktur` : null, open.unbilled ? `${formatRupiah(open.unbilled)} belum ditagih` : null].filter(Boolean).join(", ");
+  return `Piutang terbuka ${formatRupiah(open.amount)}${parts ? ` (${parts})` : ""}`;
 }
 
 const requestSchema = z.object({
@@ -106,8 +112,8 @@ export async function requestAnonymization(ctx: ActorContext, input: z.input<typ
 async function submitOrDefer(tx: Tx, ctx: ActorContext, row: AnonymizationRow, subjectName: string) {
   if (row.subjectType === "customer") {
     const open = await openReceivableOf(tx, row.subjectId);
-    if (open.count > 0) {
-      const why = `Piutang terbuka ${formatRupiah(open.amount)} (${open.count} faktur). Anonimisasi ditunda sampai lunas atau dihapuskan (PTB-36).`;
+    if (open.blocked) {
+      const why = `${receivableText(open)}. Anonimisasi ditunda sampai lunas atau dihapuskan (PTB-36).`;
       const [deferred] = await tx
         .update(anonymizationRequests)
         .set({ status: "deferred", blockedReason: why, updatedAt: ctx.now })
@@ -209,8 +215,8 @@ async function anonymizeEmployee(tx: Tx, employeeId: string, now: Date): Promise
 export async function executeAnonymization(tx: Tx, ctx: ActorContext, row: AnonymizationRow): Promise<AnonymizationOutcome> {
   if (row.subjectType === "customer") {
     const open = await openReceivableOf(tx, row.subjectId);
-    if (open.count > 0) {
-      const why = `Piutang terbuka ${formatRupiah(open.amount)} (${open.count} faktur) saat dijalankan. Anonimisasi ditunda sampai lunas atau dihapuskan (PTB-36).`;
+    if (open.blocked) {
+      const why = `${receivableText(open)} saat dijalankan. Anonimisasi ditunda sampai lunas atau dihapuskan (PTB-36).`;
       await tx.update(anonymizationRequests).set({ status: "deferred", blockedReason: why, updatedAt: ctx.now }).where(eq(anonymizationRequests.id, row.id));
       await auditRecord(tx, { ctx, objectType: "anonymization_request", objectId: row.id, action: "update", after: { status: "deferred" }, reason: why, rule: "PTB-36" });
       await notify(tx, {
@@ -306,7 +312,7 @@ export async function remindDeferredAnonymizations(now: Date = new Date(), db?: 
       for (const r of deferred) {
         if (r.subjectType !== "customer") continue;
         const open = await openReceivableOf(tx, r.subjectId);
-        if (open.count > 0) continue;
+        if (open.blocked) continue;
         ready++;
         await notify(tx, {
           event: "anonymization.deferred",

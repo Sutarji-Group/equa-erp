@@ -130,7 +130,7 @@ describe("M12 — peringatan perangkat GPS mati atau dicabut (US-M12-08)", () =>
     expect(trail.map((a) => a.action)).toEqual(["activate", "deactivate"]);
   });
 
-  it("7.12.6 gangguan layanan vendor (semua perangkat basi sekaligus) → hanya tim IT diberi tahu, tanpa peringatan 'perangkat mati' per truk", async () => {
+  it("7.12.6 US-M12-01 KP-4 gangguan layanan vendor (semua perangkat basi sekaligus) → hanya tim IT diberi tahu, tanpa peringatan 'perangkat mati' per truk; GPS ponsel cadangan tetap aktif", async () => {
     const fleet = [await gpsTruck(t.db), await gpsTruck(t.db), await gpsTruck(t.db)];
     for (const g of fleet) await feed(t.db, dwell(g.deviceCode, POOL, wib(LATER, "11:30"), 30));
     const [res] = await runDeviceHealthCheck(wib(LATER, "12:30"), t.db);
@@ -140,8 +140,13 @@ describe("M12 — peringatan perangkat GPS mati atau dicabut (US-M12-08)", () =>
     const to = new Set(vendorNotes.map((n) => n.recipientUserId));
     expect(to.has(userIdByUsername("admin1"))).toBe(true);
     expect(to.has(userIdByUsername("dispatcher1"))).toBe(false);
+    // US-M12-01 KP-4: GPS ponsel cadangan tetap aktif untuk setiap truk basi (tanpa notifikasi per truk).
+    const liveFlags = async (truckId: string) => t.db.select().from(phoneTrackingFlags).where(and(eq(phoneTrackingFlags.truckId, truckId), isNull(phoneTrackingFlags.endedAt)));
+    for (const g of fleet) expect(await liveFlags(g.truckId)).toHaveLength(1);
     // Satu truk kembali mengirim → gangguan bukan sistemik lagi → yang basi ditandai per truk.
     await feed(t.db, [fix(fleet[0]!.deviceCode, wib(LATER, "12:34"), POOL)]);
+    // Posisi perangkat kembali → GPS ponsel cadangan truk itu dimatikan.
+    expect(await liveFlags(fleet[0]!.truckId)).toHaveLength(0);
     const [after] = await runDeviceHealthCheck(wib(LATER, "12:35"), t.db);
     expect(after!.vendorOutage).toBe(false);
     expect(await outages(t.db, fleet[1]!.truckId)).toHaveLength(1);

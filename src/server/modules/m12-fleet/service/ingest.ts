@@ -22,7 +22,7 @@ import { withTx, type Db, type Tx } from "@/server/core/db";
 
 import type { AdapterError, GpsFix } from "../domain/adapters";
 import { m12Rules, type DeviceRow, type M12Rules } from "./common";
-import { markDeviceOutage, restoreDevice } from "./devices";
+import { markDeviceOutage, restoreDevice, stopPhoneTracking } from "./devices";
 import { createFleetEvent } from "./fleet-events";
 
 export type IngestItemResult = { index: number; status: "accepted" | "duplicate" | "rejected"; message?: string };
@@ -207,6 +207,10 @@ async function updateDeviceHealth(
   } else if (newerThanState && (device.gpsState === "dead" || (device.gpsState === "unplugged" && power === true))) {
     // US-M12-08 KP-3: perangkat aktif kembali (Dicabut → hanya bila daya dilaporkan tersambung lagi).
     await restoreDevice(tx, { device: fresh, truck: truckRef, at: meta.receivedAt, now: meta.receivedAt });
+  } else if (device.gpsState !== "unplugged" && device.gpsState !== "dead") {
+    // Posisi perangkat kembali setelah gangguan vendor sistemik (perangkat tidak ditandai Mati): matikan GPS ponsel
+    // cadangan otomatis (US-M12-01 KP-4). Penanda paksa admin sistem tetap.
+    await stopPhoneTracking(tx, { truckId: truck.id, now: meta.receivedAt });
   }
   if (meta.skewed) {
     // PAR-42: satu kejadian informasional per perangkat per hari.
