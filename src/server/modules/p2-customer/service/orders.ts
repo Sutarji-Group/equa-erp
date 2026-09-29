@@ -168,12 +168,12 @@ export async function placeOrder(cctx: CustomerContext, input: PlaceOrderInput, 
       }
     }
     const quote = await quoteOrder(cctx, { addressId: data.addressId, tankCount: data.tankCount, date: data.date }, { tx });
+    const option = quote.paymentOptions.find((o) => o.method === data.paymentMethod)!;
+    if (!option.available) throw new DomainError(data.paymentMethod === "credit" ? "CREDIT_UNAVAILABLE" : "PAYMENT_UNAVAILABLE", option.reason ?? "Cara bayar ini tidak tersedia.");
     const slots = await slotDefs(tx, data.date);
     const slot = slots.find((s) => s.key === data.slot);
     if (!slot) throw ValidationError.field("slot", "Slot tidak dikenal. Pilih pagi, siang, atau sore.");
     await assertSlotAvailable(tx, { tenantId: cctx.tenantId, now: cctx.now, date: data.date, slot: data.slot, tankCount: data.tankCount });
-    const option = quote.paymentOptions.find((o) => o.method === data.paymentMethod)!;
-    if (!option.available) throw new DomainError(data.paymentMethod === "credit" ? "CREDIT_UNAVAILABLE" : "PAYMENT_UNAVAILABLE", option.reason ?? "Cara bayar ini tidak tersedia.");
 
     const m2Method = data.paymentMethod === "digital" ? "cash" : data.paymentMethod;
     const res = await m2.createOrder(
@@ -489,14 +489,16 @@ function buildTimeline(order: OrderRow, d: MyOrderDetail): TimelineStep[] {
     steps.push({ key: "cancelled", title: d.rejectReason ? "Ditolak kantor" : "Dibatalkan", at: order.cancelledAt, description: d.rejectReason ?? d.cancelNote, state: "failed" });
     return steps;
   }
+  // Truk sudah berangkat/selesai = pesanan jelas sudah dikonfirmasi kantor (mis. pesanan telepon/langganan).
+  const confirmed = !!d.confirmedAt || !!firstDeparted || allDone;
   steps.push({
     key: "confirmed",
     title: "Dikonfirmasi",
     at: d.confirmedAt,
-    description: d.confirmedAt ? [formatTanggal(order.requestedDate), d.slotLabel, trucksText ? `truk ${trucksText}` : null].filter(Boolean).join(" · ") : d.confirmDueAt ? `Menunggu konfirmasi kantor (paling lambat ${formatTanggalJam(d.confirmDueAt)})` : "Menunggu konfirmasi kantor",
-    state: d.confirmedAt ? "done" : "current",
+    description: confirmed ? [formatTanggal(order.requestedDate), d.slotLabel, trucksText ? `truk ${trucksText}` : null].filter(Boolean).join(" · ") : d.confirmDueAt ? `Menunggu konfirmasi kantor (paling lambat ${formatTanggalJam(d.confirmDueAt)})` : "Menunggu konfirmasi kantor",
+    state: confirmed ? "done" : "current",
   });
-  steps.push({ key: "departed", title: "Berangkat", at: firstDeparted, description: firstDeparted ? "Truk menuju alamat Anda" : null, state: firstDeparted ? "done" : d.confirmedAt ? "current" : "pending" });
+  steps.push({ key: "departed", title: "Berangkat", at: firstDeparted, description: firstDeparted ? "Truk menuju alamat Anda" : null, state: firstDeparted ? "done" : confirmed ? "current" : "pending" });
   steps.push({ key: "arrived", title: "Tiba", at: firstArrived, description: null, state: firstArrived ? "done" : firstDeparted ? "current" : "pending" });
   if (allDone && failed.length && !completed.length) {
     steps.push({ key: "failed", title: "Gagal", at: failed[0]!.failedAt, description: failed.map((f) => f.failReason).filter(Boolean).join("; ") || null, state: "failed" });
