@@ -65,11 +65,12 @@ kantor), 6.2a (PTB-19), 6.3, 6.4 (tabrakan sinkron), BR-07/08/10/19/22/23/25/37/
   `trip_payments.method = digital` (diterima = uang muka yang diakui ≤ harga; sisa → kurang bayar PTB-18). Event:
   `trip.completed` `{ paymentMethod: "digital", prepaidAmount, prepaidReference, cashReceived: 0, transferAmount: 0,
   creditAmount: 0, underpaymentAmount }` dan `trip.payment_recorded` `{ method: "digital", amount, prepaidAmount }`.
-  Kas di tangan sopir tidak bertambah; M4 mengabaikan (bukan transfer); M5 tidak membuat faktur (kecuali sisa kurang
-  bayar). **Tugas paket B:** M5 memakai uang muka pelanggan sebesar `prepaidAmount` (alokasi uang muka, bukan faktur
-  kurang bayar) dan M11 menjurnal D 2-1201 uang muka / K 4-1101 pendapatan L2 dari `trip.completed.prepaidAmount`
-  (kini jurnal `trip.completed` digital tidak memiliki baris → dilewati). Perangkat lama yang mengirim tunai untuk rit
-  digital tetap diterima (tabrakan): uang muka P2 tetap sebagai saldo pelanggan.
+  Kas di tangan sopir tidak bertambah; M4 mengabaikan (bukan transfer). **Paket B (SELESAI, integrasi S5-A):** M5
+  menerbitkan faktur rit sebesar `prepaidAmount` yang langsung dilunasi uang muka pelanggan (`customer_advance.applied`;
+  sisa kurang bayar tetap faktur kurang bayar) dan M11 menjurnal `trip.completed` (D piutang / K 4-1101 L2) +
+  `customer_advance.applied` (D 2-1201 / K piutang) → pendapatan terhadap uang muka. Uji alur nyata M3 → M5:
+  `tests/m3-driver/prepaid.test.ts`. Perangkat lama yang mengirim tunai untuk rit digital tetap diterima (tabrakan):
+  uang muka P2 tetap sebagai saldo pelanggan. Uang muka belum ditandai per pesanan — B-81.
 
 Didengar: `discrepancy.formed` (`m3-driver:par83_trip_lock`) → notifikasi `discrepancy.trip_lock` ke sopir bila PAR-83
 mengunci (B-12; kunci sendiri dihitung saat pull & ditegakkan server saat Berangkat).

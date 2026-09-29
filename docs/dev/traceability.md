@@ -8,7 +8,7 @@
 
 - **Prioritas M:** 490/490 KP (100.0%) · story: 94 lengkap, 0 sebagian, 0 belum
 - **Semua prioritas:** 552/554 KP (99.6%) · story: 113 lengkap, 0 sebagian, 1 belum
-- Uji dipindai: 1284 judul di 202 berkas; 1064 judul merujuk user story.
+- Uji dipindai: 1319 judul di 212 berkas; 1092 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
@@ -69,14 +69,14 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 |---|---|:-:|---:|---|---|---:|
 | US-M3-01 | Melihat daftar rit hari ini dan menuju lokasi | M | 7/7 | lengkap | — | 24 |
 | US-M3-02 | Mencatat Berangkat dan Tiba dengan waktu dan lokasi otomatis | M | 6/6 | lengkap | — | 12 |
-| US-M3-03 | Menyelesaikan rit dengan bukti kirim | M | 7/7 | lengkap | — | 30 |
-| US-M3-04 | Mencatat pembayaran per rit | M | 6/6 | lengkap | — | 16 |
+| US-M3-03 | Menyelesaikan rit dengan bukti kirim | M | 7/7 | lengkap | — | 31 |
+| US-M3-04 | Mencatat pembayaran per rit | M | 6/6 | lengkap | — | 18 |
 | US-M3-05 | Menerima pelunasan piutang saat pengiriman | M | 5/5 | lengkap | — | 8 |
 | US-M3-06 | Menandai rit gagal, melaporkan kendala, dan memberi keterangan perjalanan | M | 4/4 | lengkap | — | 9 |
-| US-M3-07 | Melihat kas di tangan dan menyetor akhir hari | M | 6/6 | lengkap | — | 12 |
+| US-M3-07 | Melihat kas di tangan dan menyetor akhir hari | M | 6/6 | lengkap | — | 13 |
 | US-M3-08 | Mencatat pengeluaran rit | S | 3/3 | lengkap | — | 11 |
 | US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 5/5 | lengkap | — | 26 |
-| US-M3-10 | Keamanan perangkat dan kesiapan lapangan | M | 6/6 | lengkap | — | 21 |
+| US-M3-10 | Keamanan perangkat dan kesiapan lapangan | M | 6/6 | lengkap | — | 25 |
 
 ## M4 — Kas & Setoran
 
@@ -97,7 +97,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M5-01 | Piutang terbentuk otomatis dari pengiriman dan penjualan tempo | M | 6/6 | lengkap | — | 26 |
+| US-M5-01 | Piutang terbentuk otomatis dari pengiriman dan penjualan tempo | M | 6/6 | lengkap | — | 28 |
 | US-M5-02 | Mencatat pelunasan dan alokasinya | M | 5/5 | lengkap | — | 20 |
 | US-M5-03 | Kontrol jatuh tempo dan status Ditahan | M | 6/6 | lengkap | — | 16 |
 | US-M5-04 | Laporan umur piutang dan kartu piutang | M | 4/4 | lengkap | — | 13 |
@@ -111,12 +111,12 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M6-01 | Transaksi cepat di POS depot | M | 7/7 | lengkap | — | 12 |
+| US-M6-01 | Transaksi cepat di POS depot | M | 7/7 | lengkap | — | 14 |
 | US-M6-02 | Buka dan tutup shift dengan kas dan stok fisik; setoran outlet | M | 7/7 | lengkap | — | 13 |
 | US-M6-03 | Void dengan alasan | M | 5/5 | lengkap | — | 10 |
 | US-M6-04 | Stok bahan habis pakai dan opname mingguan | M | 6/6 | lengkap | — | 8 |
 | US-M6-05 | Menerima pasokan air dan neraca air outlet | M | 6/6 | lengkap | — | 11 |
-| US-M6-06 | Bekerja tanpa sinyal | M | 5/5 | lengkap | — | 12 |
+| US-M6-06 | Bekerja tanpa sinyal | M | 5/5 | lengkap | — | 13 |
 | US-M6-07 | Paket standar multi-tenant | M | 6/6 | lengkap | — | 14 |
 
 ## M7 — Penjualan Toko & Stok
@@ -144,7 +144,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M8-01 | Mencatat produksi harian dari angka meter dengan foto | M | 5/5 | lengkap | — | 19 |
 | US-M8-02 | Mencatat pengisian truk per rit | M | 6/6 | lengkap | — | 17 |
 | US-M8-03 | Pasokan air ke depot sendiri | M | 4/4 | lengkap | — | 6 |
-| US-M8-04 | Neraca air harian per sumber dan susut | M | 5/5 | lengkap | — | 11 |
+| US-M8-04 | Neraca air harian per sumber dan susut | M | 5/5 | lengkap | — | 12 |
 | US-M8-05 | Utilisasi kapasitas dan peringatan | S | 3/3 | lengkap | — | 4 |
 | US-M8-06 | Catatan mutu air | S | 3/3 | lengkap | — | 8 |
 | US-M8-07 | Bekerja tanpa sinyal di sumber air | M | 3/3 | lengkap | — | 8 |
@@ -155,7 +155,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M9-01 | Dashboard H+0 | M | 7/7 | lengkap | — | 12 |
+| US-M9-01 | Dashboard H+0 | M | 7/7 | lengkap | — | 13 |
 | US-M9-02 | Laporan bulanan laba kotor per lini dan konsolidasi | M | 6/6 | lengkap | — | 11 |
 | US-M9-03 | Ekspor Excel/PDF | M | 4/4 | lengkap | — | 21 |
 | US-M9-04 | Kotak masuk pengecualian dan pengaturan notifikasi pemilik | S | 4/4 | lengkap | — | 15 |
@@ -169,13 +169,13 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M10-01 | Peran, pengguna, dan lingkup akses | M | 8/8 | lengkap | — | 36 |
-| US-M10-02 | Login, PIN, perangkat terdaftar, dan sesi | M | 7/7 | lengkap | — | 41 |
-| US-M10-03 | Pemisahan tugas dipaksakan | M | 4/4 | lengkap | — | 24 |
+| US-M10-01 | Peran, pengguna, dan lingkup akses | M | 8/8 | lengkap | — | 37 |
+| US-M10-02 | Login, PIN, perangkat terdaftar, dan sesi | M | 7/7 | lengkap | — | 44 |
+| US-M10-03 | Pemisahan tugas dipaksakan | M | 4/4 | lengkap | — | 25 |
 | US-M10-04 | Alur persetujuan | M | 6/6 | lengkap | — | 23 |
-| US-M10-05 | Jejak audit | M | 6/6 | lengkap | — | 21 |
-| US-M10-06 | Data pribadi, retensi, dan pencadangan | M | 6/6 | lengkap | — | 12 |
-| US-M10-07 | Kesehatan perangkat, sinkron, dan pemantauan | M | 4/4 | lengkap | — | 12 |
+| US-M10-05 | Jejak audit | M | 6/6 | lengkap | — | 22 |
+| US-M10-06 | Data pribadi, retensi, dan pencadangan | M | 6/6 | lengkap | — | 13 |
+| US-M10-07 | Kesehatan perangkat, sinkron, dan pemantauan | M | 4/4 | lengkap | — | 14 |
 
 ## M11 — Akuntansi & Pajak
 
@@ -203,9 +203,9 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M12-01 | Menerima posisi dari perangkat GPS truk dan cadangan ponsel | M | 6/6 | lengkap | — | 15 |
 | US-M12-02 | Peta posisi truk real-time | M | 5/5 | lengkap | — | 10 |
 | US-M12-03 | Riwayat perjalanan per rit dan per hari | M | 4/4 | lengkap | — | 9 |
-| US-M12-04 | Pencocokan lokasi Selesai dengan alamat pelanggan | M | 5/5 | lengkap | — | 9 |
+| US-M12-04 | Pencocokan lokasi Selesai dengan alamat pelanggan | M | 5/5 | lengkap | — | 10 |
 | US-M12-05 | Perjalanan di luar jadwal atau jam operasional | M | 5/5 | lengkap | — | 14 |
-| US-M12-06 | Geofence sumber air dan depot | S | 4/4 | lengkap | — | 7 |
+| US-M12-06 | Geofence sumber air dan depot | S | 4/4 | lengkap | — | 8 |
 | US-M12-07 | Jarak per rit untuk biaya BBM dan pemeriksaan zona | S | 3/3 | lengkap | — | 3 |
 | US-M12-08 | Peringatan perangkat mati atau dicabut | M | 4/4 | lengkap | — | 7 |
 
@@ -217,12 +217,12 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 |---|---|:-:|---:|---|---|---:|
 | US-P2-01 | Mendaftar dengan verifikasi nomor WA dan menyimpan alamat | M | 5/5 | lengkap | — | 10 |
 | US-P2-02 | Memesan air truk dengan tanggal/slot dan harga transparan | M | 6/6 | lengkap | — | 16 |
-| US-P2-03 | Memantau status dan posisi truk | M | 5/5 | lengkap | — | 8 |
-| US-P2-04 | Riwayat, struk, tagihan, dan pembayaran digital | M | 5/5 | lengkap | — | 13 |
+| US-P2-03 | Memantau status dan posisi truk | M | 5/5 | lengkap | — | 12 |
+| US-P2-04 | Riwayat, struk, tagihan, dan pembayaran digital | M | 5/5 | lengkap | — | 16 |
 | US-P2-05 | Langganan berkala dan pengingat isi ulang | S | 3/3 | lengkap | — | 4 |
 | US-P2-06 | Penilaian layanan dan keluhan | S | 3/3 | lengkap | — | 8 |
 | US-P2-07 | Memesan galon antar dari depot terdekat | C | 0/2 | belum | 1, 2 | 0 |
-| US-P2-08 | Kanal WhatsApp Business API dan notifikasi pelanggan | M | 3/3 | lengkap | — | 8 |
+| US-P2-08 | Kanal WhatsApp Business API dan notifikasi pelanggan | M | 3/3 | lengkap | — | 9 |
 
 ## P3 — Tahap 3: Portal Kemitraan / Frenchise
 
@@ -232,12 +232,12 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 |---|---|:-:|---:|---|---|---:|
 | US-P3-01 | Pendaftaran, penilaian lokasi, kontrak, dan onboarding mitra | M | 5/5 | lengkap | — | 5 |
 | US-P3-02 | POS depot standar dengan data terpisah per mitra | M | 5/5 | lengkap | — | 6 |
-| US-P3-03 | Memesan air dan spare part ke EQUA dengan harga mitra dan tagihan | M | 5/5 | lengkap | — | 5 |
+| US-P3-03 | Memesan air dan spare part ke EQUA dengan harga mitra dan tagihan | M | 5/5 | lengkap | — | 7 |
 | US-P3-04 | Royalti/fee otomatis, tagihan mitra, dan pembayaran | M | 5/5 | lengkap | — | 7 |
 | US-P3-05 | Standar mutu: daftar periksa harian, jadwal audit, hasil uji air | M | 5/5 | lengkap | — | 6 |
 | US-P3-06 | Dashboard kinerja mitra dan pembina wilayah | M | 5/5 | lengkap | — | 5 |
 | US-P3-07 | Sanksi bertingkat, pemutusan, dan pelepasan | M | 3/3 | lengkap | — | 5 |
 | US-P3-08 | Pasokan air mitra tercatat di POS mitra dan neraca air per mitra | M | 5/5 | lengkap | — | 9 |
 | US-P3-09 | Tagihan langganan sistem bulanan untuk mitra | M | 4/4 | lengkap | — | 6 |
-| US-P3-10 | Akses baca Pemilik mitra dan laporan bulanan | M | 4/4 | lengkap | — | 7 |
+| US-P3-10 | Akses baca Pemilik mitra dan laporan bulanan | M | 4/4 | lengkap | — | 9 |
 | US-P3-11 | Permintaan dukungan teknis mitra dengan SLA 48 jam | S | 3/3 | lengkap | — | 5 |

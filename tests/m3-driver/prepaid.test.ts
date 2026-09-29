@@ -4,19 +4,20 @@
  * `digital` (bukan kurang bayar) dan `trip.completed` memuat `prepaidAmount` untuk pengakuan pendapatan terhadap uang
  * muka (M5/M11, kontrak hand-off M3 §2).
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, like, or } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { domainEvents, invoices, paymentIntents, tripPayments } from "@/db/schema";
+import { customerAdvances, domainEvents, incidents, invoices, paymentIntents, tripPayments } from "@/db/schema";
 import { EQUA_TENANT_ID } from "@/db/seed";
 import { newId } from "@/lib/ids";
 import { M3_EXTERNAL_REFS, prepaidInfo, type DriverPrepaidTripsPull, type M3TripRef } from "@/client/m3-driver/contract";
 import { paymentFromComplete } from "@/client/m3-driver/optimistic";
 import * as m3 from "@/server/modules/m3-driver";
+import * as m5 from "@/server/modules/m5-receivables";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
 import { useTestDb } from "../helpers/db";
-import { PHOTO, PRICE, SIGNATURE, completePayload, departArrive, driverWorld, expectApplied, expectRejected, type World } from "./helpers";
+import { PHOTO, PRICE, SIGNATURE, completePayload, departArrive, driverWorld, expectApplied, expectRejected, finance, type World } from "./helpers";
 
 async function prepaidTrip(w: World, opts: { paid?: boolean; amount?: number } = {}) {
   const trip = await w.addTrip({ paymentMethod: "digital" });
@@ -39,9 +40,11 @@ describe("B-65 rit prabayar digital di aplikasi sopir (US-P2-04 KP-4, D-11 butir
   const t = useTestDb({ seed: true });
   beforeAll(() => bootstrapForTests());
 
-  it("B-65 US-P2-04 KP-4 US-M3-04 KP-1 pull sopir: cara bayar digital + p2.prepaid_trips; Selesai 'Sudah dibayar' tanpa tunai → pembayaran digital, tanpa faktur kurang bayar, kas di tangan tetap; trip.completed memuat prepaidAmount", async () => {
+  it("B-65 US-P2-04 KP-4 US-M3-04 KP-1 pull sopir: cara bayar digital + p2.prepaid_trips; Selesai 'Sudah dibayar' tanpa tunai → pembayaran digital, tanpa faktur kurang bayar, kas di tangan tetap; trip.completed memuat prepaidAmount; M5 faktur rit lunas oleh uang muka (integrasi S5-A)", async () => {
     const w = await driverWorld(t.db);
     const a = await prepaidTrip(w);
+    // Uang muka pelanggan di M5 (pada alur nyata dibentuk P2 dari pembayaran gerbang Berhasil, kanal `digital`).
+    await m5.recordOfficePayment(finance(), { customerId: w.customer.id, businessDate: w.date, amount: PRICE, method: "cash" });
     const pull = await w.hp.pull(w.sopir, { keys: `m3.today,${M3_EXTERNAL_REFS.prepaidTrips}` });
     const ref = (pull.data["m3.today"] as { trips: M3TripRef[] }).trips.find((x) => x.id === a.id)!;
     expect(ref.paymentMethod).toBe("digital");
@@ -53,7 +56,16 @@ describe("B-65 rit prabayar digital di aplikasi sopir (US-P2-04 KP-4, D-11 butir
 
     const [pay] = await t.db.select().from(tripPayments).where(eq(tripPayments.tripId, a.id));
     expect(pay).toMatchObject({ method: "digital", expectedAmount: PRICE, receivedAmount: PRICE, underpaymentAmount: 0, depositId: null });
-    expect(await t.db.select().from(invoices).where(eq(invoices.tripId, a.id))).toHaveLength(0);
+    // Integrasi S5-A (paket B, B-65): faktur rit langsung dilunasi uang muka — bukan faktur kurang bayar/tempo.
+    const tripInvoices = await t.db.select().from(invoices).where(eq(invoices.tripId, a.id));
+    expect(tripInvoices.map((i) => i.kind)).toEqual(["delivery"]);
+    expect(tripInvoices[0]).toMatchObject({ amount: PRICE, outstandingAmount: 0, status: "paid" });
+    const advances = await t.db.select().from(customerAdvances).where(eq(customerAdvances.customerId, w.customer.id));
+    expect(advances.reduce((s, x) => s + x.remainingAmount, 0)).toBe(0);
+    const [applied] = await t.db.select().from(domainEvents).where(and(eq(domainEvents.type, "customer_advance.applied"), eq(domainEvents.objectId, tripInvoices[0]!.id)));
+    expect(applied!.payload).toMatchObject({ amount: PRICE, tripId: a.id });
+    // Handler lintas modul (M5 faktur/uang muka, M11 jurnal rit & uang muka) tidak gagal diam-diam.
+    expect(await t.db.select({ title: incidents.title }).from(incidents).where(or(like(incidents.title, "%(m5-receivables:%"), like(incidents.title, "%(m11-accounting:%")))).toEqual([]);
     const figures = await m3.dayFigures(t.db, w.driver.userId, w.date);
     expect(figures).toMatchObject({ tripCash: 0, cashOnHand: 0, underpayments: 0 });
 
