@@ -26,3 +26,36 @@ jobs:
             exit 0
           fi
           curl -fsS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/tick"
+
+  # Pemantau uptime EKSTERNAL (NFR-02, NFR-28): berjalan di luar Vercel sehingga peringatan tetap terkirim saat aplikasi
+  # mati. Secret opsional: ALERT_WEBHOOK_URL, RESEND_API_KEY + ALERT_EMAIL_TO (+ variabel ALERT_EMAIL_FROM). Status
+  # gangguan dipertahankan antar-jalankan lewat cache; saat pulih, gangguan + durasinya dicatat ke /api/monitor/outage.
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      APP_URL: ${{ secrets.APP_URL || vars.APP_URL }}
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO || vars.ALERT_EMAIL_TO }}
+      ALERT_EMAIL_FROM: ${{ vars.ALERT_EMAIL_FROM }}
+      STATE_DIR: .uptime-state
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - name: Pulihkan status gangguan sebelumnya
+        uses: actions/cache/restore@v4
+        with:
+          path: .uptime-state
+          key: uptime-state-${{ github.run_id }}
+          restore-keys: uptime-state-
+      - name: Periksa web kantor & API sinkron
+        run: bash scripts/uptime-monitor.sh
+      - name: Simpan status gangguan
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .uptime-state
+          key: uptime-state-${{ github.run_id }}

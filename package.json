@@ -16,6 +16,7 @@
     "db:seed": "tsx scripts/db-seed.ts",
     "db:generate": "tsx scripts/db-generate.ts",
     "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:mask": "tsx scripts/db-mask.ts",
     "e2e:prepare": "tsx scripts/e2e-prepare.ts",
     "trace": "tsx tools/trace-check.ts"
   },

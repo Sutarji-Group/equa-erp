@@ -27,6 +27,7 @@ import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
 
 import { userNames, withinWindow } from "./shared";
+import { recordServiceOutage } from "./uptime";
 
 export type IncidentRow = typeof incidents.$inferSelect;
 export type IncidentKind = EnumValue<"incident_kind">;
@@ -263,6 +264,14 @@ export async function runMonitoring(now: Date = new Date(), db?: Db): Promise<Mo
 
   return withTx(
     async (tx) => {
+      // (S5-B) Jeda denyut = gangguan layanan inti tercatat dengan mulai & pulih (NFR-02, uptime bulanan); jeda yang
+      // seluruhnya di jendela pemeliharaan PAR-86 hanya dicatat (log pemeliharaan), tanpa insiden.
+      let maintenanceGap = false;
+      if (gapMinutes !== null && gapMinutes > down.minutes_gt) {
+        const since = new Date(now.getTime() - gapMinutes * 60_000);
+        const { outage } = await recordServiceOutage({ service: "app", source: "heartbeat", startedAt: since, endedAt: now }, { tx, raiseIncidents: false });
+        maintenanceGap = outage.inMaintenanceWindow;
+      }
       const tenants = await tx.selectDistinct({ tenantId: devices.tenantId }).from(devices);
       const out: MonitorResult[] = [];
       for (const { tenantId } of tenants) {
@@ -288,7 +297,7 @@ export async function runMonitoring(now: Date = new Date(), db?: Db): Promise<Mo
             });
             result.massSyncFailure.incident = r.incident.id;
           }
-          if (gapMinutes !== null && gapMinutes > down.minutes_gt) {
+          if (gapMinutes !== null && gapMinutes > down.minutes_gt && !maintenanceGap) {
             const since = new Date(now.getTime() - gapMinutes * 60_000);
             const r = await raiseIncident(tx, {
               tenantId,

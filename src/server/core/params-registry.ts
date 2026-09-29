@@ -994,6 +994,37 @@ export const PARAM_REGISTRY = {
         "Sesi pelanggan 30 hari dengan verifikasi ulang OTP untuk pembayaran, pembatasan permintaan OTP, ambang kemiripan nama saat menautkan nomor WA ke pelanggan lama, jangkauan tanggal pemesanan, riwayat 24 bulan, pengingat isi ulang H-2, dan nomor telepon kantor untuk tombol \"Hubungi kantor\".",
     },
   }),
+  /** (Tambahan S5-B) Target ketersediaan bulanan pada jam layanan (NFR-02) — laporan uptime bulanan. */
+  "monitoring.availability_target": defineParam({
+    schema: z.object({ pct: z.number().min(90).max(100) }).strict(),
+    affectedRoles: ["system_admin", "owner"],
+    fallback: { pct: 99.5 },
+    meta: {
+      name: "Target ketersediaan layanan per bulan (jam layanan)",
+      unit: "%",
+      reference: "NFR-02",
+      description: "Ketersediaan API sinkron dan web kantor pada jam layanan PAR-07; laporan uptime bulanan menandai layanan di bawah target.",
+    },
+  }),
+  /** (Tambahan S5-B) Retensi pendek data aplikasi pelanggan yang memuat nomor WA (NFR-12, US-M10-06 KP-3). */
+  "p2.data_retention": defineParam({
+    schema: z
+      .object({
+        /** Kode OTP (termasuk nomor tujuan) dihapus setelah N hari. */
+        otp_days: int(1),
+        /** Nomor lama/baru pada permintaan ganti nomor disamarkan setelah N hari. */
+        phone_change_days: int(1),
+      })
+      .strict(),
+    affectedRoles: ["system_admin"],
+    fallback: { otp_days: 30, phone_change_days: 90 },
+    meta: {
+      name: "Retensi data aplikasi pelanggan (kode OTP, permintaan ganti nomor)",
+      unit: "hari",
+      reference: "NFR-12, US-M10-06 KP-3, US-P2-01 KP-5",
+      description: "Kode verifikasi beserta nomor tujuannya dihapus, dan nomor pada permintaan ganti nomor disamarkan, setelah masa simpan pendek ini (job retensi harian).",
+    },
+  }),
   /** (Tambahan S5-B) Batas penyalahgunaan permintaan OTP aplikasi pelanggan: per alamat IP & total per jam. */
   "p2.otp_request_limits": defineParam({
     schema: z

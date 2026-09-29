@@ -32,6 +32,7 @@ import { listAccessLogs, listDenials } from "./service/logs";
 import { listIncidents } from "./service/monitoring";
 import { listSupportTickets } from "./service/support";
 import { listSyncHealth } from "./service/sync-health";
+import { uptimeReport } from "./service/uptime";
 import { listUsers } from "./service/users";
 
 const dateFilter = z.string().refine(isBusinessDate, { error: "Tanggal harus YYYY-MM-DD." });
@@ -241,6 +242,30 @@ export function registerReports(): void {
           { label: "Target pulih (jam)", value: r.targets.recovery_hours, type: "number" },
         ],
       };
+    },
+  });
+
+  registerReport({
+    key: "m10.uptime_monthly",
+    title: "Laporan uptime bulanan (jam layanan)",
+    module: "m10",
+    permission: "m10.incident.read",
+    containsPii: false,
+    filtersSchema: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() }),
+    describeFilters: (f: { month?: string }) => [`Bulan: ${f.month ?? "berjalan"}`],
+    columns: [
+      { key: "label", header: "Layanan", width: 30 },
+      { key: "outages", header: "Gangguan", type: "number", width: 10 },
+      { key: "serviceMinutes", header: "Menit jam layanan", type: "number", width: 14 },
+      { key: "downtimeMinutes", header: "Menit gangguan (jam layanan)", type: "number", width: 16 },
+      { key: "maintenanceMinutes", header: "Menit di jendela pemeliharaan", type: "number", width: 16 },
+      { key: "availabilityPct", header: "Ketersediaan (%)", type: "number", width: 14 },
+      { key: "targetPct", header: "Target (%)", type: "number", width: 10 },
+      { key: "meetsTarget", header: "Memenuhi target", type: "boolean", width: 12 },
+    ],
+    fetch: async (ctx, f: { month?: string }, { tx }) => {
+      const r = await uptimeReport(ctx, { month: f.month ?? null }, { tx });
+      return { rows: r.rows, summary: [{ label: "Bulan", value: r.month }] };
     },
   });
 

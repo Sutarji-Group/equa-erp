@@ -14,7 +14,7 @@ import "server-only";
 import { and, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
-import { customerAccountRequests, customerAccounts, customers, specialPrices } from "@/db/schema";
+import { customerAccountRequests, customerAccounts, customerSessions, customers, otpCodes, phoneChangeRequests, specialPrices, waMessageLogs } from "@/db/schema";
 import { label, type EnumValue } from "@/lib/labels";
 
 import { record as auditRecord } from "@/server/core/audit";
@@ -284,6 +284,21 @@ export async function completePhoneChange(cctx: CustomerContext, input: { code: 
 }
 
 /**
+ * Jejak akun aplikasi yang memuat nomor WA/identitas (NFR-12, US-P2-01 KP-5) untuk akun tanpa pelanggan M1: kode OTP
+ * (tabel teknis → dihapus), permintaan ganti nomor, catatan permintaan akun, IP & peramban sesi, log WA ke nomor itu.
+ * Akun tertaut dianonimkan lewat M10 (`anonymizeCustomer`) dengan cakupan yang sama.
+ */
+async function scrubAccountTraces(tx: Tx, accountId: string, phone: string, now: Date): Promise<void> {
+  const changes = await tx.select({ oldPhone: phoneChangeRequests.oldPhone, newPhone: phoneChangeRequests.newPhone }).from(phoneChangeRequests).where(eq(phoneChangeRequests.customerAccountId, accountId));
+  const phones = [...new Set([phone, ...changes.flatMap((c) => [c.oldPhone, c.newPhone])].filter((p) => p && p !== "0" && !p.startsWith("anon-")))];
+  await tx.delete(otpCodes).where(or(eq(otpCodes.customerAccountId, accountId), phones.length ? inArray(otpCodes.phone, phones) : sql`false`));
+  await tx.update(phoneChangeRequests).set({ oldPhone: "0", newPhone: "0" }).where(eq(phoneChangeRequests.customerAccountId, accountId));
+  await tx.update(customerAccountRequests).set({ detail: null, updatedAt: now }).where(eq(customerAccountRequests.customerAccountId, accountId));
+  await tx.update(customerSessions).set({ ip: null, userAgent: null }).where(eq(customerSessions.customerAccountId, accountId));
+  if (phones.length) await tx.update(waMessageLogs).set({ toPhone: "0", renderedText: "[dianonimkan]", updatedAt: now }).where(inArray(waMessageLogs.toPhone, phones));
+}
+
+/**
  * Hapus akun (US-P2-01 KP-5): akun dinonaktifkan & semua sesi dicabut seketika; permintaan anonimisasi diteruskan ke
  * admin sistem (US-M10-06 KP-2: admin sistem mencatat, pemilik menyetujui; tertunda bila masih ada piutang).
  */
@@ -302,6 +317,7 @@ export async function requestAccountDeletion(cctx: CustomerContext, input: { rea
       .set({ status: "inactive", deactivatedAt: cctx.now, updatedAt: cctx.now, ...(anonymizeNow ? { phone: `anon-${cctx.accountId}`, displayName: null, anonymizedAt: cctx.now } : {}) })
       .where(eq(customerAccounts.id, cctx.accountId));
     const revoked = await revokeAccountSessions(tx, cctx.accountId, cctx.now);
+    if (anonymizeNow) await scrubAccountTraces(tx, cctx.accountId, cctx.phone, cctx.now);
     const [req] = await tx
       .insert(customerAccountRequests)
       .values({

@@ -126,13 +126,13 @@ export default async function DataPribadiPage() {
           <li>Data akuntansi & transaksi: disimpan ≥ {retention.policy.accountingYears} tahun (tidak dihapus)</li>
           <li>Foto bukti kirim, meter, nota: diarsipkan setelah {retention.policy.photoYears} tahun, tetap dapat dibuka</li>
           <li>Log akses: {retention.policy.accessLogYears} tahun</li>
-          <li>Posisi GPS mentah: {retention.policy.gpsMonths} bulan</li>
+          <li>Posisi GPS mentah: {retention.policy.gpsMonths} bulan (dihapus modul Armada setelah ringkasan rit/hari terbentuk)</li>
         </ul>
         {retention.runs.length ? (
           <ul className="grid gap-1 text-xs text-muted-foreground">
             {retention.runs.map((r) => (
               <li key={r.date}>
-                {formatTanggalJam(r.at)}: log akses dihapus {r.result?.accessLogsPurged ?? 0}, foto diarsipkan {r.result?.photosArchived ?? 0}, posisi GPS dihapus {r.result?.gpsPurged ?? 0}
+                {formatTanggalJam(r.at)}: log akses dihapus {r.result?.accessLogsPurged ?? 0}, foto diarsipkan {r.result?.photosArchived ?? 0}, kode OTP dihapus {r.result?.otpPurged ?? 0}, nomor ganti-nomor disamarkan {r.result?.phoneChangesMasked ?? 0}
               </li>
             ))}
           </ul>

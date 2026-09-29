@@ -158,3 +158,34 @@ PAR-52, PAR-87, `app.min_supported_version`, `notifications.digest_recipients`.
   `CONDITIONAL_GRANTS` (tampil "Bersyarat" di ekspor matriks peran). Uji `tests/core/rbac.test.ts`.
 - `<FieldSupportPanel />` kini terpasang di /sopir (M3), /produksi (M8), dan /pos depot & toko (M6/M7, B-03).
 
+
+## S5-B perbaikan temuan audit (tim B — NFR)
+
+- **Pemantauan uptime eksternal (NFR-28, NFR-02).** Job `monitor` di `.github/workflows/cron.yml` menjalankan
+  `scripts/uptime-monitor.sh` tiap 5 menit DI LUAR Vercel: web kantor (`/masuk`) & API sinkron (`/api/health/sync`,
+  rute baru tanpa autentikasi yang memeriksa DB). Gagal pertama → peringatan tim IT lewat `ALERT_WEBHOOK_URL` dan/atau
+  e-mail Resend (`RESEND_API_KEY` + `ALERT_EMAIL_TO`); status disimpan di cache Actions; pulih → `POST /api/monitor/outage`
+  (Bearer `CRON_SECRET`) + peringatan pulih.
+- **Gangguan tercatat dengan durasi.** Tabel `service_outages` (core.ts, tambahan): layanan `app`/`web`/`sync`, sumber
+  `heartbeat`/`external_monitor`, mulai, pulih, durasi, `in_maintenance_window`. `recordServiceOutage(input, { tx?, db?,
+  raiseIncidents? })` (idempoten per layanan+mulai) → insiden `service_down` bila > `monitoring.service_down` dan di luar
+  jendela pemeliharaan. Denyut `m10.monitor.health` mencatat gangguan `app` (mulai = denyut sukses terakhir, pulih = tick
+  sukses pertama).
+- **Laporan uptime bulanan (NFR-02).** `uptimeReport(ctx, { month })` — ketersediaan per layanan pada jam layanan PAR-07,
+  menit gangguan, menit di jendela pemeliharaan, target `monitoring.availability_target` (parameter baru, 99,5%);
+  laporan ekspor `m10.uptime_monthly`; kartu "Uptime bulan …" di `/akses/sinkron`.
+- **PAR-86 (NFR-01) kini dibaca kode.** `withinMaintenanceWindow` — gangguan yang seluruhnya di jendela pemeliharaan
+  dicatat sebagai log pemeliharaan (tanpa insiden; denyut juga tidak membuka insiden `service_down`).
+- **Anonimisasi data aplikasi pelanggan (NFR-12, US-M10-06 KP-2).** `anonymizeCustomer` kini juga: menghapus
+  `otp_codes` (akun & nomor), menyamarkan `phone_change_requests`, mengosongkan `customer_account_requests.detail`,
+  menghapus IP/peramban & mencabut `customer_sessions`, menyamarkan `wa_message_logs` ke nomor itu (termasuk log OTP tanpa
+  `customer_id`). Akun aplikasi tanpa pelanggan M1 dibersihkan P2 (`scrubAccountTraces`).
+- **Retensi (US-M10-06 KP-3).** `runRetention` menghapus kode OTP > `p2.data_retention.otp_days` (30) & menyamarkan
+  nomor permintaan ganti nomor > `phone_change_days` (90) — parameter baru; hasil `otpPurged`, `phoneChangesMasked`.
+  **B-42:** M10 TIDAK lagi menghapus `gps_positions` (`gpsPurged` selalu 0) — hanya job M12 `m12.gps.retention` yang
+  memastikan ringkasan dulu lalu menghapus.
+- **Penyamaran lingkungan uji (NFR-27).** `maskPersonalData(db)` (`src/db/mask.ts`) + `pnpm db:mask -- --yes`
+  (`scripts/db-mask.ts`, menolak lingkungan produksi): nama/WA/kontak pelanggan, alamat & koordinat (dibulatkan 2
+  desimal), nama penerima & koordinat rit, log WA, akun/sesi/OTP/ganti nomor P2, identitas karyawan, telepon outlet,
+  kontak pemasok, calon mitra. Langkah runbook: salin DB produksi → lingkungan uji → `pnpm db:mask -- --yes`.
+- Uji: `tests/m10-access/audit-s5b.test.ts`.

@@ -215,3 +215,8 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
   "report_final_export"`, `kind "report_final_<format>"`, lewat `put` + `systemContext`); ekspor berikutnya mengirim berkas
   tersimpan apa adanya (sha & nama sama). Log ekspor tetap satu baris per unduhan. Laporan non-Final tidak berubah.
 - `src/lib/reasons.ts` (baru, isomorfik): `formatUnderpaymentReason(raw)` — label Indonesia alasan kurang bayar (M3/M5).
+- (NFR) Tabel `service_outages` di `src/db/schema/core.ts` (tambahan, setelah `incidents`); parameter baru di
+  `params-registry.ts`: `monitoring.availability_target`, `p2.data_retention`, `p2.otp_request_limits`. Rute baru
+  `/api/health/sync` (GET, tanpa autentikasi, cek DB) dan `/api/monitor/outage` (POST, Bearer `CRON_SECRET`). Berkas baru
+  `src/db/mask.ts`, `scripts/db-mask.ts` (`pnpm db:mask`), `scripts/uptime-monitor.sh`; job `monitor` di
+  `.github/workflows/cron.yml`.
