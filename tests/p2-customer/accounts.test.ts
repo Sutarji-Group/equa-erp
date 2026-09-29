@@ -177,7 +177,9 @@ describe("P2 Akun pelanggan (US-P2-01)", () => {
     const [after] = await t.db.select().from(customerAccounts).where(eq(customerAccounts.id, a.cctx.accountId));
     expect(after!.status).toBe("inactive");
     expect(await withTx((tx) => p2.resolveCustomerSession(tx, a.token, minutes(1)))).toBeNull();
-    await expect(p2.requestLoginOtp({ phone: a.phone }, { now: minutes(2) })).rejects.toThrow(/dinonaktifkan/);
+    // Permintaan kode seragam (tidak membocorkan status nomor); akun nonaktif ditolak setelah kode diverifikasi.
+    const again = await p2.requestLoginOtp({ phone: a.phone }, { now: minutes(2) });
+    await expect(p2.verifyLoginOtp({ phone: a.phone, code: again.devCode! }, { now: minutes(2) })).rejects.toThrow(/dinonaktifkan/);
     const notif = await t.db.select().from(notifications).where(and(eq(notifications.event, "customer_app.deletion_requested"), eq(notifications.recipientUserId, userIdByUsername("admin1"))));
     expect(notif.some((n) => n.objectId === a.cctx.accountId)).toBe(true);
     const reqs = await p2.listAccountRequests(owner(), { status: "open" });

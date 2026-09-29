@@ -95,9 +95,11 @@ export const otpCodes = pgTable(
     consumedAt: tstz("consumed_at"),
     customerAccountId: uuid("customer_account_id").references((): AnyPgColumn => customerAccounts.id),
     waMessageLogId: uuid("wa_message_log_id"),
+    /** Alamat IP peminta (batas permintaan per IP, p2.otp_request_limits; dianonimkan job retensi). */
+    requestIp: text("request_ip"),
     ...createdAtOnly(),
   },
-  (t) => [index("otp_codes_phone_idx").on(t.phone, t.createdAt)],
+  (t) => [index("otp_codes_phone_idx").on(t.phone, t.createdAt), index("otp_codes_ip_idx").on(t.requestIp, t.createdAt), index("otp_codes_created_idx").on(t.createdAt)],
 );
 
 /** Penilaian 1–5 per rit Selesai (US-P2-06 KP-1; sekali per rit). */

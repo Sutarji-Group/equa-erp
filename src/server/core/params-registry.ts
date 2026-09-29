@@ -994,6 +994,25 @@ export const PARAM_REGISTRY = {
         "Sesi pelanggan 30 hari dengan verifikasi ulang OTP untuk pembayaran, pembatasan permintaan OTP, ambang kemiripan nama saat menautkan nomor WA ke pelanggan lama, jangkauan tanggal pemesanan, riwayat 24 bulan, pengingat isi ulang H-2, dan nomor telepon kantor untuk tombol \"Hubungi kantor\".",
     },
   }),
+  /** (Tambahan S5-B) Batas penyalahgunaan permintaan OTP aplikasi pelanggan: per alamat IP & total per jam. */
+  "p2.otp_request_limits": defineParam({
+    schema: z
+      .object({
+        /** Permintaan kode dari satu alamat IP per jam (semua nomor). */
+        per_ip_per_hour: int(1),
+        /** Total permintaan kode seluruh aplikasi per jam (rem biaya pesan WA). */
+        global_per_hour: int(1),
+      })
+      .strict(),
+    affectedRoles: ["owner", "system_admin"],
+    fallback: { per_ip_per_hour: 20, global_per_hour: 500 },
+    meta: {
+      name: "Batas permintaan kode verifikasi (OTP) aplikasi pelanggan per IP & total",
+      unit: "permintaan per jam",
+      reference: "US-P2-01 KP-1, PAR-74, NFR-29",
+      description: "Mencegah pemindaian nomor dan tagihan pesan WhatsApp berlebih: permintaan kode dibatasi per alamat IP dan total seluruh aplikasi per jam, di samping batas per nomor.",
+    },
+  }),
   /** Pembayaran digital (PTB-50): biaya gerbang dibukukan sebagai beban; masa berlaku QRIS/VA. */
   "p2.payment_rules": defineParam({
     schema: z

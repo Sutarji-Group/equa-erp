@@ -14,7 +14,7 @@ import "server-only";
 import { and, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
-import { customerAccountRequests, customerAccounts, customers } from "@/db/schema";
+import { customerAccountRequests, customerAccounts, customers, specialPrices } from "@/db/schema";
 import { label, type EnumValue } from "@/lib/labels";
 
 import { record as auditRecord } from "@/server/core/audit";
@@ -47,22 +47,53 @@ function nameTokens(name: string): string[] {
     .filter((t) => t.length > 0 && !HONORIFICS.has(t));
 }
 
-/** Kemiripan nama 0–100: porsi token nama yang lebih pendek yang cocok (sama / awalan ≥ 3 huruf) di nama lain. */
-export function nameSimilarity(a: string, b: string): number {
-  const ta = nameTokens(a);
-  const tb = nameTokens(b);
-  if (!ta.length || !tb.length) return 0;
-  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+/**
+ * Kata umum jenis usaha/tempat yang tidak membedakan pelanggan (PRD 8.7): tidak dihitung sebagai bukti kecocokan nama.
+ */
+const GENERIC_NAME_TOKENS = new Set([
+  "pt", "cv", "ud", "fa", "tbk", "persero", "kop", "koperasi", "yayasan", "toko", "tk", "hotel", "htl", "rumah", "makan", "rm",
+  "warung", "warteg", "resto", "restoran", "restaurant", "kafe", "cafe", "coffee", "depot", "air", "isi", "ulang", "villa", "vila",
+  "wisma", "losmen", "penginapan", "homestay", "guest", "house", "kos", "kost", "pondok", "pesantren", "ponpes", "masjid",
+  "sekolah", "kantor", "cabang", "perumahan", "laundry", "bengkel", "dan", "the",
+]);
+
+/** Dua token cocok: sama persis, atau salah satu awalan yang lain dengan panjang minimal 4 huruf. */
+function tokenMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  return Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a));
+}
+
+/** Token nama bermakna (tanpa sapaan & kata umum); bila semuanya umum, pakai semua token. */
+export function meaningfulNameTokens(name: string): string[] {
+  const all = nameTokens(name);
+  const meaningful = all.filter((t) => !GENERIC_NAME_TOKENS.has(t));
+  return meaningful.length ? meaningful : all;
+}
+
+/**
+ * Kemiripan nama 0–100 (US-P2-01 KP-2, PRD 8.7): porsi token BERMAKNA nama pelanggan M1 (`customerName`) yang ditemukan
+ * di nama yang diisi (`input`). Kata umum (PT, Toko, Hotel, …) dan sapaan tidak dihitung; awalan < 4 huruf tidak
+ * diterima — satu kata/awalan pendek ("PT", "Hot") tidak cukup untuk menautkan nomor daur ulang.
+ */
+export function nameSimilarity(input: string, customerName: string): number {
+  const target = meaningfulNameTokens(customerName);
+  const given = nameTokens(input);
+  if (!target.length || !given.length) return 0;
   const used = new Set<number>();
   let hits = 0;
-  for (const t of short) {
-    const idx = long.findIndex((u, i) => !used.has(i) && (u === t || (t.length >= 3 && u.length >= 3 && (u.startsWith(t) || t.startsWith(u)))));
+  for (const t of target) {
+    const idx = given.findIndex((u, i) => !used.has(i) && tokenMatch(u, t));
     if (idx >= 0) {
       used.add(idx);
       hits++;
     }
   }
-  return Math.round((hits / short.length) * 100);
+  return Math.round((hits / target.length) * 100);
+}
+
+async function hasActiveSpecialPrice(tx: Tx, customerId: string): Promise<boolean> {
+  const [row] = await tx.select({ id: specialPrices.id }).from(specialPrices).where(and(eq(specialPrices.customerId, customerId), eq(specialPrices.status, "active"))).limit(1);
+  return !!row;
 }
 
 // =====================================================================================================================
@@ -108,14 +139,18 @@ export async function completeRegistration(cctx: CustomerContext, input: Complet
     if (candidates.length) {
       const scored = candidates.map((c) => ({ c, score: nameSimilarity(data.name, c.name) })).sort((a, b) => b.score - a.score);
       const best = scored[0]!;
-      if (best.score >= rules.name_match_min_pct) {
+      // Pelanggan Tempo/Ditahan atau berharga khusus: seluruh token nama bermakna wajib cocok (hak kredit & harga ikut
+      // tertaut); selain itu ambang PAR p2 `name_match_min_pct`. Tidak cocok → verifikasi Dispatcher (8.7).
+      const privileged = best.c.creditStatus !== "cash" || (await hasActiveSpecialPrice(tx, best.c.id));
+      const required = privileged ? 100 : rules.name_match_min_pct;
+      if (best.score >= required) {
         await tx.update(customerAccounts).set({ ...consent, customerId: best.c.id, status: "linked", linkedAt: cctx.now }).where(eq(customerAccounts.id, account.id));
         await recordCustomerAudit(tx, cctx, {
           objectType: "customer_account",
           objectId: account.id,
           action: "link",
           before: { status: account.status },
-          after: { status: "linked", customerId: best.c.id, nameSimilarity: best.score, consentVersion: rules.consent_version },
+          after: { status: "linked", customerId: best.c.id, nameSimilarity: best.score, requiredSimilarity: required, consentVersion: rules.consent_version },
           rule: "US-P2-01 KP-2/KP-5",
         });
         return { status: "linked", customerId: best.c.id, customerName: best.c.name, newCustomer: false };
@@ -131,7 +166,7 @@ export async function completeRegistration(cctx: CustomerContext, input: Complet
         objectId: account.id,
         action: "review_requested",
         before: { status: account.status },
-        after: { status: "pending_review", candidateCustomerId: best.c.id, nameSimilarity: best.score, consentVersion: rules.consent_version },
+        after: { status: "pending_review", candidateCustomerId: best.c.id, nameSimilarity: best.score, requiredSimilarity: required, consentVersion: rules.consent_version },
         rule: "US-P2-01 KP-2, 8.7",
       });
       await notify(tx, {

@@ -10,7 +10,7 @@ import "server-only";
 
 import { randomInt } from "node:crypto";
 
-import { and, desc, eq, gt, gte, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { customerAccounts, customerSessions, otpCodes, phoneChangeRequests } from "@/db/schema";
@@ -24,7 +24,7 @@ import { ConflictError, DomainError, parseInput, ValidationError } from "@/serve
 import * as params from "@/server/core/params";
 import { normalizeWaNumber } from "@/server/core/wa";
 
-import { appRules, assertAppEnabled, CUSTOMER_APP_TENANT_ID, maskPhone, recordCustomerAudit, type AccountRow, type CustomerContext } from "./common";
+import { appRules, assertAppEnabled, CUSTOMER_APP_TENANT_ID, isAppEnabled, maskPhone, recordCustomerAudit, type AccountRow, type CustomerContext } from "./common";
 import { deliverOtp } from "./messaging";
 
 type OtpPurpose = EnumValue<"otp_purpose">;
@@ -74,6 +74,18 @@ async function issueOtp(tx: Tx, input: { phone: string; purpose: OtpPurpose; acc
   const par74 = await params.get(tx, "PAR-74", today);
   const rules = await appRules(tx, today, input.tenantId);
   const hourAgo = new Date(input.meta.now.getTime() - 3_600_000);
+  // Batas penyalahgunaan di atas batas per nomor: per alamat IP & total per jam (setiap OTP = pesan WA berbayar).
+  const limits = await params.get(tx, "p2.otp_request_limits", today);
+  const [all] = await tx.select({ n: count() }).from(otpCodes).where(gte(otpCodes.createdAt, hourAgo));
+  if (Number(all?.n ?? 0) >= limits.global_per_hour) {
+    throw new DomainError("OTP_GLOBAL_LIMIT", "Layanan kode verifikasi sedang sibuk. Coba lagi dalam beberapa menit.");
+  }
+  if (input.meta.ip) {
+    const [byIp] = await tx.select({ n: count() }).from(otpCodes).where(and(eq(otpCodes.requestIp, input.meta.ip), gte(otpCodes.createdAt, hourAgo)));
+    if (Number(byIp?.n ?? 0) >= limits.per_ip_per_hour) {
+      throw new DomainError("OTP_IP_LIMIT", "Terlalu banyak permintaan kode dari jaringan ini. Coba lagi dalam 1 jam.");
+    }
+  }
   const recent = await tx
     .select({ createdAt: otpCodes.createdAt })
     .from(otpCodes)
@@ -98,6 +110,7 @@ async function issueOtp(tx: Tx, input: { phone: string; purpose: OtpPurpose; acc
       expiresAt,
       maxAttempts: par74.max_attempts,
       customerAccountId: input.accountId,
+      requestIp: input.meta.ip ?? null,
       createdAt: input.meta.now,
     })
     .returning({ id: otpCodes.id });
@@ -123,9 +136,8 @@ export async function requestLoginOtp(input: { phone: string }, meta: RequestMet
   const run = async (tx: Tx) => {
     await assertAppEnabled(tx, tenantId);
     const account = await accountByPhone(tx, data.phone);
-    if (account && (account.status === "inactive" || account.deactivatedAt)) {
-      throw new DomainError("ACCOUNT_INACTIVE", "Akun untuk nomor ini sudah dinonaktifkan. Hubungi kantor EQUA untuk mengaktifkan kembali.");
-    }
+    // Tanggapan permintaan kode SERAGAM untuk nomor terdaftar/baru/nonaktif (cegah enumerasi nomor, US-P2-01 KP-1):
+    // akun nonaktif baru ditolak SETELAH kode diverifikasi (hanya pemegang nomor yang melihat alasannya).
     return issueOtp(tx, { phone: data.phone, purpose: account ? "login" : "register", accountId: account?.id ?? null, meta, tenantId });
   };
   return opts.tx ? run(opts.tx) : withTx(run);
@@ -273,6 +285,8 @@ export async function resolveCustomerSession(tx: Tx, token: string | null | unde
   if (!row) return null;
   const { s, a } = row;
   if (a.status === "inactive" || a.deactivatedAt || a.anonymizedAt) return null;
+  // D-02 butir 3: Tahap 2 dimatikan kembali → sesi (30 hari) tidak berlaku untuk halaman, rute JSON/berkas, maupun aksi.
+  if (!(await isAppEnabled(tx, a.tenantId))) return null;
   if (now.getTime() - s.lastActiveAt.getTime() > 5 * 60_000) {
     await tx.update(customerSessions).set({ lastActiveAt: now }).where(eq(customerSessions.id, s.id));
   }

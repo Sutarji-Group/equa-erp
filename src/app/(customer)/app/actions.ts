@@ -31,7 +31,8 @@ export async function requestOtpAction(_prev: CustomerActionState, fd: FormData)
     const res = await p2.requestLoginOtp({ phone }, await customerRequestMeta());
     return {
       message: `Kode verifikasi dikirim ke WhatsApp ${res.phoneMasked}. Berlaku sampai ${res.expiresAt.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" })}.`,
-      data: { phone: res.phone, phoneMasked: res.phoneMasked, devCode: res.devCode ?? null, purpose: res.purpose },
+      // `purpose` (nomor terdaftar/baru) TIDAK dikirim ke klien — cegah enumerasi nomor (US-P2-01 KP-1).
+      data: { phone: res.phone, phoneMasked: res.phoneMasked, devCode: res.devCode ?? null },
     };
   });
 }
