@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { accessLogs, anonymizationRequests, attachments, customerAddresses, customers, employees, exportLogs, gpsPositions, invoices, tenants, unbilledCharges, users } from "@/db/schema";
+import { accessLogs, anonymizationRequests, attachments, customerAddresses, customers, employees, exportLogs, gpsPositions, invoices, tenants, truckDaySummaries, unbilledCharges, users } from "@/db/schema";
 import { customerId, employeeId, EQUA_TENANT_ID, truckId, userIdByUsername } from "@/db/seed";
 import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
@@ -133,7 +133,7 @@ describe("US-M10-06 Data pribadi, retensi, dan pencadangan", () => {
     expect((await notificationsOf(t.db, "pemilik", "anonymization.executed")).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("US-M10-06 KP-3 retensi otomatis: log akses 1 tahun & GPS mentah 12 bulan dihapus lewat jalur retensi; foto > 2 tahun diarsipkan & tetap dapat dibuka", async () => {
+  it("US-M10-06 KP-3 US-M12-01 KP-6 retensi otomatis: log akses 1 tahun & GPS mentah 12 bulan dihapus lewat jalur retensi (ringkasan dulu); foto > 2 tahun diarsipkan & tetap dapat dibuka", async () => {
     const old = new Date(Date.now() - 800 * 86_400_000);
     const [photo] = await t.db
       .insert(attachments)
@@ -158,6 +158,10 @@ describe("US-M10-06 Data pribadi, retensi, dan pencadangan", () => {
     expect(rows[0]!.storageKey).toBe("uji/foto-lama.jpg");
     expect((await t.db.select().from(attachments).where(eq(attachments.id, fresh!.id)))[0]!.archivedAt).toBeNull();
     expect((await t.db.select().from(gpsPositions)).length).toBe(1);
+    // US-M12-01 KP-6 PTB-33: ringkasan hari truk dipastikan SEBELUM posisi mentahnya dihapus (jalur M12).
+    const oldDay = toBusinessDate(new Date(Date.now() - 400 * 86_400_000));
+    const summaries = await t.db.select().from(truckDaySummaries).where(and(eq(truckDaySummaries.truckId, truckId("T1")), eq(truckDaySummaries.businessDate, oldDay)));
+    expect(summaries).toHaveLength(1);
   });
 
   it("US-M10-06 KP-4 status cadangan terakhir tampil ke admin sistem & pemilik; uji pemulihan dicatat (RPO/RTO); gagal diberitahukan", async () => {

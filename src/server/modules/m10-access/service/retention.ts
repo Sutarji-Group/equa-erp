@@ -6,14 +6,15 @@
  *   yang diizinkan trigger pengerasan);
  * - foto/berkas bukti (bukti kirim, meter, nota, slip, tanda tangan) lebih tua dari PAR-29 `photo_years` → ditandai
  *   arsip (`archived_at`), TETAP dapat dibuka dari rit/jurnal terkait;
- * - posisi GPS mentah lebih tua dari PAR-52 bulan → dihapus lewat `withRetentionPurge`.
+ * - posisi GPS mentah lebih tua dari PAR-52 bulan → dihapus lewat M12 `purgeExpiredPositions` (ringkasan rit/hari
+ *   dipastikan dulu, US-M12-01 KP-6).
  * Data akuntansi & transaksi (≥ PAR-29 `accounting_years`) serta jejak audit TIDAK PERNAH dihapus.
  */
 import "server-only";
 
 import { and, inArray, isNull, lt } from "drizzle-orm";
 
-import { accessLogs, attachments, gpsPositions } from "@/db/schema";
+import { accessLogs, attachments } from "@/db/schema";
 import { withRetentionPurge } from "@/db/hardening";
 import { toBusinessDate, wibToUtc } from "@/lib/time";
 import { query as auditQuery, record as auditRecord } from "@/server/core/audit";
@@ -76,17 +77,17 @@ export async function runRetention(now: Date = new Date(), db?: Db): Promise<Ret
     gps: monthsAgo(today, policy.gpsMonths),
   };
   const accessCut = wibToUtc(cutoffs.accessLogs);
-  const gpsCut = wibToUtc(cutoffs.gps);
   const photoCut = wibToUtc(cutoffs.photos);
 
   const accessLogsPurged = await withRetentionPurge(database, async (tx) => {
     const rows = await tx.delete(accessLogs).where(lt(accessLogs.occurredAt, accessCut)).returning({ id: accessLogs.id });
     return rows.length;
   });
-  const gpsPurged = await withRetentionPurge(database, async (tx) => {
-    const rows = await tx.delete(gpsPositions).where(lt(gpsPositions.deviceTime, gpsCut)).returning({ id: gpsPositions.id });
-    return rows.length;
-  });
+  // US-M12-01 KP-6, PTB-33 (S5B): posisi GPS mentah dihapus lewat jalur M12 yang MEMASTIKAN ringkasan rit/hari dulu —
+  // job M10 berjalan sebelum M12 pada tick yang sama (registri), jadi M10 tidak boleh menghapus tanpa ringkasan.
+  // Impor dinamis: M12 mengimpor M10 (insiden perangkat) — hindari siklus saat modul dimuat.
+  const { purgeExpiredPositions } = await import("@/server/modules/m12-fleet");
+  const gpsPurged = (await purgeExpiredPositions(now, database)).purged;
   const photosArchived = await withTx(
     async (tx) => {
       const rows = await tx

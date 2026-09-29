@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import * as approvals from "@/server/core/approvals";
 import { requirePermission } from "@/server/core/auth/office";
 import { getDb } from "@/server/core/db";
-import { describeApprovalRules } from "@/server/modules/m10-access";
+import { approvalObjectText, describeApprovalRules } from "@/server/modules/m10-access";
 
 import { DecisionButtons } from "./decision-buttons";
 
@@ -100,10 +100,10 @@ export default async function PersetujuanPage({ searchParams }: PageProps<"/pers
                       label: "Objek",
                       value: link ? (
                         <Link href={link} className="text-primary underline-offset-4 hover:underline">
-                          {item.objectType} {item.objectId}
+                          {approvalObjectText(item.objectType, item.payload)}
                         </Link>
                       ) : (
-                        `${item.objectType} ${item.objectId}`
+                        approvalObjectText(item.objectType, item.payload)
                       ),
                     },
                     { label: "Diajukan", value: formatTanggalJam(item.createdAt) },
