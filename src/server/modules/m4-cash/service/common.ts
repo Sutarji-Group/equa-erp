@@ -4,7 +4,7 @@
  */
 import "server-only";
 
-import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import { cashDays, deposits, employees, officeCashMovements, outlets, trucks, users } from "@/db/schema";
 import type { EnumValue, ProfitCenter } from "@/lib/labels";
@@ -267,30 +267,50 @@ export async function cashDayOf(tx: Tx, tenantId: string, date: BusinessDate) {
   return (await tx.select().from(cashDays).where(and(eq(cashDays.tenantId, tenantId), eq(cashDays.businessDate, date))).limit(1))[0] ?? null;
 }
 
-/** Tolak pencatatan kas kantor/kas kecil/setor bank pada tanggal yang kasnya sudah ditutup. */
+/** Tanggal hari kas terakhir yang sudah ditutup pada/sesudah `from` (null bila tidak ada). */
+async function lastClosedOnOrAfter(tx: Tx, tenantId: string, from: BusinessDate): Promise<BusinessDate | null> {
+  const [r] = await tx
+    .select({ d: sql<string | null>`max(${cashDays.businessDate})` })
+    .from(cashDays)
+    .where(and(eq(cashDays.tenantId, tenantId), eq(cashDays.status, "closed"), gte(cashDays.businessDate, from)));
+  return r?.d ? String(r.d).slice(0, 10) : null;
+}
+
+/**
+ * Tolak pencatatan kas kantor/kas kecil/setor bank pada tanggal yang kasnya sudah ditutup — juga pada tanggal yang
+ * lebih awal dari hari kas yang sudah ditutup (saldo kas kantor kumulatif: mutasi bertanggal lebih awal akan mengubah
+ * saldo hari yang terkunci, US-M4-06 KP-7).
+ */
 export async function assertCashDayOpen(tx: Tx, tenantId: string, date: BusinessDate, what: string): Promise<void> {
-  const day = await cashDayOf(tx, tenantId, date);
-  if (day?.status === "closed") {
+  const closed = await lastClosedOnOrAfter(tx, tenantId, date);
+  if (closed) {
     throw new DomainError(
       "CASH_DAY_CLOSED",
-      `Kas ${formatTanggal(date, { weekday: false })} sudah ditutup — ${what} tidak dapat dicatat pada tanggal itu. Catat pada hari kas yang masih terbuka; koreksi hanya lewat transaksi pembalik.`,
+      closed === date
+        ? `Kas ${formatTanggal(date, { weekday: false })} sudah ditutup — ${what} tidak dapat dicatat pada tanggal itu. Catat pada hari kas yang masih terbuka; koreksi hanya lewat transaksi pembalik.`
+        : `Kas sudah ditutup sampai ${formatTanggal(closed, { weekday: false })} — ${what} tidak dapat dicatat pada ${formatTanggal(date, { weekday: false })}. Catat pada hari kas yang masih terbuka; koreksi hanya lewat transaksi pembalik.`,
     );
   }
 }
 
 /**
- * Tanggal kas pertama ≥ `from` yang belum ditutup. Bab 5.3 / US-M4-06 KP-7: uang yang diterima setelah hari kasnya
- * ditutup (mis. setoran tertunda PTB-21, penggantian pengeluaran, pembayaran pemasok) masuk kas hari berikutnya —
- * hari yang ditutup tetap terkunci.
+ * Tanggal kas pertama ≥ `from` yang belum ditutup DAN tidak mendahului hari kas yang sudah ditutup. Bab 5.3 /
+ * US-M4-06 KP-7: uang yang diterima setelah hari kasnya ditutup (mis. setoran tertunda PTB-21, penggantian
+ * pengeluaran, pembayaran pemasok, keputusan persetujuan) masuk kas hari berikutnya — hari yang ditutup tetap terkunci.
  */
 export async function openCashDate(tx: Tx, tenantId: string, from: BusinessDate): Promise<{ date: BusinessDate; shifted: boolean }> {
-  let date = from;
-  for (let i = 0; i < 31; i++) {
-    const day = await cashDayOf(tx, tenantId, date);
-    if (day?.status !== "closed") return { date, shifted: date !== from };
-    date = addDays(date, 1);
-  }
-  return { date, shifted: true };
+  const closed = await lastClosedOnOrAfter(tx, tenantId, from);
+  const date = closed ? addDays(closed, 1) : from;
+  return { date, shifted: date !== from };
+}
+
+/**
+ * Tanggal kas untuk keputusan persetujuan/pembalik yang berlaku "hari ini": hari kas terbuka ≥ max(tanggal asal, hari
+ * ini). `afterClose` = tanggal asal sudah terkunci (hari itu atau sesudahnya sudah ditutup) → deskripsi ditandai.
+ */
+export async function decisionCashDate(tx: Tx, tenantId: string, originalDate: BusinessDate, today: BusinessDate): Promise<{ date: BusinessDate; afterClose: boolean }> {
+  const res = await openCashDate(tx, tenantId, originalDate > today ? originalDate : today);
+  return { date: res.date, afterClose: res.shifted || (await lastClosedOnOrAfter(tx, tenantId, originalDate)) !== null };
 }
 
 /** Tanggal bisnis masukan (bawaan hari ini) tidak boleh di masa depan. */

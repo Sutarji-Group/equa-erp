@@ -21,12 +21,13 @@ import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { ConflictError, DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { emit } from "@/server/core/events";
+import { notify } from "@/server/core/notifications";
 import { authorize, runService } from "@/server/core/rbac";
 import { linkAttachment } from "@/server/core/storage";
 import * as m11 from "@/server/modules/m11-accounting";
 
 import { bankAccountSchema, bankDepositSchema, deactivateBankAccountSchema, openingBalanceSchema, reverseBankDepositSchema, setBankGlAccountSchema } from "../schemas";
-import { assertCashDayOpen, assertNotFuture, cashRules, officeCashBalance, officeCashOf, openCashDate, postOfficeCash } from "./common";
+import { assertCashDayOpen, assertNotFuture, cashRules, decisionCashDate, officeCashBalance, officeCashOf, openCashDate, postOfficeCash } from "./common";
 import { cancelTransferForSource, recordIncomingTransfer } from "./transfers";
 
 export type BankAccountRow = typeof bankAccounts.$inferSelect;
@@ -286,13 +287,35 @@ export async function recordBankDeposit(ctx: ActorContext, input: unknown, opts:
   });
 }
 
-/** Terapkan pembalik setor bank (dipanggil langsung ≤ PAR-21 atau oleh handler persetujuan koreksi). */
-export async function applyBankDepositReversal(tx: Tx, ctx: ActorContext, bankDepositId: string, reason: string): Promise<BankDepositRow> {
+/**
+ * Terapkan pembalik setor bank (dipanggil langsung ≤ PAR-21 atau oleh handler persetujuan koreksi). Kas kantor masuk
+ * pada hari kas terbuka ≥ hari ini (hari yang sudah ditutup tetap terkunci, US-M4-06 KP-7). Setor bank yang sementara
+ * itu sudah COCOK dengan mutasi (uang terbukti di bank) TIDAK dibalik: kembalikan `null` + beri tahu Admin Keuangan
+ * (US-M4-04 KP-2, US-M4-05 KP-1).
+ */
+export async function applyBankDepositReversal(tx: Tx, ctx: ActorContext, bankDepositId: string, reason: string): Promise<BankDepositRow | null> {
   const orig = (await tx.select().from(bankDeposits).where(eq(bankDeposits.id, bankDepositId)).for("update").limit(1))[0];
   if (!orig) throw new NotFoundError("Setor bank tidak ditemukan.");
   const already = await tx.select({ id: bankDeposits.id }).from(bankDeposits).where(eq(bankDeposits.reversalOfId, orig.id)).limit(1);
   if (already[0]) throw new DomainError("ALREADY_REVERSED", "Setor bank ini sudah dibalik.");
-  const date = ctxBusinessDate(ctx);
+  if (orig.status === "matched") {
+    await auditRecord(tx, { ctx, objectType: "bank_deposit", objectId: orig.id, action: "reverse_skipped", after: { status: orig.status }, reason: `Pembalik tidak diterapkan: setor bank sudah cocok dengan mutasi. ${reason}`, rule: "BR-38, US-M4-04 KP-2", businessDate: orig.businessDate });
+    await notify(tx, {
+      event: "approval.decided",
+      tenantId: orig.tenantId,
+      recipients: { roles: ["finance_admin"] },
+      title: `Pembalik setor bank ${formatRupiah(orig.amount)} tidak diterapkan`,
+      body: `Setor bank ${formatTanggal(orig.businessDate, { weekday: false })} sudah cocok dengan mutasi rekening — uang terbukti masuk bank, sehingga kas kantor tidak dikembalikan. Bila memang keliru, koreksi lewat jurnal manual Akuntansi.`,
+      objectType: "bank_deposit",
+      objectId: orig.id,
+      valueAmount: orig.amount,
+      link: "/kas/kantor",
+      now: ctx.now,
+    });
+    return null;
+  }
+  const cashDate = await decisionCashDate(tx, orig.tenantId, orig.businessDate, ctxBusinessDate(ctx));
+  const date = cashDate.date;
   const [rev] = await tx
     .insert(bankDeposits)
     .values({ tenantId: orig.tenantId, bankAccountId: orig.bankAccountId, amount: -orig.amount, businessDate: date, notes: `Pembalik: ${reason}`, reversalOfId: orig.id, createdBy: ctx.userId })
@@ -306,11 +329,11 @@ export async function applyBankDepositReversal(tx: Tx, ctx: ActorContext, bankDe
     amount: orig.amount,
     sourceObjectType: "bank_deposit",
     sourceObjectId: rev!.id,
-    description: `Pembalik setor bank: ${reason}`,
+    description: `Pembalik setor bank: ${reason}${cashDate.afterClose ? " (setelah kas ditutup)" : ""}`,
     reversalOfId: out?.id ?? null,
   });
   await cancelTransferForSource(tx, ctx, "bank_deposit", orig.id, reason);
-  await auditRecord(tx, { ctx, objectType: "bank_deposit", objectId: orig.id, action: "reverse", after: { reversalId: rev!.id, amount: -orig.amount }, reason, rule: "BR-38", businessDate: orig.businessDate });
+  await auditRecord(tx, { ctx, objectType: "bank_deposit", objectId: orig.id, action: "reverse", after: { reversalId: rev!.id, amount: -orig.amount, cashDate: date }, reason, rule: "BR-38", businessDate: orig.businessDate });
   await emit(
     tx,
     "bank_deposit.reversed",

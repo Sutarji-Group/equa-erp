@@ -16,11 +16,11 @@ import { and, desc, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { approvalRequests, deposits, discrepancies, employees, outlets, restitutions, shifts, tripPayments, trips, trucks } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
-import { addDays, firstDayOfMonth, formatTanggal, monthOf, type BusinessDate } from "@/lib/time";
+import { addDays, firstDayOfMonth, formatTanggal, monthOf, toBusinessDate, type BusinessDate } from "@/lib/time";
 
 import * as approvals from "@/server/core/approvals";
 import { record as auditRecord } from "@/server/core/audit";
-import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
+import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { emit } from "@/server/core/events";
@@ -81,9 +81,14 @@ export async function formDiscrepancy(tx: Tx, ctx: ActorContext, input: FormDisc
   const rules = await cashRules(tx, input.businessDate, input.tenantId);
   const locksTrips =
     (input.source === "driver" || input.source === "pending_deposit") && input.amount < 0 && rules.tripLock.enabled && -input.amount >= rules.tripLock.amountGte;
+  // 6.2a `cash_discrepancy`: ambang PAR-01 berlaku "per sopir/outlet per hari" — selisih lain sumber yang sama pada
+  // tanggal itu ikut dijumlahkan, sehingga kekurangan yang dipecah (dua shift, shift dibuka-tutup) tetap ke pemilik.
+  const siblings = await sameSourceDayDiscrepancies(tx, input);
+  const dayTotal = siblings.reduce((sum, d) => sum + d.amount, 0) + input.amount;
+  const overDaily = siblings.length > 0 && Math.abs(dayTotal) >= rules.discrepancyThreshold;
   // PAR-83 (PTB-62): kunci rit bertahan "sampai pemilik memutuskan" — selisih yang mengunci SELALU menunggu keputusan
   // pemilik, juga bila ambang PAR-83 diatur di bawah PAR-01 (tidak ikut ditutup Admin Keuangan bersama setoran).
-  const requiresOwnerDecision = Math.abs(input.amount) >= rules.discrepancyThreshold || locksTrips;
+  const requiresOwnerDecision = Math.abs(input.amount) >= rules.discrepancyThreshold || overDaily || locksTrips;
   const explained = !!input.reason;
   const [row] = await tx
     .insert(discrepancies)
@@ -136,6 +141,7 @@ export async function formDiscrepancy(tx: Tx, ctx: ActorContext, input: FormDisc
       now: ctx.now,
     });
     if (explained && ctx.userId && ctx.roles.includes("finance_admin")) approvalId = await submitOwnerDecision(tx, ctx, disc, input.sourceLabel);
+    if (overDaily) await escalateSameDaySiblings(tx, ctx, siblings, { total: dayTotal, sourceLabel: input.sourceLabel });
   }
   await emit(
     tx,
@@ -161,6 +167,64 @@ export async function formDiscrepancy(tx: Tx, ctx: ActorContext, input: FormDisc
     { ctx, tenantId: input.tenantId, businessDate: input.businessDate, objectType: "discrepancy", objectId: disc.id },
   );
   return approvalId ? { ...disc, approvalRequestId: approvalId } : disc;
+}
+
+/**
+ * Selisih lain dari sumber yang sama pada tanggal bisnis yang sama (6.2a "per sopir/outlet per hari"): setoran sopir per
+ * karyawan (atau pengguna), shift depot/toko per outlet. Setoran tertunda (`pending_deposit`) bukan hasil hitung — tidak
+ * ikut dijumlahkan. Sumber lain (kas kantor, kas kecil) dinilai per kejadian.
+ */
+async function sameSourceDayDiscrepancies(tx: Tx, input: FormDiscrepancyInput): Promise<DiscrepancyRow[]> {
+  const base = [eq(discrepancies.tenantId, input.tenantId), eq(discrepancies.businessDate, input.businessDate)];
+  if (input.source === "driver") {
+    if (input.employeeId) return tx.select().from(discrepancies).where(and(...base, eq(discrepancies.source, "driver"), eq(discrepancies.employeeId, input.employeeId)));
+    if (input.userId) return tx.select().from(discrepancies).where(and(...base, eq(discrepancies.source, "driver"), eq(discrepancies.userId, input.userId)));
+    return [];
+  }
+  if ((input.source === "depot_shift" || input.source === "store_shift") && input.outletId) {
+    return tx.select().from(discrepancies).where(and(...base, eq(discrepancies.source, input.source), eq(discrepancies.outletId, input.outletId)));
+  }
+  return [];
+}
+
+/**
+ * Total selisih hari itu ≥ PAR-01 → selisih lain sumber yang sama ikut menunggu keputusan pemilik: yang sudah ditutup
+ * Admin Keuangan di bawah ambang dibuka kembali, yang sudah dijelaskan diajukan `cash_discrepancy` (BR-09, 6.2a).
+ */
+async function escalateSameDaySiblings(tx: Tx, ctx: ActorContext, siblings: DiscrepancyRow[], info: { total: number; sourceLabel: string }): Promise<void> {
+  const reason = `Total selisih ${info.sourceLabel} hari itu ${formatRupiah(info.total, { signed: true })} mencapai ambang keputusan pemilik (PAR-01 per sopir/outlet per hari).`;
+  for (const d of siblings) {
+    if (d.decision || d.requiresOwnerDecision) continue;
+    const reopen = d.status === "done" && !!d.closedBelowThresholdAt;
+    const status = reopen ? (d.reason ? "explained" : "formed") : d.status;
+    const [row] = await tx
+      .update(discrepancies)
+      .set({
+        requiresOwnerDecision: true,
+        status,
+        doneAt: reopen ? null : d.doneAt,
+        reopenedAt: reopen ? ctx.now : d.reopenedAt,
+        reopenedBy: reopen ? ctx.userId : d.reopenedBy,
+        reopenReason: reopen ? reason : d.reopenReason,
+        updatedAt: ctx.now,
+      })
+      .where(eq(discrepancies.id, d.id))
+      .returning();
+    await auditRecord(tx, {
+      ctx,
+      objectType: "discrepancy",
+      objectId: d.id,
+      action: reopen ? "reopen" : "escalate",
+      before: { status: d.status, requiresOwnerDecision: false },
+      after: { status, requiresOwnerDecision: true },
+      reason,
+      rule: "BR-09, 6.2a",
+      businessDate: d.businessDate,
+    });
+    if (row!.status === "explained" && !row!.approvalRequestId && ctx.userId && ctx.roles.includes("finance_admin")) {
+      await submitOwnerDecision(tx, ctx, row!, await sourceLabelOf(tx, row!));
+    }
+  }
 }
 
 /** Ajukan keputusan pemilik (6.2a `cash_discrepancy`, Admin Keuangan atas nama sopir/outlet, tenggat 24 jam). */
@@ -237,6 +301,46 @@ export async function closeBelowThreshold(tx: Tx, ctx: ActorContext, depositId: 
     await auditRecord(tx, { ctx, objectType: "discrepancy", objectId: d.id, action: "close", before: { status: d.status }, after: { status: "done", closedBelowThreshold: true }, rule: "US-M4-02 KP-4", businessDate: d.businessDate });
   }
   return rows.length;
+}
+
+/**
+ * Setoran tertunda yang sudah lewat batas (US-M4-06 KP-2) akhirnya DITERIMA: selisih "setoran tertunda" sebesar seluruh
+ * setoran diselesaikan ("kas diterima") — tidak lagi menunggu keputusan pemilik, tidak mengunci rit, tidak dihitung
+ * KPI-03 sebagai terbuka. Persetujuan yang masih menunggu dibatalkan; bila pemilik sudah MENOLAK dan ganti rugi
+ * tercatat (BR-11c), beban ganti rugi gugur dan jurnal piutang karyawan dibalik (`discrepancy.reopened` → M11).
+ * Selisih sisa hanya berasal dari penerimaan aktual (dibentuk `receiveDepositCore`).
+ */
+export async function resolvePendingDepositDiscrepancy(tx: Tx, ctx: ActorContext, discrepancyId: string, info: { depositNumber: string }): Promise<boolean> {
+  const disc = (await tx.select().from(discrepancies).where(eq(discrepancies.id, discrepancyId)).for("update").limit(1))[0];
+  if (!disc || disc.source !== "pending_deposit") return false;
+  const note = `Kas setoran ${info.depositNumber} diterima ${formatTanggal(toBusinessDate(ctx.now), { weekday: false })} — selisih setoran tertunda diselesaikan.`;
+  if (disc.status === "done" && disc.decision !== "rejected") return false;
+  if (disc.approvalRequestId) {
+    const req = (await tx.select().from(approvalRequests).where(eq(approvalRequests.id, disc.approvalRequestId)).limit(1))[0];
+    if (req?.status === "submitted") await approvals.cancel(systemContext({ tenantId: disc.tenantId, now: ctx.now }), req.id, note, { tx });
+  }
+  let restitutionVoided: string | null = null;
+  if (disc.decision === "rejected") {
+    const rest = (await tx.select().from(restitutions).where(eq(restitutions.discrepancyId, disc.id)).for("update").limit(1))[0];
+    if (rest && rest.status !== "settled") {
+      await tx.update(restitutions).set({ settledAmount: rest.amount, status: "settled", settledAt: ctx.now, updatedAt: ctx.now }).where(eq(restitutions.id, rest.id));
+      await auditRecord(tx, { ctx, objectType: "restitution", objectId: rest.id, action: "void", before: { status: rest.status, settledAmount: rest.settledAmount }, after: { status: "settled", settledAmount: rest.amount }, reason: `Ganti rugi gugur: ${note}`, rule: "BR-11c, US-M4-06 KP-2", businessDate: rest.businessDate });
+      restitutionVoided = rest.id;
+    }
+    await emit(
+      tx,
+      "discrepancy.reopened",
+      { discrepancyId: disc.id, previousDecision: "rejected", amount: disc.amount, employeeId: disc.employeeId, profitCenter: profitCenterFor(disc.source), reason: note },
+      { ctx, tenantId: disc.tenantId, businessDate: disc.businessDate, objectType: "discrepancy", objectId: disc.id },
+    );
+  }
+  await tx
+    .update(discrepancies)
+    .set({ status: "done", locksTrips: false, followUpNote: note, followedUpBy: ctx.userId, followedUpAt: disc.followedUpAt ?? ctx.now, doneAt: ctx.now, updatedAt: ctx.now })
+    .where(eq(discrepancies.id, disc.id));
+  await auditRecord(tx, { ctx, objectType: "discrepancy", objectId: disc.id, action: "resolve", before: { status: disc.status, decision: disc.decision }, after: { status: "done", restitutionVoided }, reason: note, rule: "US-M4-06 KP-2, PTB-21", businessDate: disc.businessDate });
+  await markActionedForObject(tx, { objectType: "discrepancy", objectId: disc.id, now: ctx.now });
+  return true;
 }
 
 // =====================================================================================================================
@@ -616,13 +720,30 @@ export async function discrepancyHistory(ctx: ActorContext, filter: { employeeId
   return { rows, streaks: streaks.sort((a, b) => b.daysWithoutDiscrepancy - a.daysWithoutDiscrepancy), zeroMonths: rules.zeroDiscrepancyMonths, from };
 }
 
-/** Selisih hari itu (layar tutup kas, US-M4-06 KP-3). */
-export async function discrepanciesOn(tx: Tx, tenantId: string, date: BusinessDate): Promise<DiscrepancyRow[]> {
-  return tx
-    .select()
+export type DiscrepancyDayRow = DiscrepancyRow & {
+  /** "Shift depot D02 — Depot Cibeber · Operator: Nama" / "Sopir — Nama (T2)". */
+  sourceLabel: string;
+  outletLabel: string | null;
+  truckCode: string | null;
+  employeeName: string | null;
+};
+
+/** Selisih hari itu (layar tutup kas, US-M4-06 KP-3) — dengan outlet/truk & nama karyawan (D-12 butir 7), satu kueri. */
+export async function discrepanciesOn(tx: Tx, tenantId: string, date: BusinessDate): Promise<DiscrepancyDayRow[]> {
+  const rows = await tx
+    .select({ d: discrepancies, outletCode: outlets.code, outletName: outlets.name, truckCode: trucks.code, employeeName: employees.fullName })
     .from(discrepancies)
+    .leftJoin(outlets, eq(outlets.id, discrepancies.outletId))
+    .leftJoin(trucks, eq(trucks.id, discrepancies.truckId))
+    .leftJoin(employees, eq(employees.id, discrepancies.employeeId))
     .where(and(eq(discrepancies.tenantId, tenantId), eq(discrepancies.businessDate, date)))
     .orderBy(desc(discrepancies.createdAt));
+  return rows.map(({ d, outletCode, outletName, truckCode, employeeName }) => {
+    const outletLabel = outletCode ? `${outletCode} — ${outletName ?? ""}` : null;
+    const where = outletLabel ?? (truckCode ? `Truk ${truckCode}` : null);
+    const sourceLabel = [label("discrepancy_source", d.source), where, employeeName].filter(Boolean).join(" · ");
+    return { ...d, sourceLabel, outletLabel, truckCode: truckCode ?? null, employeeName: employeeName ?? null };
+  });
 }
 
 /** Selisih terbuka (belum Selesai) — untuk ringkasan. */

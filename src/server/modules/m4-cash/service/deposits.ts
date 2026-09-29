@@ -46,7 +46,7 @@ import {
   type DepositRow,
   type DiscrepancyReason,
 } from "./common";
-import { closeBelowThreshold, formDiscrepancy, type DiscrepancyRow } from "./discrepancies";
+import { closeBelowThreshold, formDiscrepancy, resolvePendingDepositDiscrepancy, type DiscrepancyRow } from "./discrepancies";
 
 type TripExpenseRow = typeof tripExpenses.$inferSelect;
 
@@ -374,6 +374,7 @@ export async function getDepositDetail(ctx: ActorContext, id: string, opts: { tx
   else if (dep.method === "bank_slip") blockReason = "Setoran lewat setor bank dengan slip — diterima setelah mutasi cocok di menu Transfer masuk.";
   else if (!sync.fullySynced) blockReason = sync.message;
   else if (dep.depositorUserId && dep.depositorUserId === ctx.userId) blockReason = "Anda tidak dapat menerima setoran Anda sendiri.";
+  else if ((await selfRecordedItems(tx, dep.id, ctx.userId)) > 0) blockReason = `${SELF_RECORDED_MESSAGE}.`;
   return {
     deposit: dep,
     source,
@@ -463,6 +464,26 @@ export async function verifyExpense(ctx: ActorContext, input: unknown, opts: { t
   });
 }
 
+/**
+ * FR-M10-03 / 7.4.5 (penerima setoran bukan pembuat transaksinya): transaksi dalam setoran yang dicatat pelaku sendiri —
+ * pembayaran rit / pelunasan / pengeluaran rit lewat jalur "dicatat kantor" atau koreksi/pembaliknya. Kosong = boleh.
+ */
+async function selfRecordedItems(tx: Tx, depositId: string, userId: string | null): Promise<number> {
+  if (!userId) return 0;
+  const [a] = await tx.select({ n: sql<number>`count(*)::int` }).from(tripPayments).where(and(eq(tripPayments.depositId, depositId), eq(tripPayments.createdBy, userId)));
+  const [b] = await tx.select({ n: sql<number>`count(*)::int` }).from(customerPayments).where(and(eq(customerPayments.depositId, depositId), eq(customerPayments.createdBy, userId)));
+  const [c] = await tx.select({ n: sql<number>`count(*)::int` }).from(tripExpenses).where(and(eq(tripExpenses.depositId, depositId), eq(tripExpenses.createdBy, userId)));
+  return Number(a?.n ?? 0) + Number(b?.n ?? 0) + Number(c?.n ?? 0);
+}
+
+const SELF_RECORDED_MESSAGE = "Setoran ini memuat transaksi yang Anda catat sendiri (dicatat kantor atau koreksi); minta Admin Keuangan lain menerima dan menutupnya";
+
+async function assertNotSelfRecorded(tx: Tx, ctx: ActorContext, dep: DepositRow): Promise<void> {
+  if ((await selfRecordedItems(tx, dep.id, ctx.userId)) > 0) {
+    throw sod.sodViolation("SOD-02", SELF_RECORDED_MESSAGE, { objectType: "deposit", objectId: dep.id });
+  }
+}
+
 // =====================================================================================================================
 // Terima & tutup (US-M4-02 KP-2..KP-9)
 // =====================================================================================================================
@@ -496,8 +517,9 @@ export async function receiveDepositCore(tx: Tx, ctx: ActorContext, depositId: s
       dep.status === "running" ? `Setoran ${dep.number} belum diajukan penyetor dari aplikasi.` : `Setoran ${dep.number} sudah ${label("deposit_status", dep.status).toLowerCase()}.`,
     );
   }
-  // SOD-02: penerima bukan penyetor.
+  // SOD-02: penerima bukan penyetor — dan bukan pembuat transaksi di dalam setoran (FR-M10-03, 7.4.5).
   sod.assertReceiverNotDepositor(dep.depositorUserId, ctx.userId, { objectType: "deposit", objectId: dep.id });
+  await assertNotSelfRecorded(tx, ctx, dep);
   if (input.via === "physical" && dep.method === "bank_slip") {
     throw new DomainError("BANK_SLIP_DEPOSIT", `Setoran ${dep.number} disetor lewat bank dengan slip — diterima setelah mutasi cocok (menu Transfer masuk).`);
   }
@@ -563,10 +585,12 @@ export async function receiveDepositCore(tx: Tx, ctx: ActorContext, depositId: s
     .where(eq(deposits.id, dep.id))
     .returning();
   let deposit = updated!;
-  // Kas kantor bertambah sebesar uang fisik yang diterima (setor bank tidak melewati kas kantor). Diterima setelah hari
-  // kas hari ini ditutup (setoran tertunda PTB-21) → masuk kas hari berikutnya bertanda (Bab 5.3, US-M4-06 KP-7).
+  // Kas kantor bertambah sebesar uang fisik yang diterima (setor bank tidak melewati kas kantor) pada hari kas terbuka
+  // paling awal ≥ tanggal setoran: setoran kemarin yang diterima pagi ini masuk kas kemarin selama kas kemarin belum
+  // ditutup (tutup kas tertunda 7.4.6 tanpa selisih palsu). Hari kas setoran sudah ditutup (setoran tertunda PTB-21)
+  // → masuk kas hari berikutnya bertanda (Bab 5.3, US-M4-06 KP-7).
   if (input.via === "physical") {
-    const cashDate = await openCashDate(tx, dep.tenantId, today);
+    const cashDate = await openCashDate(tx, dep.tenantId, dep.businessDate < today ? dep.businessDate : today);
     await postOfficeCash(tx, ctx, {
       tenantId: dep.tenantId,
       businessDate: cashDate.date,
@@ -759,6 +783,7 @@ export async function closeDeposit(ctx: ActorContext, input: unknown, opts: { tx
   return runService(ctx, opts, async (tx) => {
     const dep = await loadDeposit(tx, ctx, data.depositId, { forUpdate: true });
     sod.assertReceiverNotDepositor(dep.depositorUserId, ctx.userId, { objectType: "deposit", objectId: dep.id });
+    await assertNotSelfRecorded(tx, ctx, dep);
     return closeDepositCore(tx, ctx, dep);
   });
 }
@@ -820,12 +845,18 @@ export async function lastCompletedTripAt(tx: Tx, userId: string, date: Business
   return v ? new Date(v) : null;
 }
 
-/** Setoran pengecualian diterima → pengecualian "Kas diterima". */
+/**
+ * Setoran pengecualian diterima → pengecualian "Kas diterima". Pengecualian yang sudah lewat batas (menjadi selisih
+ * "setoran tertunda", US-M4-06 KP-2) → selisih itu diselesaikan; selisih sisa hanya dari penerimaan aktual.
+ */
 export async function resolveExceptionsForDeposit(tx: Tx, ctx: ActorContext, depositId: string): Promise<void> {
-  const rows = await tx.select().from(cashCloseExceptions).where(and(eq(cashCloseExceptions.depositId, depositId), inArray(cashCloseExceptions.status, ["approved", "expired"])));
+  const rows = await tx.select().from(cashCloseExceptions).where(and(eq(cashCloseExceptions.depositId, depositId), inArray(cashCloseExceptions.status, ["approved", "expired"]), isNull(cashCloseExceptions.resolvedAt)));
+  if (!rows.length) return;
+  const dep = (await tx.select({ number: deposits.number }).from(deposits).where(eq(deposits.id, depositId)).limit(1))[0];
   for (const e of rows) {
     if (e.status === "approved") await tx.update(cashCloseExceptions).set({ status: "resolved", resolvedAt: ctx.now, updatedAt: ctx.now }).where(eq(cashCloseExceptions.id, e.id));
     else await tx.update(cashCloseExceptions).set({ resolvedAt: ctx.now, updatedAt: ctx.now }).where(eq(cashCloseExceptions.id, e.id));
     await auditRecord(tx, { ctx, objectType: "cash_close_exception", objectId: e.id, action: "resolve", before: { status: e.status }, after: { status: e.status === "approved" ? "resolved" : e.status, resolvedAt: ctx.now }, rule: "PTB-21", businessDate: e.businessDate });
+    if (e.convertedDiscrepancyId) await resolvePendingDepositDiscrepancy(tx, ctx, e.convertedDiscrepancyId, { depositNumber: dep?.number ?? "" });
   }
 }

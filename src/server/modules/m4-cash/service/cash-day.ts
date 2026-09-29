@@ -204,13 +204,30 @@ export type CashDayScreen = {
   exceptions: (CashCloseExceptionRow & { sourceLabel: string })[];
   discrepancies: Awaited<ReturnType<typeof discrepanciesOn>>;
   unmatchedTransfers: Awaited<ReturnType<typeof unmatchedTransfers>>;
+  /** Saldo sistem pembanding hitung fisik (tutup kas tanggal lampau: saldo sampai saat ini). */
   officeCashSystem: number;
+  /** Saldo kas kantor sampai akhir tanggal itu. */
+  officeCashThroughDate: number;
+  /** Mutasi bersih bertanggal sesudah tanggal itu yang sudah ada di laci (tutup kas tertunda). */
+  officeCashLaterNet: number;
   lastDepositReceivedAt: Date | null;
   lateSyncCount: number;
   cutoff: string;
   canClose: boolean;
   pendingDepositMaxDays: number;
 };
+
+/**
+ * Saldo sistem pembanding hitung fisik kas kantor. Tutup kas tanggal lampau (tutup kas tertunda 7.4.6): laci saat ini
+ * juga memuat mutasi bertanggal SESUDAH tanggal itu (setor bank/kas kecil pagi ini, setoran tertunda) — pembanding =
+ * saldo sampai saat ini; `throughDate` = saldo sampai akhir tanggal itu, `laterNet` = mutasi bersih sesudahnya.
+ */
+export async function officeCashForClose(tx: Tx, tenantId: string, date: BusinessDate, today: BusinessDate): Promise<{ system: number; throughDate: number; laterNet: number }> {
+  const throughDate = await officeCashBalance(tx, tenantId, date);
+  if (date >= today) return { system: throughDate, throughDate, laterNet: 0 };
+  const current = await officeCashBalance(tx, tenantId, "9999-12-31");
+  return { system: current, throughDate, laterNet: current - throughDate };
+}
 
 async function lateSyncCount(tx: Tx, tenantId: string, date: BusinessDate): Promise<number> {
   const [a] = await tx.select({ n: sql<number>`count(*)::int` }).from(tripPayments).where(and(eq(tripPayments.tenantId, tenantId), eq(tripPayments.businessDate, date), eq(tripPayments.lateSync, true)));
@@ -240,6 +257,7 @@ export async function getCashDayScreen(ctx: ActorContext, filter: { date?: strin
     exceptions.push({ ...e, sourceLabel });
   }
   const openBlockers = blockers.filter((b) => !b.covered);
+  const cash = await officeCashForClose(tx, ctx.tenantId, date, ctxBusinessDate(ctx));
   return {
     date,
     day,
@@ -248,7 +266,9 @@ export async function getCashDayScreen(ctx: ActorContext, filter: { date?: strin
     exceptions,
     discrepancies: await discrepanciesOn(tx, ctx.tenantId, date),
     unmatchedTransfers: await unmatchedTransfers(tx, ctx.tenantId, date),
-    officeCashSystem: await officeCashBalance(tx, ctx.tenantId, date),
+    officeCashSystem: cash.system,
+    officeCashThroughDate: cash.throughDate,
+    officeCashLaterNet: cash.laterNet,
     lastDepositReceivedAt: await lastReceivedAt(tx, ctx.tenantId, date),
     lateSyncCount: await lateSyncCount(tx, ctx.tenantId, date),
     cutoff: rules.cashCloseTime,
@@ -378,10 +398,17 @@ export async function closeCashDay(ctx: ActorContext, input: unknown, opts: { tx
       });
     }
     const rules = await cashRules(tx, date, ctx.tenantId);
-    const system = await officeCashBalance(tx, ctx.tenantId, date);
+    // Tutup kas tanggal lampau: fisik laci dibandingkan dengan saldo sampai saat ini (7.4.6).
+    const cash = await officeCashForClose(tx, ctx.tenantId, date, today);
+    const system = cash.system;
     const difference = data.officeCashPhysical - system;
     if (difference !== 0) {
-      if (!data.officeCashReason) throw new DomainError("OFFICE_CASH_REASON_REQUIRED", `Kas kantor fisik berselisih ${formatRupiah(difference, { signed: true })} dari sistem (${formatRupiah(system)}) — pilih alasan selisih.`);
+      if (!data.officeCashReason) {
+        throw new DomainError(
+          "OFFICE_CASH_REASON_REQUIRED",
+          `Kas kantor fisik berselisih ${formatRupiah(difference, { signed: true })} dari sistem (${formatRupiah(system)}${cash.laterNet ? `, termasuk mutasi sesudah ${formatTanggal(date, { weekday: false })} ${formatRupiah(cash.laterNet, { signed: true })}` : ""}) — pilih alasan selisih.`,
+        );
+      }
       if (data.officeCashReason === "other" && (!data.officeCashNote || data.officeCashNote.length < 3)) throw new DomainError("OFFICE_CASH_NOTE_REQUIRED", "Alasan \"Lainnya\" wajib diberi keterangan.");
     }
     let day = await ensureCashDay(tx, ctx.tenantId, date);
@@ -447,7 +474,7 @@ export async function closeCashDay(ctx: ActorContext, input: unknown, opts: { tx
       objectId: day.id,
       action: "close",
       before: { status: "open" },
-      after: { status: "closed", closedLate: late, officeCashSystem: system, officeCashPhysical: data.officeCashPhysical, difference, exceptions: exceptions.length, kpi02Minutes },
+      after: { status: "closed", closedLate: late, officeCashSystem: system, officeCashThroughDate: cash.throughDate, officeCashLaterNet: cash.laterNet, officeCashPhysical: data.officeCashPhysical, difference, exceptions: exceptions.length, kpi02Minutes },
       reason: data.officeCashNote,
       rule: "US-M4-06, BR-14",
       businessDate: date,

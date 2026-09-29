@@ -194,6 +194,9 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
                       <Link href={`/kas/selisih?id=${x.id}`} className="text-primary hover:underline">
                         {label("discrepancy_source", x.source)}
                       </Link>
+                      <span className="block text-xs text-muted-foreground" data-testid="selisih-sumber">
+                        {[x.outletLabel ?? (x.truckCode ? `Truk ${x.truckCode}` : null), x.employeeName].filter(Boolean).join(" · ") || "—"}
+                      </span>
                     </TableCell>
                     <TableCell className="text-right font-medium">{formatRupiah(x.amount, { signed: true })}</TableCell>
                     <TableCell className="text-sm">
@@ -251,7 +254,10 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
           />
         </SectionCard>
       ) : canClose ? (
-        <SectionCard title="Hitung fisik kas kantor & tutup kas" description={`Saldo kas kantor menurut sistem ${formatRupiah(s.officeCashSystem)}. Selisih hitung fisik wajib alasan dan masuk alur Selisih.`}>
+        <SectionCard
+          title="Hitung fisik kas kantor & tutup kas"
+          description={`Saldo kas kantor menurut sistem ${formatRupiah(s.officeCashSystem)}${s.officeCashLaterNet ? ` (saldo akhir tanggal ini ${formatRupiah(s.officeCashThroughDate)}, ditambah mutasi sesudahnya yang sudah ada di laci ${formatRupiah(s.officeCashLaterNet, { signed: true })})` : ""}. Selisih hitung fisik wajib alasan dan masuk alur Selisih.`}
+        >
           {!s.canClose ? (
             <Alert variant="destructive" className="mb-3">
               <AlertTitle>Kas belum dapat ditutup</AlertTitle>

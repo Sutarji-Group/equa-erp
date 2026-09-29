@@ -6,7 +6,7 @@
  * | `cash_discrepancy` | `discrepancy` | Selesai; beban selisih kas pusat laba sumber (`discrepancy.decided`, M11) | ganti rugi karyawan bila flag aktif (PTB-22) → dikembalikan ke Admin Keuangan | `escalate` (inti): tetap terbuka, naik ke puncak, dihitung KPI-03 |
  * | `petty_cash` | `petty_cash_transaction` | berlaku (kas kantor/kas kecil, event jurnal) | Ditolak — "Tidak berlaku" | — |
  * | `cash_close_exception` | `cash_close_exception` | penghalang tertutup pengecualian (setoran tertunda ≤ PAR-89) | Ditolak | `expire`: "Kas tidak dapat ditutup" |
- * | `correction` | `bank_deposit`, `restitution_settlement` | pembalik diterapkan (BR-38) | koreksi tidak berlaku | — |
+ * | `correction` | `bank_deposit`, `restitution_settlement` | pembalik diterapkan pada hari kas terbuka (BR-38; setor bank yang sudah cocok → tidak diterapkan) | koreksi tidak berlaku | — |
  *
  * `ctx` handler = PENYETUJU (pemilik): tulis langsung dengan `tx` + audit (bukan layanan harian — SOD-08).
  */
@@ -61,7 +61,8 @@ export function registerApprovals(): void {
     {
       onApproved: async ({ tx, request, ctx }) => {
         const rev = await applyBankDepositReversal(tx, ctx, request.objectId, payloadReason(request.payload, request.reason));
-        return { reversalId: rev.id };
+        // Setor bank sudah cocok dengan mutasi sementara menunggu → pembalik tidak diterapkan (BR-38, US-M4-04 KP-2).
+        return rev ? { reversalId: rev.id, applied: true } : { reversalId: null, applied: false, note: "Setor bank sudah cocok dengan mutasi — pembalik tidak diterapkan." };
       },
     },
     { objectType: "bank_deposit" },
