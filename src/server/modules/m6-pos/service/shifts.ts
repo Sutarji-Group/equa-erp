@@ -12,7 +12,7 @@ import { z } from "zod";
 
 import { deposits, posSales, shiftStockCounts, shifts, users, employees } from "@/db/schema";
 import { formatRupiah, zRupiahNonNegative, zRupiahPositive } from "@/lib/money";
-import { addDays, formatJam, type BusinessDate } from "@/lib/time";
+import { addDays, formatJam, toBusinessDate, type BusinessDate } from "@/lib/time";
 
 import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
@@ -32,6 +32,7 @@ import {
   resolvePosOutlet,
   type FieldWriteMeta,
   type OutletRow,
+  type PosSaleRow,
   type ShiftRow,
 } from "./common";
 import { computeShiftFigures, type ShiftFigures } from "./figures";
@@ -530,6 +531,119 @@ export async function closeShift(ctx: ActorContext, input: z.output<typeof close
     { ctx, objectType: "deposit", objectId: dep!.id },
   );
   return { shift: closed!, figures, depositId: dep!.id, conflict: conflicts.length ? conflicts.join(" ") : null };
+}
+
+// =====================================================================================================================
+// Tunai tersinkron setelah shift ditutup (US-M4-06 KP-7, Bab 5.3, 7.6.6)
+// =====================================================================================================================
+
+/**
+ * Transaksi TUNAI yang baru tersinkron setelah shiftnya ditutup (mis. perangkat rusak, 7.6.6): uangnya sudah ada di
+ * laci saat hitung tutup, jadi tidak boleh hilang dari kontrol setoran:
+ * - setoran shift masih Diajukan (belum diterima M4) → kas seharusnya & setoran shift bertambah (bertanda);
+ * - setoran shift sudah diterima/ditutup → dibentuk SETORAN SUSULAN outlet bertanda (kas masuk setoran berikutnya,
+ *   Bab 5.3) yang diterima Admin Keuangan lewat M4.
+ */
+export async function absorbLateCashSale(
+  tx: Tx,
+  ctx: ActorContext,
+  input: { outlet: OutletRow; shift: ShiftRow; sale: PosSaleRow },
+): Promise<{ depositId: string; mode: "shift_deposit" | "supplementary"; message: string } | null> {
+  const { outlet, shift, sale } = input;
+  if (sale.paymentMethod !== "cash" || sale.total <= 0 || sale.status !== "valid") return null;
+  const policy = posKindPolicy(outlet.kind);
+  const item = { saleId: sale.id, number: sale.number, amount: sale.total, soldAt: sale.soldAt.toISOString() };
+  const dep = shift.depositId ? (await tx.select().from(deposits).where(eq(deposits.id, shift.depositId)).for("update").limit(1))[0] : undefined;
+  if (dep && dep.status === "submitted") {
+    const snap = (dep.summarySnapshot ?? {}) as Record<string, unknown>;
+    const lateList = [...((snap.lateCashSales as unknown[]) ?? []), item];
+    await tx
+      .update(deposits)
+      .set({ expectedCash: dep.expectedCash + sale.total, expectedNet: dep.expectedNet + sale.total, summarySnapshot: { ...snap, lateCashSales: lateList }, updatedAt: ctx.now })
+      .where(eq(deposits.id, dep.id));
+    const expectedCash = (shift.expectedCash ?? 0) + sale.total;
+    const cashDifference = shift.closingCashCounted === null ? shift.cashDifference : shift.closingCashCounted - (expectedCash - shift.partialDepositTotal);
+    await tx
+      .update(shifts)
+      .set({
+        expectedCash,
+        depositAmount: (shift.depositAmount ?? 0) + sale.total,
+        cashDifference,
+        summary: { ...(shift.summary ?? {}), lateCashSales: lateList },
+        updatedAt: ctx.now,
+      })
+      .where(eq(shifts.id, shift.id));
+    await auditRecord(tx, {
+      ctx,
+      objectType: "deposit",
+      objectId: dep.id,
+      action: "late_cash_added",
+      before: { expectedCash: dep.expectedCash, cashDifference: shift.cashDifference },
+      after: { expectedCash: dep.expectedCash + sale.total, cashDifference, sale: item },
+      reason: "Transaksi tunai tersinkron setelah shift ditutup",
+      rule: "US-M4-06 KP-7",
+      businessDate: shift.businessDate,
+    });
+    const message = `Tunai ${formatRupiah(sale.total)} (transaksi ${sale.number ?? sale.localNumber}) tersinkron setelah shift ditutup — ditambahkan ke setoran shift ${dep.number} (belum diterima Admin Keuangan).`;
+    await notifyLateCash(tx, ctx, outlet, dep.id, sale.total, message);
+    return { depositId: dep.id, mode: "shift_deposit", message };
+  }
+  const today = toBusinessDate(ctx.now);
+  const number = await nextNumber(tx, "deposit", today, { tenantId: outlet.tenantId });
+  const [row] = await tx
+    .insert(deposits)
+    .values({
+      tenantId: outlet.tenantId,
+      number,
+      sourceType: policy.depositSourceType,
+      businessDate: today,
+      status: "submitted",
+      depositorUserId: sale.operatorUserId,
+      outletId: outlet.id,
+      shiftId: null,
+      method: "physical",
+      expectedCash: sale.total,
+      expectedNet: sale.total,
+      submittedAt: ctx.now,
+      submittedLate: true,
+      isPartial: false,
+      summarySnapshot: { kind: "late_cash_after_close", shiftId: shift.id, shiftDepositId: dep?.id ?? null, lateCashSales: [item] },
+      createdBy: ctx.userId,
+    })
+    .returning({ id: deposits.id, number: deposits.number });
+  await auditRecord(tx, {
+    ctx,
+    objectType: "deposit",
+    objectId: row!.id,
+    action: "create",
+    after: { kind: "late_cash_after_close", shiftId: shift.id, expectedCash: sale.total, sale: item },
+    reason: "Transaksi tunai tersinkron setelah setoran shift diterima — setoran susulan",
+    rule: "US-M4-06 KP-7, Bab 5.3",
+    businessDate: today,
+  });
+  await emit(
+    tx,
+    "deposit.submitted",
+    { depositId: row!.id, sourceType: policy.depositSourceType, sourceUserId: sale.operatorUserId, outletId: outlet.id, expectedAmount: sale.total },
+    { ctx, objectType: "deposit", objectId: row!.id, businessDate: today },
+  );
+  const message = `Setoran shift sudah diterima; tunai ${formatRupiah(sale.total)} (transaksi ${sale.number ?? sale.localNumber}) dibentuk sebagai setoran susulan ${row!.number}.`;
+  await notifyLateCash(tx, ctx, outlet, row!.id, sale.total, message);
+  return { depositId: row!.id, mode: "supplementary", message };
+}
+
+async function notifyLateCash(tx: Tx, ctx: ActorContext, outlet: OutletRow, depositId: string, amount: number, body: string): Promise<void> {
+  await notify(tx, {
+    event: "pos.late_cash_after_close",
+    tenantId: outlet.tenantId,
+    title: `Tunai POS ${outlet.name} tersinkron setelah shift ditutup`,
+    body,
+    objectType: "deposit",
+    objectId: depositId,
+    valueAmount: amount,
+    link: `/kas/setoran/${depositId}`,
+    now: ctx.now,
+  });
 }
 
 // =====================================================================================================================

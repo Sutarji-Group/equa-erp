@@ -20,7 +20,7 @@ import { employees, sessions, users } from "@/db/schema";
 import { toBusinessDate } from "@/lib/time";
 
 import { logAccess } from "../access-log";
-import { getDb, runInTx, type Tx } from "../db";
+import { getDb, isTransaction, runInTx, withTx, type Db, type Tx } from "../db";
 import { get as getParam } from "../params-read";
 import { randomToken, sha256Hex } from "./crypto";
 
@@ -355,7 +355,9 @@ export async function sessionHygiene(now: Date = new Date(), db: Tx = getDb()): 
     .where(and(isNull(sessions.revokedAt), or(ne(users.status, "active"), lte(employees.exitDate, today))));
   let exited = 0;
   for (const c of candidates) {
-    exited += await revokeAllSessions(c.userId, c.status === "active" ? "exit_date" : "user_inactive", { tx: db, now });
+    const reason = c.status === "active" ? "exit_date" : "user_inactive";
+    // D-12 butir 8: cabut sesi + log akses per pengguna dalam SATU transaksi (runner memberi koneksi biasa).
+    exited += isTransaction(db) ? await revokeAllSessions(c.userId, reason, { tx: db, now }) : await withTx((tx) => revokeAllSessions(c.userId, reason, { tx, now }), { db: db as Db });
   }
   const cutoff = new Date(now.getTime() - FIELD_SESSION_SYNC_GRACE_DAYS * 86_400_000);
   const expired = await db

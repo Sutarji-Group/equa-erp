@@ -44,7 +44,7 @@ describe("US-M7-01 POS toko dengan harga mitra dan umum", () => {
   const t = useTestDb({ seed: true });
   beforeAll(() => bootstrapForTests());
 
-  it("US-M7-01 KP-1 mitra toko otomatis harga mitra, lainnya/umum harga umum; harga perangkat berbeda ditandai (kasir tidak memilih harga)", async () => {
+  it("US-M7-01 KP-1 BR-18 mitra toko otomatis harga mitra, lainnya/umum harga umum; harga perangkat di luar harga master ditolak (kasir tidak memilih harga)", async () => {
     const pos = await makeStore(t.db);
     await stockUp(t.db, pos, [{ productId: SP.GALON, quantity: 10, unitCost: 30_000 }]);
     const shiftId = await openShiftVia(pos);
@@ -52,16 +52,15 @@ describe("US-M7-01 POS toko dengan harga mitra dan umum", () => {
     expectApplied(umum.res);
     const mitra = await sellVia(pos, shiftId, [{ productId: SP.GALON, quantity: 1, unitPrice: PARTNER.GALON }], { customerId: PARTNER_TEMPO });
     expectApplied(mitra.res);
+    // BR-18 / US-M7-01 KP-1: bukan mitra → harga umum; harga mitra dari perangkat (atau harga jenis lain) bukan harga
+    // master jenis yang berlaku → DITOLAK (kasir tidak memilih harga; harga mitra hanya untuk mitra).
     const nonMitra = await sellVia(pos, shiftId, [{ productId: SP.GALON, quantity: 1, unitPrice: PARTNER.GALON }], { customerId: NON_PARTNER });
-    expectApplied(nonMitra.res);
+    expectRejected(nonMitra.res, /tidak sesuai harga master/);
     const mitraHargaUmum = await sellVia(pos, shiftId, [{ productId: SP.GALON, quantity: 1, unitPrice: GENERAL.GALON }], { customerId: PARTNER_TEMPO });
-    expectApplied(mitraHargaUmum.res);
+    expectRejected(mitraHargaUmum.res, /tidak sesuai harga master/);
 
     expect(await saleRow(t.db, umum.saleId)).toMatchObject({ priceKind: "general", priceMismatch: false, customerId: null, total: GENERAL.GALON });
     expect(await saleRow(t.db, mitra.saleId)).toMatchObject({ priceKind: "partner", priceMismatch: false, customerId: PARTNER_TEMPO });
-    // Bukan mitra: harga umum berlaku — harga mitra dari perangkat ditandai (BR-18).
-    expect(await saleRow(t.db, nonMitra.saleId)).toMatchObject({ priceKind: "general", priceMismatch: true });
-    expect(await saleRow(t.db, mitraHargaUmum.saleId)).toMatchObject({ priceKind: "partner", priceMismatch: true });
     // Data POS memuat harga umum & mitra + penanda mitra pelanggan → perangkat memilih jenis harga, bukan kasir.
     const ref = (await pos.hp.pull(pos.op, { keys: "m7.store" })).data["m7.store"] as StoreReference;
     const galon = ref.products.find((p) => p.id === SP.GALON)!;
@@ -313,7 +312,7 @@ describe("US-M7-04 Penjualan tempo untuk mitra terdaftar", () => {
     expect((ev!.payload as { cogs: number }).cogs).toBe(100 * 400);
   });
 
-  it("US-M7-04 KP-4 offline: tempo dengan eksposur sinkron terakhir diterima & ditandai tinjauan Admin Keuangan (PTB-42)", async () => {
+  it("US-M7-04 KP-4 KP-1 KP-2 offline: tempo dengan eksposur sinkron terakhir diterima & ditandai tinjauan Admin Keuangan (PTB-42); penanda klien tidak melewati kontrol; Ditahan → persetujuan pemilik", async () => {
     const pos = await makeStore(t.db);
     await stockUp(t.db, pos, [{ productId: SP.GALON, quantity: 20, unitCost: 30_000 }]);
     const shiftId = await openShiftVia(pos);
@@ -322,19 +321,31 @@ describe("US-M7-04 Penjualan tempo untuk mitra terdaftar", () => {
     await t.db.update(customers).set({ creditLimit: base.exposure, creditStatus: "credit" }).where(eq(customers.id, PARTNER_TEMPO));
     const online = await sellVia(pos, shiftId, [{ productId: SP.GALON, quantity: 1, unitPrice: PARTNER.GALON }], { method: "credit", customerId: PARTNER_TEMPO });
     expectRejected(online.res);
-    const offline = await sellVia(pos, shiftId, [{ productId: SP.GALON, quantity: 1, unitPrice: PARTNER.GALON }], { method: "credit", customerId: PARTNER_TEMPO, creditOffline: true });
+    // Penanda klien `creditOffline` saja TIDAK membuat transaksi dianggap offline (server menilai dari jeda sinkron).
+    const flagOnly = await sellVia(pos, shiftId, [{ productId: SP.GALON, quantity: 1, unitPrice: PARTNER.GALON }], { method: "credit", customerId: PARTNER_TEMPO, creditOffline: true });
+    expectRejected(flagOnly.res);
+    // Tersinkron terlambat (> m7.store_rules.credit_offline_after_minutes) = offline → diterima & ditinjau FA (PTB-42).
+    const devTime = new Date(Date.now() - 20 * 60_000);
+    const offline = await sellVia(pos, shiftId, [{ productId: SP.GALON, quantity: 1, unitPrice: PARTNER.GALON }], {
+      method: "credit",
+      customerId: PARTNER_TEMPO,
+      creditOffline: true,
+      cmd: { deviceTime: devTime.toISOString(), businessDate: toBusinessDate(devTime) },
+    });
     expect(offline.res.status).toBe("conflict");
     expect(await saleRow(t.db, offline.saleId)).toMatchObject({ status: "valid", creditOffline: true });
     expect((await notificationsFor(t.db, "store.credit_offline_review", { objectId: offline.saleId })).length).toBeGreaterThan(0);
-    // Tersinkron terlambat (> m7.store_rules.credit_offline_after_minutes) juga dianggap offline.
-    const devTime = new Date(Date.now() - 20 * 60_000);
-    const late = await sellVia(pos, shiftId, [{ productId: SP.GALON, quantity: 1, unitPrice: PARTNER.GALON }], {
+    // Pelanggan Ditahan menurut server: tempo offline TIDAK Sah otomatis → menunggu persetujuan pemilik.
+    await t.db.update(customers).set({ creditStatus: "on_hold" }).where(eq(customers.id, PARTNER_TEMPO));
+    const held = await sellVia(pos, shiftId, [{ productId: SP.GALON, quantity: 1, unitPrice: PARTNER.GALON }], {
       method: "credit",
       customerId: PARTNER_TEMPO,
-      cmd: { deviceTime: devTime.toISOString(), businessDate: toBusinessDate(devTime) },
+      creditOffline: true,
+      cmd: { deviceTime: new Date(devTime.getTime() + 60_000).toISOString(), businessDate: toBusinessDate(devTime) },
     });
-    expect(["applied", "conflict"]).toContain(late.res.status);
-    expect(await saleRow(t.db, late.saleId)).toMatchObject({ creditOffline: true });
+    expect(held.res.status).toBe("conflict");
+    expect(await saleRow(t.db, held.saleId)).toMatchObject({ status: "pending_approval", creditOffline: true });
+    await t.db.update(customers).set({ creditStatus: "credit" }).where(eq(customers.id, PARTNER_TEMPO));
   });
 
   it("US-M7-04 KP-5 mitra depot EQUA memakai jalur tempo yang sama dengan batas kredit & tempo dari perjanjian mitra", async () => {

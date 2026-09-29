@@ -63,6 +63,7 @@ export type { ReorderListRow } from "./service/reorder";
 // --- Opname & stok awal (US-M7-05, US-M7-02 KP-5) --------------------------------------------------------------------
 export {
   recordStoreCount,
+  recountStoreLine,
   submitStoreStockCount,
   prepareOpeningStock,
   signOpeningStock,

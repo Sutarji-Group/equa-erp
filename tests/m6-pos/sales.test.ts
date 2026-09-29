@@ -33,12 +33,12 @@ describe("US-M6-01 Transaksi cepat di POS depot", () => {
     const { shiftId } = await openShiftVia(pos);
     const bad = await sellVia(pos, shiftId, [isi(1)], { extra: { discountPercent: 10 } });
     expect(bad.res.status).toBe("rejected");
-    // Harga master dipakai sebagai acuan: transaksi harga perangkat berbeda DITANDAI (operator tidak dapat mengubah harga).
+    // US-M6-01 KP-1 / BR-15: harga master dipaksakan server — harga perangkat yang bukan harga master (dalam jendela
+    // katalog offline) DITOLAK (operator tidak dapat menjual di bawah harga).
     const odd = await sellVia(pos, shiftId, [isi(1, 4_000)]);
-    expectApplied(odd.res);
-    const [row] = await t.db.select().from(posSales).where(eq(posSales.id, odd.saleId));
-    expect(row!.priceMismatch).toBe(true);
-    expect(row!.discountAmount).toBe(0);
+    expect(odd.res.status).toBe("rejected");
+    expect(odd.res.message).toMatch(/tidak sesuai harga master/);
+    expect(await t.db.select().from(posSales).where(eq(posSales.id, odd.saleId))).toHaveLength(0);
   });
 
   it("US-M6-01 KP-2 tunai (uang diterima → kembalian; bawaan pas) atau QRIS statis + referensi (tidak menambah kas fisik); cara bayar lain ditolak", async () => {

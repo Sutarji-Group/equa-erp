@@ -258,9 +258,12 @@ export function StoreSaleView({ blocked, onSaved, prefill }: { blocked: string |
     if (method === "credit") {
       if (!customer) return setError("Pilih pelanggan mitra toko untuk tempo.");
       if (credit && !credit.ok) {
+        // US-M7-04 KP-4 / PTB-42: saat offline tempo hanya bila data kredit sinkron terakhir di perangkat mengizinkan;
+        // persetujuan pemilik hanya dapat diajukan saat daring.
+        if (!online) return setError(`${credit.message} Saat offline tempo hanya bila data kredit terakhir mengizinkan — pilih tunai/QRIS.`);
         if (!credit.canRequestApproval) return setError(credit.message);
-        if (!requestApproval && online) return setError(`${credit.message} Centang "Ajukan persetujuan pemilik" atau pilih tunai/QRIS.`);
-        approval = approval || requestApproval;
+        if (!requestApproval) return setError(`${credit.message} Centang "Ajukan persetujuan pemilik" atau pilih tunai/QRIS.`);
+        approval = true;
       }
     }
     setBusy(true);

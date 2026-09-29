@@ -16,7 +16,7 @@ import "server-only";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { dataSignoffs, employees, notifications, outlets, products, stockCountLines, stockCounts, stockLedger, users } from "@/db/schema";
+import { dataSignoffs, employees, notifications, outlets, products, stockBalances, stockCountLines, stockCounts, stockLedger, users } from "@/db/schema";
 import { enumValues, label } from "@/lib/labels";
 import { formatRupiah, zRupiahNonNegative } from "@/lib/money";
 import { toWibParts } from "@/lib/time";
@@ -27,6 +27,7 @@ import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core
 import type { Tx } from "@/server/core/db";
 import { getDb } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
+import { inJobTx } from "@/server/core/jobs";
 import { notify } from "@/server/core/notifications";
 import { authorize, authorizeAny, runService, sod } from "@/server/core/rbac";
 import { postStockMovement, type FieldWriteMeta } from "@/server/modules/m6-pos";
@@ -64,7 +65,11 @@ export const storeCountSchema = z
 
 export type CountedLine = { productId: string; physicalQty: number; systemQty: number; differenceQty: number; unitCost: number; differenceValue: number };
 
-export async function recordStoreCount(ctx: ActorContext, input: z.output<typeof storeCountSchema>, meta: FieldWriteMeta): Promise<{ stockCount: StockCountRow; lines: CountedLine[] }> {
+export async function recordStoreCount(
+  ctx: ActorContext,
+  input: z.output<typeof storeCountSchema>,
+  meta: FieldWriteMeta,
+): Promise<{ stockCount: StockCountRow; lines: CountedLine[]; lockedProductIds: string[] }> {
   const { tx } = meta;
   await authorize(ctx, "m7.stock_count.create", { tx, objectType: "stock_count", objectId: input.stockCountId });
   const outlet = await resolveStorePosOutlet(tx, ctx, meta.device);
@@ -102,9 +107,20 @@ export async function recordStoreCount(ctx: ActorContext, input: z.output<typeof
     input.lines.map((l) => l.productId),
   );
   const out: CountedLine[] = [];
+  // US-M7-05 KP-1 (hitung buta): baris yang SUDAH dihitung terkunci — kasir tidak dapat "menyamakan angka" setelah
+  // saldo sistem terlihat; hitung ulang hanya lewat Admin Keuangan (`recountStoreLine`, jejak nilai awal).
+  const existingLines = await tx.select().from(stockCountLines).where(eq(stockCountLines.stockCountId, count!.id));
+  const existingBy = new Map(existingLines.map((l) => [l.productId, l]));
+  const lockedProductIds: string[] = [];
   for (const l of input.lines) {
     const p = byId.get(l.productId);
     if (!p || p.tenantId !== outlet.tenantId || p.line !== "store") throw new NotFoundError("Barang toko tidak ditemukan.");
+    const prior = existingBy.get(p.id);
+    if (prior) {
+      if (prior.physicalQty !== l.physicalQty) lockedProductIds.push(p.id);
+      out.push({ productId: p.id, physicalQty: prior.physicalQty, systemQty: prior.systemQtyAtCount, differenceQty: prior.differenceQty, unitCost: prior.unitCost ?? 0, differenceValue: prior.differenceValue ?? 0 });
+      continue;
+    }
     const at = l.countedAt ? new Date(l.countedAt) : meta.deviceTime;
     const sys = await balanceAt(tx, outlet.id, p.id, at);
     const diff = l.physicalQty - sys.quantity;
@@ -122,7 +138,7 @@ export async function recordStoreCount(ctx: ActorContext, input: z.output<typeof
     await tx
       .insert(stockCountLines)
       .values({ tenantId: outlet.tenantId, stockCountId: count!.id, productId: p.id, ...values })
-      .onConflictDoUpdate({ target: [stockCountLines.stockCountId, stockCountLines.productId], set: { ...values, updatedAt: new Date() } });
+      .onConflictDoNothing({ target: [stockCountLines.stockCountId, stockCountLines.productId] });
     out.push({ productId: p.id, physicalQty: l.physicalQty, systemQty: sys.quantity, differenceQty: diff, unitCost: sys.avgCost, differenceValue: value });
   }
   await auditRecord(tx, {
@@ -130,10 +146,55 @@ export async function recordStoreCount(ctx: ActorContext, input: z.output<typeof
     objectType: "stock_count",
     objectId: count!.id,
     action: "count",
-    after: { periodLabel: count!.periodLabel, lines: out.map((l) => ({ productId: l.productId, physical: l.physicalQty, system: l.systemQty, diff: l.differenceQty })) },
+    after: { periodLabel: count!.periodLabel, lines: out.map((l) => ({ productId: l.productId, physical: l.physicalQty, system: l.systemQty, diff: l.differenceQty })), lockedProductIds },
+    reason: lockedProductIds.length ? "Hitung ulang dari POS diabaikan (baris terkunci; hitung ulang lewat Admin Keuangan)." : null,
     businessDate: meta.businessDate,
   });
-  return { stockCount: count!, lines: out };
+  return { stockCount: count!, lines: out, lockedProductIds };
+}
+
+export const recountStoreLineSchema = z
+  .object({
+    stockCountId: z.uuid(),
+    productId: z.uuid(),
+    physicalQty: z.number().int().min(0).max(1_000_000),
+    reason: z.string().trim().min(5, { error: "Tulis alasan hitung ulang (minimal 5 karakter)." }).max(300),
+  })
+  .strict();
+
+/**
+ * Hitung ulang satu barang oleh Admin Keuangan (US-M7-05 KP-1 hitung buta): hanya selama opname "Menghitung"; nilai
+ * awal kasir tersimpan di jejak audit; saldo sistem dihitung ulang pada waktu hitung ulang.
+ */
+export async function recountStoreLine(ctx: ActorContext, input: z.input<typeof recountStoreLineSchema>, opts: { tx?: Tx } = {}) {
+  await authorize(ctx, "m7.stock_adjustment.request", { tx: opts.tx, objectType: "stock_count", objectId: input.stockCountId });
+  const data = parseInput(recountStoreLineSchema, input, { physicalQty: "Jumlah fisik", reason: "Alasan" });
+  return runService(ctx, opts, async (tx) => {
+    const [count] = await tx.select().from(stockCounts).where(eq(stockCounts.id, data.stockCountId)).for("update").limit(1);
+    if (!count || count.tenantId !== ctx.tenantId) throw new NotFoundError("Opname tidak ditemukan.");
+    await loadStoreOutlet(tx, ctx, count.outletId);
+    if (count.status !== "counting") throw new DomainError("COUNT_CLOSED", "Opname ini sudah diajukan/diputuskan; hitungan tidak dapat diubah.");
+    const [line] = await tx.select().from(stockCountLines).where(and(eq(stockCountLines.stockCountId, count.id), eq(stockCountLines.productId, data.productId))).limit(1);
+    if (!line) throw new NotFoundError("Barang belum dihitung kasir pada opname ini.");
+    const sys = await balanceAt(tx, count.outletId, data.productId, ctx.now);
+    const diff = data.physicalQty - sys.quantity;
+    const [after] = await tx
+      .update(stockCountLines)
+      .set({ physicalQty: data.physicalQty, systemQtyAtCount: sys.quantity, countedAt: ctx.now, differenceQty: diff, unitCost: sys.avgCost, differenceValue: diff * sys.avgCost, updatedAt: new Date() })
+      .where(eq(stockCountLines.id, line.id))
+      .returning();
+    await auditRecord(tx, {
+      ctx,
+      objectType: "stock_count",
+      objectId: count.id,
+      action: "recount",
+      before: { productId: line.productId, physicalQty: line.physicalQty, systemQty: line.systemQtyAtCount, countedAt: line.countedAt },
+      after: { productId: line.productId, physicalQty: data.physicalQty, systemQty: sys.quantity },
+      reason: data.reason,
+      rule: "US-M7-05 KP-1",
+    });
+    return after!;
+  });
 }
 
 // =====================================================================================================================
@@ -178,6 +239,21 @@ export async function submitStoreStockCount(ctx: ActorContext, input: z.input<ty
     }
     const lines = await tx.select().from(stockCountLines).where(eq(stockCountLines.stockCountId, count.id));
     if (!lines.length) throw new DomainError("COUNT_EMPTY", "Lembar hitung masih kosong.");
+    // US-M7-05 KP-1 / BR-27: opname mencakup SELURUH barang toko aktif yang bersaldo — opname sebagian tidak dapat
+    // diajukan (tetap "Menghitung" dan tetap ditandai belum dilakukan).
+    const counted = new Set(lines.map((l) => l.productId));
+    const stocked = await tx
+      .select({ id: products.id, name: products.name })
+      .from(products)
+      .innerJoin(stockBalances, and(eq(stockBalances.productId, products.id), eq(stockBalances.outletId, count.outletId)))
+      .where(and(eq(products.tenantId, count.tenantId), eq(products.line, "store"), eq(products.status, "active"), sql`${stockBalances.quantity} <> 0`));
+    const missing = stocked.filter((p) => !counted.has(p.id));
+    if (missing.length) {
+      throw new DomainError(
+        "COUNT_INCOMPLETE",
+        `Opname belum lengkap: ${missing.length} barang bersaldo belum dihitung (${missing.slice(0, 5).map((p) => p.name).join(", ")}${missing.length > 5 ? ", …" : ""}). Minta kasir menghitung seluruh barang dulu.`,
+      );
+    }
     const byId = await loadProductsById(
       tx,
       lines.map((l) => l.productId),
@@ -513,7 +589,8 @@ export async function runStoreStockCountCheck(now: Date, db: Tx): Promise<{ flag
       const groupKey = `store.stock_count_overdue:${outlet.id}:${period}`;
       const [dup] = await db.select({ id: notifications.id }).from(notifications).where(eq(notifications.groupKey, groupKey)).limit(1);
       if (dup) continue;
-      await notify(db, {
+      // D-12 butir 8: notifikasi ke beberapa penerima = beberapa baris → satu transaksi per toko.
+      await inJobTx(db, (tx) => notify(tx, {
         event: "stock_count.overdue",
         tenantId,
         recipients: { roles: ["owner"] },
@@ -524,7 +601,7 @@ export async function runStoreStockCountCheck(now: Date, db: Tx): Promise<{ flag
         link: "/toko/opname",
         groupKey,
         now,
-      });
+      }));
       flagged++;
     }
   }

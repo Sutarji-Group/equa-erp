@@ -299,6 +299,12 @@ export async function submitStockCount(ctx: ActorContext, input: z.output<typeof
   for (const l of input.lines) {
     if (!matById.has(l.productId)) throw new DomainError("NOT_A_CONSUMABLE", "Barang opname bukan bahan habis pakai outlet ini.");
   }
+  // US-M6-04 KP-4 / BR-27: opname menghitung SELURUH bahan — opname sebagian tidak dianggap opname minggu itu.
+  const counted = new Set(input.lines.map((l) => l.productId));
+  const missing = materials.filter((m) => !counted.has(m.id));
+  if (missing.length) {
+    throw new DomainError("COUNT_INCOMPLETE", `Opname harus menghitung seluruh bahan. Belum dihitung: ${missing.map((m) => m.name).join(", ")}.`);
+  }
   // Saldo sistem PADA WAKTU HITUNG: saldo kartu stok − pemakaian shift terbuka sampai jam hitung (belum dibukukan).
   const bal = await stockBalancesOf(
     tx,

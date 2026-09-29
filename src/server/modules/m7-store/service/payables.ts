@@ -25,6 +25,7 @@ import type { Tx } from "@/server/core/db";
 import { getDb } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { emit } from "@/server/core/events";
+import { inJobTx } from "@/server/core/jobs";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
@@ -430,7 +431,8 @@ export async function runPayableReminders(now: Date, db: Tx): Promise<{ tenants:
     if (dup) continue;
     const overdue = rows.filter((r) => r.daysOverdue > 0);
     const total = rows.reduce((s, r) => s + r.outstanding, 0);
-    await notify(db, {
+    // D-12 butir 8: notifikasi ke beberapa penerima = beberapa baris → satu transaksi per tenant.
+    await inJobTx(db, (tx) => notify(tx, {
       event: "supplier_payable.due",
       tenantId,
       title: `${rows.length} nota pemasok jatuh tempo ≤ ${rules.payable_reminder_days_before} hari${overdue.length ? ` (${overdue.length} lewat)` : ""}`,
@@ -442,7 +444,7 @@ export async function runPayableReminders(now: Date, db: Tx): Promise<{ tenants:
       link: "/toko/utang",
       groupKey,
       now,
-    });
+    }));
     notified++;
   }
   return { tenants: tenants.length, notified };
