@@ -171,3 +171,26 @@ Tanggal baseline: 27 September 2026.
    (TG-9) — dicatat di `docs/uat` & risiko.
 4. **Pembayaran digital prabayar (B-65):** rit yang sudah dibayar digital tampil "sudah dibayar" di aplikasi sopir dan
    pendapatan diakui terhadap uang muka pelanggan saat rit Selesai (bukan kurang bayar). Wajib diselesaikan di S5.
+
+## D-12 Keputusan PM atas isu integrasi S5-A (29 Sep 2026)
+1. **Uang muka rit prabayar (B-81):** DIPERBAIKI di S5-B — uang muka dari pembayaran P2 yang menarget pesanan ditandai
+   `order_id`; `applyOpenAdvances` tidak memakai uang muka bertanda pesanan lain; faktur rit pesanan itu memakai uang muka
+   bertandanya lebih dulu. Bila pesanan dibatalkan, tanda dilepas (uang muka menjadi umum) dan tercatat di jejak audit.
+2. **E-mail pernyataan piutang (B-77):** izin `m5.invoice.send` cukup untuk mengirim faktur/pernyataan; PDF dibangkitkan
+   internal tanpa melewati otorisasi ekspor `m5.aging.export` (tetap diaudit). Diperbaiki di S5-B. Uji kiriman nyata
+   dengan kunci Resend & domain terverifikasi = UAT.
+3. **Asal pesanan portal (B-78):** DITERIMA — `source` diteruskan saat `createOrder` (bukan diperbarui setelahnya) adalah
+   desain yang benar; ditinjau ulang oleh auditor S5-B.
+4. **Migrasi produksi (B-79):** produksi dimulai dari DB kosong saat cut-over, sehingga baseline migrasi S5-C memuat
+   `invoices.opening_line` & `bank_accounts_gl_account_uq`; pembersihan akun buku bersama hanya untuk DB dev (`pre-push.sql`).
+   Impor data awal cut-over wajib memvalidasi satu akun buku per rekening bank — masuk runbook cut-over.
+5. **TG-9 (B-80):** dicatat oleh S5-C di `docs/uat/` (gerbang aktivasi Tahap 2) dan daftar risiko `docs/uat/risiko.md`.
+6. **B-02:** DITUTUP — digantikan pull `m3.today` (superset `m2.schedule`, kunci BR-10 sama).
+7. **Tutup kas (temuan skenario P-06):** daftar "Selisih hari ini" di `/kas/tutup` menampilkan outlet/truk & nama karyawan,
+   bukan hanya jenis sumber. Diperbaiki di S5-B.
+8. **Job terjadwal:** setiap job yang menulis lebih dari satu baris WAJIB berjalan di dalam transaksi per unit kerja
+   (`withTx`/`inJobTx`) — runner memberi koneksi biasa. Temuan M11 (EQ004 pembalik akrual) diperbaiki di S5-A;
+   S5-B mengaudit semua modul.
+9. **Uji skenario E2E (`e2e/scenarios/`)** dijalankan sebagai satu proyek utuh pada DB segar dan tidak melintasi tengah
+   malam WIB; override waktu E2E (`src/server/core/e2e-clock.ts`) hanya aktif bila `E2E_CLOCK_OVERRIDE=1` +
+   `ALLOW_DEV_SECRETS=1` dan bukan deploy Vercel produksi/preview — DISETUJUI.
