@@ -49,10 +49,10 @@ describe("US-P3-06 Dashboard kinerja mitra dan pembina wilayah (Tahap 3, flag)",
     const { trip } = await insertOrderTrip(t.db, good, { date: "2026-09-04", price: 200_000 });
     await completeTrip(t.db, trip, { volumeL: 5_000, completedAt: at("2026-09-04T04:00:00Z") });
     await withTx(async (tx) => {
-      await postWaterMovement(tx, { tenantId: good.tenantId, outletId: good.outletId, businessDate: "2026-09-04", kind: "supply_in", volumeL: 5_000, occurredAt: at("2026-09-04T05:00:00Z") });
-      await postWaterMovement(tx, { tenantId: good.tenantId, outletId: good.outletId, businessDate: "2026-09-05", kind: "sales_out", volumeL: -950, occurredAt: at("2026-09-05T10:00:00Z") });
-      await postWaterMovement(tx, { tenantId: risky.tenantId, outletId: risky.outletId, businessDate: "2026-09-02", kind: "supply_in", volumeL: 1_000, occurredAt: at("2026-09-02T05:00:00Z") });
-      await postWaterMovement(tx, { tenantId: risky.tenantId, outletId: risky.outletId, businessDate: "2026-09-05", kind: "sales_out", volumeL: -3_800, occurredAt: at("2026-09-05T10:00:00Z") });
+      await postWaterMovement(tx, { tenantId: good.tenantId, outletId: good.outletId, businessDate: "2026-09-04", kind: "supply_in", volumeL: 5_000, occurredAt: at("2026-09-04T05:00:00Z"), source: null });
+      await postWaterMovement(tx, { tenantId: good.tenantId, outletId: good.outletId, businessDate: "2026-09-05", kind: "sales_out", volumeL: -950, occurredAt: at("2026-09-05T10:00:00Z"), source: null });
+      await postWaterMovement(tx, { tenantId: risky.tenantId, outletId: risky.outletId, businessDate: "2026-09-02", kind: "supply_in", volumeL: 1_000, occurredAt: at("2026-09-02T05:00:00Z"), source: null });
+      await postWaterMovement(tx, { tenantId: risky.tenantId, outletId: risky.outletId, businessDate: "2026-09-05", kind: "sales_out", volumeL: -3_800, occurredAt: at("2026-09-05T10:00:00Z"), source: null });
     });
     await t.db.insert(invoices).values({ tenantId: EQUA_TENANT_ID, number: `F-26-${String(700_000 + uniqueSeq())}`, kind: "partner_subscription", customerId: risky.customerId, periodMonth: "2026-07-01", partnerContractId: risky.contractId, issueDate: "2026-08-01", dueDate: "2026-08-15", amount: 150_000, outstandingAmount: 150_000 });
     await runSubscriptionBilling(T_OCT1);

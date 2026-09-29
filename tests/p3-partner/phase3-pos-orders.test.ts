@@ -134,8 +134,8 @@ describe("US-P3-02 POS depot standar dengan data terpisah per mitra (Tahap 3, fl
     await insertSale(t.db, q, { businessDate: "2026-08-10", gallons: 55 });
     const { postWaterMovement } = await import("@/server/modules/m6-pos");
     await withTx(async (tx) => {
-      await postWaterMovement(tx, { tenantId: q.tenantId, outletId: q.outletId, businessDate: "2026-08-02", kind: "supply_in", volumeL: 1_000, occurredAt: at("2026-08-02T03:00:00Z") });
-      await postWaterMovement(tx, { tenantId: q.tenantId, outletId: q.outletId, businessDate: "2026-08-10", kind: "sales_out", volumeL: -1_045, occurredAt: at("2026-08-10T10:00:00Z") });
+      await postWaterMovement(tx, { tenantId: q.tenantId, outletId: q.outletId, businessDate: "2026-08-02", kind: "supply_in", volumeL: 1_000, occurredAt: at("2026-08-02T03:00:00Z"), source: null });
+      await postWaterMovement(tx, { tenantId: q.tenantId, outletId: q.outletId, businessDate: "2026-08-10", kind: "sales_out", volumeL: -1_045, occurredAt: at("2026-08-10T10:00:00Z"), source: null });
     });
     const [row] = await withTx((tx) => partnerWaterBalance(tx, q.tenantId, "2026-08"));
     expect(row).toMatchObject({ gallonsSold: 55, soldL: 1_045, excessPct: 4.5, tolerancePct: 10, exceeded: false });

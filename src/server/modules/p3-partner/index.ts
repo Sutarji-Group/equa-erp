@@ -69,6 +69,7 @@ export {
   respondSupportRequest,
   runSupportSlaCheck,
   submitSupportRequest,
+  supportSaleCandidates,
   supportSlaSummary,
 } from "./service/support";
 export type { SubmitSupportInput, SupportRequestView, SupportSlaSummary } from "./service/support";

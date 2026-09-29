@@ -250,6 +250,24 @@ export async function getSupportRequest(ctx: ActorContext, id: string, opts: { t
   return { ...view!, sale };
 }
 
+/** KP-3: kandidat penjualan toko harga mitra (90 hari terakhir) untuk dirujuk dari permintaan dukungan. */
+export async function supportSaleCandidates(ctx: ActorContext, requestId: string, opts: { tx?: Tx } = {}): Promise<{ id: string; number: string | null; total: number; businessDate: string }[]> {
+  await authorize(ctx, "p3.support_request.respond", { tx: opts.tx, objectType: "partner_support_request", objectId: requestId });
+  const tx = opts.tx ?? getDb();
+  const req = await loadRequest(tx, requestId);
+  const own = await loadTenant(tx, ctx.tenantId);
+  if (own?.kind !== "owner") return [];
+  const custIds = (await partnerCustomersOf(tx, req.tenantId)).map((c) => c.id);
+  if (!custIds.length) return [];
+  const since = toBusinessDate(new Date(ctx.now.getTime() - 90 * 86_400_000));
+  return tx
+    .select({ id: posSales.id, number: posSales.number, total: posSales.total, businessDate: posSales.businessDate })
+    .from(posSales)
+    .where(and(inArray(posSales.customerId, custIds), eq(posSales.priceKind, "partner"), gte(posSales.businessDate, since)))
+    .orderBy(desc(posSales.createdAt))
+    .limit(50);
+}
+
 // =====================================================================================================================
 // KP-2: SLA
 // =====================================================================================================================

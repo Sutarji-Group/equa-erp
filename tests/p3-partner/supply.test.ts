@@ -97,8 +97,8 @@ describe("US-P3-08 Pasokan air mitra tercatat di POS mitra & neraca air per mitr
     await insertSale(t.db, q, { businessDate: "2026-09-05", gallons: 100 });
     await insertSale(t.db, q, { businessDate: "2026-09-06", gallons: 5, status: "voided" });
     await withTx(async (tx) => {
-      await postWaterMovement(tx, { tenantId: q.tenantId, outletId: q.outletId, businessDate: "2026-09-02", kind: "supply_in", volumeL: 1_000, occurredAt: at("2026-09-02T03:00:00Z") });
-      await postWaterMovement(tx, { tenantId: q.tenantId, outletId: q.outletId, businessDate: "2026-09-05", kind: "sales_out", volumeL: -1_900, occurredAt: at("2026-09-05T10:00:00Z") });
+      await postWaterMovement(tx, { tenantId: q.tenantId, outletId: q.outletId, businessDate: "2026-09-02", kind: "supply_in", volumeL: 1_000, occurredAt: at("2026-09-02T03:00:00Z"), source: null });
+      await postWaterMovement(tx, { tenantId: q.tenantId, outletId: q.outletId, businessDate: "2026-09-05", kind: "sales_out", volumeL: -1_900, occurredAt: at("2026-09-05T10:00:00Z"), source: null });
     });
     const [row] = await withTx((tx) => partnerWaterBalance(tx, q.tenantId, "2026-09"));
     const m6 = await withTx((tx) => waterPeriodBalance(tx, q.outletId, "2026-09-01", "2026-09-30"));

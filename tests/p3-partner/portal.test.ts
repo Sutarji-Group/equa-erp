@@ -45,8 +45,8 @@ describe("US-P3-10 Akses baca Pemilik mitra dan laporan bulanan (RL-7)", () => {
     await insertSale(t.db, p, { businessDate: "2026-09-06", gallons: 3, status: "voided" });
     await insertSale(t.db, q, { businessDate: "2026-09-05", gallons: 99 });
     await withTx(async (tx) => {
-      await postWaterMovement(tx, { tenantId: p.tenantId, outletId: p.outletId, businessDate: "2026-09-02", kind: "supply_in", volumeL: 5_000, occurredAt: at("2026-09-02T03:00:00Z") });
-      await postWaterMovement(tx, { tenantId: p.tenantId, outletId: p.outletId, businessDate: "2026-09-06", kind: "sales_out", volumeL: -1_235, occurredAt: at("2026-09-06T10:00:00Z") });
+      await postWaterMovement(tx, { tenantId: p.tenantId, outletId: p.outletId, businessDate: "2026-09-02", kind: "supply_in", volumeL: 5_000, occurredAt: at("2026-09-02T03:00:00Z"), source: null });
+      await postWaterMovement(tx, { tenantId: p.tenantId, outletId: p.outletId, businessDate: "2026-09-06", kind: "sales_out", volumeL: -1_235, occurredAt: at("2026-09-06T10:00:00Z"), source: null });
     });
     await runSubscriptionBilling(T_OCT1);
   });
