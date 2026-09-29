@@ -239,12 +239,13 @@ export const bankAccounts = pgTable(
     branch: text("branch"),
     /** Rekening yang ditampilkan ke pelanggan (struk, pengingat). */
     isCustomerFacing: boolean("is_customer_facing").notNull().default(false),
+    /** Akun buku rekening (M11). B-53: wajib diisi layanan & TIDAK dipakai rekening lain (indeks unik; NULL = data lama). */
     glAccountId: uuid("gl_account_id").references((): AnyPgColumn => accounts.id),
     ...deactivation(),
     ...timestamps(),
     createdBy: createdBy(),
   },
-  (t) => [uniqueIndex("bank_accounts_tenant_number_uq").on(t.tenantId, t.accountNumber)],
+  (t) => [uniqueIndex("bank_accounts_tenant_number_uq").on(t.tenantId, t.accountNumber), uniqueIndex("bank_accounts_gl_account_uq").on(t.glAccountId)],
 );
 
 /**

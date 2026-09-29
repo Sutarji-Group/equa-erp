@@ -162,6 +162,20 @@ export const bankAccountSchema = z
     accountName: z.string().trim().min(3, { error: "Nama pemilik rekening wajib diisi." }).max(120),
     branch: optText(80),
     isCustomerFacing: z.boolean().optional().default(false),
+    /**
+     * B-53: akun buku rekening (bagan akun M11, kas/bank detail) yang BELUM dipakai rekening lain. Kosong = akun buku
+     * baru dibuat otomatis (`1-12NN`).
+     */
+    glAccountId: z.uuid({ error: "Akun buku tidak valid. Pilih dari daftar atau biarkan kosong untuk akun baru." }).nullable().optional(),
+  })
+  .strict();
+
+/** B-53: tetapkan/ganti akun buku rekening lama yang kosong atau dipakai bersama. */
+export const setBankGlAccountSchema = z
+  .object({
+    bankAccountId: z.uuid(),
+    glAccountId: z.uuid({ error: "Akun buku tidak valid." }).nullable().optional(),
+    reason: z.string().trim().min(5, { error: "Alasan wajib diisi (minimal 5 karakter)." }).max(300),
   })
   .strict();
 

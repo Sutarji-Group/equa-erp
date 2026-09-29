@@ -13,7 +13,7 @@ import { testContext } from "../helpers/context";
 describe("B-55 tautan 'Lihat jurnal'", () => {
   afterEach(() => cleanup());
 
-  it("B-55 US-M11-04 KP-3 tautan menuju jurnal sumber (tipe & id) untuk pemilik/Admin Keuangan/akuntan", () => {
+  it("B-55 US-M11-02 KP-5 US-M11-04 KP-3 tautan menuju jurnal sumber (tipe & id) untuk pemilik/Admin Keuangan/akuntan", () => {
     expect(journalHref("trip", "01a0-x")).toBe("/akuntansi/jurnal?sumberTipe=trip&sumberId=01a0-x");
     for (const role of ["owner", "finance_admin", "accountant"] as const) {
       expect(canSeeJournalLink(testContext({ role }))).toBe(true);

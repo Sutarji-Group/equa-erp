@@ -20,7 +20,7 @@ import { ctxBusinessDate } from "@/server/core/context";
 import { can } from "@/server/core/rbac";
 import * as m4 from "@/server/modules/m4-cash";
 
-import { bankDepositAction, createBankAccountAction, deactivateBankAccountAction, openingBalanceAction, reverseBankDepositAction } from "../actions";
+import { bankDepositAction, createBankAccountAction, deactivateBankAccountAction, openingBalanceAction, reverseBankDepositAction, setBankGlAccountAction } from "../actions";
 
 export const metadata: Metadata = { title: "Kas kantor & setor bank" };
 
@@ -42,6 +42,11 @@ export default async function OfficeCashPage({ searchParams }: { searchParams: P
   const canAccounts = can(ctx, "m4.bank_account.update");
   const canOpening = can(ctx, "m4.office_cash.count");
   const activeAccounts = data.accounts.filter((a) => a.isActive);
+  // B-53: akun buku per rekening (bagan akun M11) — rekening tanpa akun sendiri ditandai & dapat diperbaiki.
+  const gl = await m4.bankGlChoices(ctx);
+  const glOf = (id: string | null) => (id ? gl.options.find((o) => o.id === id) : undefined);
+  const needing = new Map(gl.needing.map((n) => [n.id, n.reason]));
+  const freeGlOptions = gl.options.filter((o) => o.usedBy.length === 0).map((o) => ({ value: o.id, label: `${o.code} ${o.name}` }));
   return (
     <div className="grid grid-cols-1 gap-6">
       <PageHeader
@@ -121,6 +126,7 @@ export default async function OfficeCashPage({ searchParams }: { searchParams: P
               <TableHeader>
                 <TableRow>
                   <TableHead>Rekening</TableHead>
+                  <TableHead>Akun buku</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead />
                 </TableRow>
@@ -137,6 +143,23 @@ export default async function OfficeCashPage({ searchParams }: { searchParams: P
                         {a.branch ? ` · ${a.branch}` : ""}
                         {a.isCustomerFacing ? " · ditampilkan ke pelanggan" : ""}
                       </span>
+                    </TableCell>
+                    <TableCell className="text-sm" data-testid={`akun-buku-${a.accountNumber}`}>
+                      {glOf(a.glAccountId) ? `${glOf(a.glAccountId)!.code} ${glOf(a.glAccountId)!.name}` : a.glAccountId ? "Akun di luar kelompok bank" : "—"}
+                      {needing.get(a.id) ? (
+                        <span className="block">
+                          <ToneBadge tone="warning">{needing.get(a.id) === "shared" ? "Akun buku dipakai bersama" : "Belum punya akun buku"}</ToneBadge>
+                        </span>
+                      ) : null}
+                      {needing.get(a.id) && canAccounts ? (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-xs font-medium text-primary">Tetapkan akun buku sendiri</summary>
+                          <CashActionForm action={setBankGlAccountAction.bind(null, a.id)} submitLabel="Simpan akun buku" className="mt-2">
+                            <SelectField label="Akun buku" name="glAccountId" options={freeGlOptions} emptyLabel="— buat akun baru otomatis —" />
+                            <Field label="Alasan" name="reason" required />
+                          </CashActionForm>
+                        </details>
+                      ) : null}
                     </TableCell>
                     <TableCell>{a.isActive ? <ToneBadge tone="success">Aktif</ToneBadge> : <ToneBadge tone="muted">Nonaktif</ToneBadge>}</TableCell>
                     <TableCell>
@@ -160,6 +183,14 @@ export default async function OfficeCashPage({ searchParams }: { searchParams: P
                   <Field label="Nomor rekening" name="accountNumber" required inputMode="numeric" />
                   <Field label="Nama pemilik rekening" name="accountName" required />
                   <Field label="Cabang" name="branch" />
+                  <SelectField
+                    label="Akun buku (bagan akun)"
+                    name="glAccountId"
+                    options={freeGlOptions}
+                    emptyLabel="— buat akun buku baru otomatis —"
+                    hint="Setiap rekening wajib punya akun buku sendiri agar saldo buku dapat direkonsiliasi per rekening (B-53)."
+                    className="sm:col-span-2"
+                  />
                 </div>
                 <label className="inline-flex items-center gap-2 text-sm">
                   <input type="checkbox" name="isCustomerFacing" /> Ditampilkan ke pelanggan (struk, pengingat tagihan)
