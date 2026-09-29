@@ -15,12 +15,16 @@
  *   QRIS shift D02 & TK1 belum dicocokkan, impor mutasi (usulan pasangan QRIS D02 + mutasi tanpa pasangan), pengeluaran
  *   kas kecil + hitung fisik.
  * - Hari ini: pengisian kas kecil Rp750.000 menunggu persetujuan pemilik (`petty_cash`); transfer pelunasan kantor
- *   "Tidak ditemukan" (H-5).
+ *   "Tidak ditemukan" (H-5) — pelunasan transfer PLG-0039 dari demo M5 (`bojong-tf`); piutang sementara M5-nya dibentuk
+ *   `seedDemoM5PendingTransfers` sesudah seed ini.
+ * - Pelunasan kantor demo M5 (B-39): transfer → transfer masuk `office_payment` (dicocokkan dengan mutasi, kecuali
+ *   `bojong-tf` yang "Tidak ditemukan"); tunai pada/sesudah saldo awal kas kantor (H-3) → mutasi kas kantor masuk
+ *   "Pelunasan tunai kantor" (yang lebih lama sudah termasuk saldo awal cut-over).
  * - Parameter "ganti rugi aktif" (flag `cash.restitution_active`) diaktifkan untuk tenant EQUA (data demo PP berlaku).
  *
  * Dilewati saat snapshot DB uji Vitest dibangun (tanggal relatif); uji dapat memanggilnya dengan `{ force: true }`.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { addDays, formatTanggal, toBusinessDate, wibToUtc, type BusinessDate } from "../../lib/time";
 import type { DbOrTx } from "../client";
@@ -31,6 +35,7 @@ import {
   bankStatementLines,
   cashDays,
   customerAddresses,
+  customerPayments,
   dailySchedules,
   deposits,
   discrepancies,
@@ -48,7 +53,8 @@ import {
   trips,
 } from "../schema";
 import { FUEL_COMPONENT_PER_TRIP, TARIFF_ZONE_SEEDS, productId, tariffZoneId } from "./catalog";
-import { customerId } from "./customers";
+import { CUSTOMER_SEEDS, customerId } from "./customers";
+import { DEMO_M4_NOT_FOUND_TRANSFER_ID, DEMO_M5_PAYMENT_KEYS, demoM5PaymentId } from "./demo-m5-receivables";
 import { DEMO_M6_SHIFT_ID } from "./demo-m6-pos";
 import { DEMO_M7_SHIFT_ID } from "./demo-m7-store";
 import { seedId } from "./ids";
@@ -490,25 +496,65 @@ export async function seedDemoM4Cash(tx: DbOrTx, now: Date = new Date(), opts: {
       createdAt: wibToUtc(s.date, "21:05"),
     });
   }
+  // Pelunasan kantor demo M5 (B-39) — dibaca dari buku piutang bila seed M5 sudah berjalan.
+  const m5Payments = await tx
+    .select()
+    .from(customerPayments)
+    .where(and(eq(customerPayments.tenantId, EQUA_TENANT_ID), eq(customerPayments.channel, "office"), inArray(customerPayments.id, DEMO_M5_PAYMENT_KEYS.map(demoM5PaymentId))));
+  const bojongId = demoM5PaymentId("bojong-tf");
+  const bojong = m5Payments.find((p) => p.id === bojongId);
   transferRows.push({
-    id: seedId("m4:demo:transfer:not_found"),
+    id: DEMO_M4_NOT_FOUND_TRANSFER_ID,
     tenantId: EQUA_TENANT_ID,
     sourceKind: "office_payment",
     sourceObjectType: "customer_payment",
-    sourceObjectId: seedId("m4:demo:customer_payment:not_found"),
+    sourceObjectId: bojongId,
     customerId: customerId("PLG-0039"),
-    amount: 350_000,
-    transferDate: d5,
-    businessDate: d5,
+    amount: bojong?.amount ?? 350_000,
+    transferDate: bojong?.businessDate ?? d5,
+    businessDate: bojong?.businessDate ?? d5,
     status: "not_found",
     notFoundAt: wibToUtc(addDays(d5, 3), "06:50"),
+    proofAttachmentId: bojong?.proofAttachmentId ?? null,
     reference: "Pelunasan transfer via telepon (data demo)",
     sourceUserId: finance,
     createdBy: finance,
     createdAt: wibToUtc(d5, "10:00"),
   });
+  const officeTransferIds = new Map<string, string>([[bojongId, DEMO_M4_NOT_FOUND_TRANSFER_ID]]);
+  for (const p of m5Payments.filter((x) => x.method === "transfer" && x.id !== bojongId)) {
+    const id = seedId(`m4:demo:transfer:office_payment:${p.id}`);
+    const matchedAt = wibToUtc(addDays(p.businessDate, 1), "09:00");
+    officeTransferIds.set(p.id, id);
+    transferRows.push({
+      id,
+      tenantId: EQUA_TENANT_ID,
+      sourceKind: "office_payment",
+      sourceObjectType: "customer_payment",
+      sourceObjectId: p.id,
+      customerId: p.customerId,
+      amount: p.amount,
+      transferDate: p.businessDate,
+      businessDate: p.businessDate,
+      bankAccountId: bank,
+      proofAttachmentId: p.proofAttachmentId ?? null,
+      status: "matched",
+      matchedAt: matchedAt > now ? now : matchedAt,
+      matchedBy: finance,
+      matchRefDate: p.businessDate,
+      matchRefAmount: p.amount,
+      matchRefNote: "TRSF E-BANKING CR (mutasi rekening, data demo)",
+      reference: p.notes ?? "Pelunasan transfer (data demo)",
+      sourceUserId: finance,
+      createdBy: finance,
+      createdAt: p.createdAt,
+    });
+  }
   if (transferRows.length) await tx.insert(incomingTransfers).values(transferRows).onConflictDoNothing();
   if (transferPayment) await tx.update(tripPayments).set({ incomingTransferId: seedId("m4:demo:transfer:trip_payment") }).where(eq(tripPayments.id, transferPayment.id));
+  for (const [paymentId, transferId] of officeTransferIds) {
+    if (m5Payments.some((p) => p.id === paymentId)) await tx.update(customerPayments).set({ incomingTransferId: transferId }).where(eq(customerPayments.id, paymentId));
+  }
 
   // --- Kas kantor, setor bank, kas kecil -------------------------------------------------------------------------------
   const bankDepositId = seedId("m4:demo:bank_deposit:-2");
@@ -602,6 +648,10 @@ export async function seedDemoM4Cash(tx: DbOrTx, now: Date = new Date(), opts: {
   ];
   if (sopir2Yesterday?.received) {
     moves.push({ key: "dep:sopir2:-1", date: d1, at: sopir2Yesterday.receivedAt ?? wibToUtc(d1, "18:00"), kind: "deposit_received", direction: "in", amount: sopir2Yesterday.received, sourceObjectType: "deposit", sourceObjectId: sopir2Yesterday.id, description: "Setoran sopir2 kemarin (demo M3)" });
+  }
+  // Pelunasan tunai kantor demo M5 pada/sesudah saldo awal kas kantor (H-3) → kas kantor masuk (B-39, US-M4-06).
+  for (const p of m5Payments.filter((x) => x.method === "cash" && x.businessDate >= d3 && x.businessDate <= today)) {
+    moves.push({ key: `customer_payment:${p.id}`, date: p.businessDate, at: p.createdAt, kind: "customer_payment", direction: "in", amount: p.amount, sourceObjectType: "customer_payment", sourceObjectId: p.id, description: `Pelunasan tunai kantor ${CUSTOMER_SEEDS.find((c) => customerId(c.code) === p.customerId)?.name ?? ""} (data demo M5)`.replace("  ", " ") });
   }
   const settlementId = seedId("m4:demo:restitution_settlement:sopir4");
   moves.push({ key: "restitution:-1", date: d1, at: wibToUtc(d1, "16:30"), kind: "restitution_payment", direction: "in", amount: 30_000, sourceObjectType: "restitution_settlement", sourceObjectId: settlementId, description: "Pelunasan ganti rugi karyawan (setor tunai)" });

@@ -22,7 +22,7 @@ import { seedDemoM12Fleet } from "./demo-m12-fleet";
 import { seedDemoM2Orders } from "./demo-m2-orders";
 import { seedDemoM3Driver } from "./demo-m3-driver";
 import { seedDemoM4Cash } from "./demo-m4-cash";
-import { seedDemoM5Receivables } from "./demo-m5-receivables";
+import { seedDemoM5PendingTransfers, seedDemoM5Receivables } from "./demo-m5-receivables";
 import { seedDemoM6Pos } from "./demo-m6-pos";
 import { seedDemoM7Store } from "./demo-m7-store";
 import { seedDemoM8Production } from "./demo-m8-production";
@@ -117,6 +117,8 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoM5Receivables(tx);
     // M4 (Kas & Setoran) memakai data demo M3/M6/M7 di atas — jalankan paling akhir.
     await seedDemoM4Cash(tx);
+    // B-39: piutang sementara M5 untuk transfer demo M4 "Tidak ditemukan" (FK ke transfer masuk → sesudah M4).
+    await seedDemoM5PendingTransfers(tx);
     // M8 (Produksi & Stok Air): meter, pengisian truk T3/T4, neraca air, mutu air (tidak memengaruhi demo kas M4).
     await seedDemoM8Production(tx);
     // M12 (Armada/GPS) menyelaraskan jejak dengan rit demo M2/M3 di atas.

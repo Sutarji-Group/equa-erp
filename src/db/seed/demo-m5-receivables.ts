@@ -18,11 +18,19 @@
  * - PLG-0018 Perumahan Griya: faktur kurang bayar lapangan H+0 kemarin (PTB-18).
  * - PLG-0037 Kolam Renang Tirta Kencana: faktur lunas lewat transfer.
  * - PLG-0028 PT Pakan Ternak (Tempo migrasi): 2 faktur saldo awal cut-over + ringkasan menunggu tanda tangan pemilik.
+ * - PLG-0039 Kolam Renang Bojong Sari: kurang bayar lapangan dilunasi transfer via telepon (H-5) — transfernya tidak
+ *   ditemukan di mutasi (demo M4 "Tidak ditemukan") → piutang sementara "transfer belum diterima" dibentuk
+ *   `seedDemoM5PendingTransfers` SESUDAH seed M4 (FK ke transfer masuk).
+ *
+ * Keselarasan lintas modul (backlog B-39): pelunasan kantor demo di sini dibaca seed M4 — transfer → transfer masuk
+ * (`office_payment`, dicocokkan / "Tidak ditemukan"), tunai sesudah saldo awal kas kantor (H-3) → mutasi kas kantor.
+ * Pelunasan tunai kantor PLG-0001 terjadi H-1 (hari kas masih terbuka) agar tampak di kas kantor.
  */
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { addDays, firstDayOfMonth, toBusinessDate, wibToUtc, type BusinessDate } from "@/lib/time";
-import type { EnumValue, InvoiceKind } from "@/lib/labels";
+import { label, type EnumValue, type InvoiceKind } from "@/lib/labels";
+import { formatRupiah } from "@/lib/money";
 
 import type { DbOrTx } from "../client";
 import {
@@ -33,6 +41,7 @@ import {
   customers,
   dataSignoffs,
   documentSequences,
+  incomingTransfers,
   invoiceLines,
   invoices,
   paymentAllocations,
@@ -109,6 +118,14 @@ function addressOf(code: string): { id: string; text: string } {
 }
 
 const invoiceIdOf = (key: string) => seedId(`m5:demo:invoice:${key}`);
+
+/** Kunci pelunasan kantor demo M5 (dibaca seed M4 untuk transfer masuk & kas kantor — B-39). */
+export const DEMO_M5_PAYMENT_KEYS = ["sinar-tf", "tirta-cash", "kencana-tf", "bukit-tf", "bojong-tf"] as const;
+export const demoM5PaymentId = (key: (typeof DEMO_M5_PAYMENT_KEYS)[number]) => seedId(`m5:demo:payment:${key}`);
+/** Transfer masuk demo M4 berstatus "Tidak ditemukan" (pelunasan `bojong-tf`). */
+export const DEMO_M4_NOT_FOUND_TRANSFER_ID = seedId("m4:demo:transfer:not_found");
+/** Hari pelunasan tunai kantor PLG-0001 (H-1: hari kas M4 masih terbuka). */
+const TIRTA_CASH_DAYS_AGO = 1;
 
 export async function seedDemoM5Receivables(tx: DbOrTx, now: Date = new Date(), opts: { force?: boolean } = {}): Promise<{ invoices: number; created: boolean }> {
   if (!opts.force && (process.env.VITEST || process.env.NODE_ENV === "test")) return { invoices: 0, created: false };
@@ -203,6 +220,15 @@ export async function seedDemoM5Receivables(tx: DbOrTx, now: Date = new Date(), 
       description: "Kurang bayar lapangan H+0 (data demo)",
     },
     { key: "kencana-a", customer: "PLG-0037", kind: "delivery", issueDate: ago(30), dueDate: ago(16), lines: [tripLine("PLG-0037", ago(30))], description: "Faktur kirim rit (data demo)" },
+    {
+      key: "bojong-under",
+      customer: "PLG-0039",
+      kind: "underpayment",
+      issueDate: ago(7),
+      dueDate: ago(7),
+      lines: [{ description: "Kurang bayar rit: diterima Rp 100.000 dari Rp 450.000 (data demo)", amount: 350_000, unitPrice: 350_000, serviceDate: ago(7), volumeL: 5_000, component: "underpayment" }],
+      description: "Kurang bayar lapangan (data demo)",
+    },
   ];
 
   // Saldo awal cut-over (US-M5-07) — menunggu tanda tangan pemilik.
@@ -276,8 +302,9 @@ export async function seedDemoM5Receivables(tx: DbOrTx, now: Date = new Date(), 
   // --- Pelunasan, uang muka & nota kredit ---------------------------------------------------------------------------
   const payments: PaymentSpec[] = [
     { key: "sinar-tf", customer: "PLG-0024", businessDate: ago(5), amount: 400_000, method: "transfer", allocations: [{ invoiceKey: "sinar-a", amount: 400_000 }], notes: "Transfer sebagian — sisa dijanjikan minggu ini (data demo)" },
-    { key: "tirta-cash", customer: "PLG-0001", businessDate: ago(8), amount: 225_000, method: "cash", allocations: [{ invoiceKey: "tirta-a", amount: 175_000 }], notes: "Bayar tunai di kantor; kelebihan menjadi uang muka (data demo)" },
+    { key: "tirta-cash", customer: "PLG-0001", businessDate: ago(TIRTA_CASH_DAYS_AGO), amount: 225_000, method: "cash", allocations: [{ invoiceKey: "tirta-a", amount: 175_000 }], notes: "Bayar tunai di kantor; kelebihan menjadi uang muka (data demo)" },
     { key: "kencana-tf", customer: "PLG-0037", businessDate: ago(17), amount: TRIP_PRICE, method: "transfer", allocations: [{ invoiceKey: "kencana-a", amount: TRIP_PRICE }], notes: "Transfer lunas (data demo)" },
+    { key: "bojong-tf", customer: "PLG-0039", businessDate: ago(5), amount: 350_000, method: "transfer", allocations: [{ invoiceKey: "bojong-under", amount: 350_000 }], notes: "Pelunasan transfer via telepon (data demo)" },
   ];
   const monthlyAmount = 4 * HOTEL_PRICE;
   if (d > monthlyDue) {
@@ -428,7 +455,7 @@ export async function seedDemoM5Receivables(tx: DbOrTx, now: Date = new Date(), 
       status: advanceAmount - advanceApplied === 0 ? "applied" : "open",
       notes: "Kelebihan pelunasan tunai kantor (data demo).",
       createdBy: finance,
-      createdAt: at(ago(8), "10:31"),
+      createdAt: at(ago(TIRTA_CASH_DAYS_AGO), "10:31"),
     })
     .onConflictDoNothing();
   if (firstStoreSaleKey && advanceApplied > 0) {
@@ -475,4 +502,65 @@ export async function seedDemoM5Receivables(tx: DbOrTx, now: Date = new Date(), 
     .onConflictDoNothing();
 
   return { invoices: created, created: true };
+}
+
+/**
+ * Piutang sementara "transfer belum diterima" untuk transfer masuk demo M4 berstatus "Tidak ditemukan" (B-39) — sama
+ * dengan hasil handler `transfer.not_found` M5 (US-M4-04 KP-4): faktur jatuh tempo hari penandaan, baris "other",
+ * `pending_transfer_id` = transfer. Dijalankan SESUDAH `seedDemoM4Cash` (FK ke `incoming_transfers`); idempoten.
+ */
+export async function seedDemoM5PendingTransfers(tx: DbOrTx, now: Date = new Date(), opts: { force?: boolean } = {}): Promise<{ invoices: number }> {
+  if (!opts.force && (process.env.VITEST || process.env.NODE_ENV === "test")) return { invoices: 0 };
+  const rows = await tx
+    .select()
+    .from(incomingTransfers)
+    .where(and(eq(incomingTransfers.tenantId, EQUA_TENANT_ID), eq(incomingTransfers.status, "not_found"), inArray(incomingTransfers.id, [DEMO_M4_NOT_FOUND_TRANSFER_ID])));
+  let created = 0;
+  for (const tr of rows) {
+    if (!tr.customerId || tr.amount <= 0) continue;
+    const [existing] = await tx.select({ id: invoices.id }).from(invoices).where(eq(invoices.pendingTransferId, tr.id)).limit(1);
+    if (existing) continue;
+    const flaggedAt = tr.notFoundAt && tr.notFoundAt <= now ? tr.notFoundAt : now;
+    const date = toBusinessDate(flaggedAt);
+    const id = seedId(`m5:demo:invoice:pending:${tr.id}`);
+    const number = `F-${yy(date)}-${String(await nextSeq(tx, "invoice", yy(date))).padStart(6, "0")}`;
+    const inserted = await tx
+      .insert(invoices)
+      .values({
+        id,
+        tenantId: EQUA_TENANT_ID,
+        number,
+        kind: tr.sourceKind === "store_collection" ? "store_sale" : "delivery",
+        customerId: tr.customerId,
+        issueDate: date,
+        dueDate: date,
+        amount: tr.amount,
+        paidAmount: 0,
+        creditedAmount: 0,
+        outstandingAmount: tr.amount,
+        status: "open",
+        pendingTransferId: tr.id,
+        description: `Transfer belum diterima (${label("transfer_source_kind", tr.sourceKind)})`,
+        createdAt: flaggedAt,
+      })
+      .onConflictDoNothing()
+      .returning({ id: invoices.id });
+    if (!inserted[0]) continue;
+    await tx
+      .insert(invoiceLines)
+      .values({
+        id: seedId(`m5:demo:invoice:pending:${tr.id}:line:1`),
+        invoiceId: id,
+        lineNo: 1,
+        component: "other",
+        description: `Piutang sementara: transfer ${formatRupiah(tr.amount)} tidak ditemukan di mutasi bank`,
+        serviceDate: date,
+        quantity: 1,
+        unitPrice: tr.amount,
+        amount: tr.amount,
+      })
+      .onConflictDoNothing();
+    created++;
+  }
+  return { invoices: created };
 }
