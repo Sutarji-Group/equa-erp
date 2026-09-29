@@ -33,6 +33,7 @@ import {
   userRef,
 } from "./core";
 import { customers, tariffZones, waterSources } from "./m1-master";
+import { orders } from "./m2-orders";
 import { invoices } from "./m5-receivables";
 import { posSales, shifts } from "./m6-pos";
 
@@ -465,4 +466,94 @@ export const partnerSupportRequestsRelations = relations(partnerSupportRequests,
 
 export const partnerMonthlyReportsRelations = relations(partnerMonthlyReports, ({ one }) => ({
   tenant: one(tenants, { fields: [partnerMonthlyReports.tenantId], references: [tenants.id] }),
+}));
+
+// =====================================================================================================================
+// Tambahan modul P3 (hanya tambah) — pesanan dari portal mitra (Tahap 3) & evaluasi berkala kontrak
+// =====================================================================================================================
+
+export const portalOrderKindEnum = pgEnum("portal_order_kind", enumValues("portal_order_kind"));
+export const portalOrderStatusEnum = pgEnum("portal_order_status", enumValues("portal_order_status"));
+export const sparePartPickupEnum = pgEnum("spare_part_pickup", enumValues("spare_part_pickup"));
+
+/**
+ * Pesanan dari portal mitra (US-P3-03, Tahap 3 — flag `phase3.partner_portal`): air → pesanan M2 (`orders`, asal
+ * `partner_portal`, harga zona − diskon Opsi A); spare part → dikonfirmasi kasir toko sebagai penjualan M7 harga mitra
+ * (`pos_sales`), diambil di toko atau ikut truk air (ditandai pada rit).
+ */
+export const partnerPortalOrders = pgTable(
+  "partner_portal_orders",
+  {
+    id: pk(),
+    /** Tenant mitra pemesan. */
+    tenantId: tenantRef(),
+    contractId: uuid("contract_id")
+      .notNull()
+      .references((): AnyPgColumn => partnerContracts.id),
+    /** Pelanggan mitra di tenant EQUA (M1). */
+    customerId: uuid("customer_id")
+      .notNull()
+      .references((): AnyPgColumn => customers.id),
+    /** Outlet mitra tujuan. */
+    outletId: outletRef(),
+    kind: portalOrderKindEnum("kind").notNull(),
+    status: portalOrderStatusEnum("status").notNull().default("submitted"),
+    requestedDate: dateStr("requested_date"),
+    requestedTime: text("requested_time"),
+    tankCount: integer("tank_count"),
+    paymentMethod: text("payment_method"),
+    /** Spare part: [{ productId, code, name, quantity, unitPrice }] (harga mitra BR-18 saat dipesan). */
+    items: jsonb("items").$type<Record<string, unknown>[]>(),
+    pickup: sparePartPickupEnum("pickup"),
+    estimatedAmount: money("estimated_amount").notNull().default(0),
+    /** Pesanan M2 yang terbentuk (air). */
+    orderId: uuid("order_id").references((): AnyPgColumn => orders.id),
+    /** Penjualan toko M7 yang mengonfirmasi (spare part). */
+    posSaleId: uuid("pos_sale_id").references((): AnyPgColumn => posSales.id),
+    submittedBy: userRef("submitted_by"),
+    submittedAt: tstz("submitted_at").notNull().defaultNow(),
+    confirmedAt: tstz("confirmed_at"),
+    rejectedReason: text("rejected_reason"),
+    notes: text("notes"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("partner_portal_orders_tenant_idx").on(t.tenantId, t.status),
+    uniqueIndex("partner_portal_orders_pos_sale_uq")
+      .on(t.posSaleId)
+      .where(sql`${t.posSaleId} is not null`),
+  ],
+);
+
+/** Evaluasi berkala mitra (US-P3-01 KP-5; PAR-77): dijadwalkan otomatis dari kontrak, dicatat pembina. */
+export const partnerEvaluations = pgTable(
+  "partner_evaluations",
+  {
+    id: pk(),
+    /** Tenant mitra. */
+    tenantId: tenantRef(),
+    contractId: uuid("contract_id")
+      .notNull()
+      .references((): AnyPgColumn => partnerContracts.id),
+    dueDate: dateStr("due_date").notNull(),
+    conductedAt: tstz("conducted_at"),
+    conductedBy: userRef("conducted_by"),
+    /** Ringkasan angka saat evaluasi (omzet, neraca air, tunggakan, skor). */
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>(),
+    summary: text("summary"),
+    recommendation: text("recommendation"),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("partner_evaluations_contract_due_uq").on(t.contractId, t.dueDate)],
+);
+
+export const partnerPortalOrdersRelations = relations(partnerPortalOrders, ({ one }) => ({
+  contract: one(partnerContracts, { fields: [partnerPortalOrders.contractId], references: [partnerContracts.id] }),
+  customer: one(customers, { fields: [partnerPortalOrders.customerId], references: [customers.id] }),
+  order: one(orders, { fields: [partnerPortalOrders.orderId], references: [orders.id] }),
+  posSale: one(posSales, { fields: [partnerPortalOrders.posSaleId], references: [posSales.id] }),
+}));
+
+export const partnerEvaluationsRelations = relations(partnerEvaluations, ({ one }) => ({
+  contract: one(partnerContracts, { fields: [partnerEvaluations.contractId], references: [partnerContracts.id] }),
 }));

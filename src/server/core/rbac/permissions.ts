@@ -553,6 +553,32 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   p("m11.fixed_asset.sign", "Menandatangani daftar aset impor", [O], { kind: "approve", ref: "US-M11-05 KP-1, NFR-34" }),
   p("m11.cost_allocation.set", "Menetapkan kunci alokasi biaya bersama", [O], { kind: "approve", ref: "US-M11-01 KP-5" }),
   p("m11.payable.read", "Melihat utang usaha (nota & jurnal manual)", [O, FA, AC], { ref: "US-M11-07" }),
+
+  // ===================================================================================================================
+  // Tambahan modul P3 (Kemitraan RL-7 & Tahap 3) — hanya tambah
+  // ===================================================================================================================
+  p("p3.partner_customer.link", "Menautkan pelanggan mitra depot EQUA ke tenant & outlet mitra", [D, FA], { ref: "US-P3-08 KP-1, BR-18" }),
+  p("p3.partner_contract.update", "Mengusulkan perubahan parameter kontrak mitra (berlaku periode berikutnya)", [FA], {
+    finance: true,
+    ref: "US-P3-04 KP-5",
+  }),
+  p("p3.subscription.issue", "Menerbitkan tagihan langganan mitra periode lalu (bila job belum berjalan)", [FA], { finance: true, ref: "US-P3-09 KP-1" }),
+  p("p3.partner_report.publish", "Menerbitkan laporan bulanan mitra sekarang", [FA], { ref: "US-P3-10 KP-3" }),
+  // Tahap 3 (flag `phase3.partner_portal`).
+  p("p3.partner_prospect.waive_radius", "Mengesampingkan pelanggaran radius eksklusif calon mitra (beralasan)", [O], { kind: "approve", ref: "US-P3-01 KP-2" }),
+  p("p3.partner_evaluation.create", "Mencatat evaluasi mitra berkala (PAR-77)", [RC], { ref: "US-P3-01 KP-5" }),
+  p("p3.partner_quality_test.create", "Mencatat hasil uji air laboratorium outlet mitra", [RC], { ref: "US-P3-05 KP-3, US-M8-06" }),
+  p("p3.sanction.lift", "Mencabut sanksi mitra (beralasan)", [O], { kind: "approve", ref: "US-P3-07 KP-3" }),
+  p("p3.partner_data_export.create", "Mengekspor data outlet untuk mitra yang berakhir (PTB-58)", [O, FA], { kind: "export", pii: true, ref: "US-P3-07 KP-2" }),
+  p("p3.partner_economics.read", "Melihat ekonomi kemitraan (pendapatan per mitra vs ilustrasi)", [O], { ref: "US-P3-06 KP-3" }),
+  // Tindakan portal mitra Tahap 3 — TIDAK diberikan statis ke peran mana pun (Pemilik mitra baca-saja pada RL-7,
+  // US-P3-10 KP-1). Modul P3 memberikannya BERSYARAT kepada Pemilik mitra hanya bila flag `phase3.partner_portal` aktif
+  // untuk tenantnya (`authorizePortalAction`, src/server/modules/p3-partner/service/common.ts). Keputusan PM: lihat
+  // openIssues hand-off P3.
+  p("p3.portal_order.create", "Memesan air & spare part dari portal mitra (Tahap 3)", [], { ref: "US-P3-03 KP-1/KP-3" }),
+  p("p3.portal_dispute.create", "Mengajukan sengketa tagihan mitra dari portal (Tahap 3)", [], { ref: "US-P3-04 KP-2" }),
+  p("p3.portal_sop.sign", "Menandatangani SOP secara digital dari portal (Tahap 3)", [], { ref: "US-P3-01 KP-4" }),
+  p("p3.portal_settings.update", "Mengatur harga jual & pengaturan POS mitra dalam batas EQUA (Tahap 3)", [], { ref: "US-P3-02 KP-1" }),
 ];
 
 const BY_KEY = new Map<string, PermissionDef>(PERMISSIONS.map((perm) => [perm.key, perm]));

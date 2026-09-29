@@ -125,8 +125,14 @@ m9.parallel_run.read
 m9.performance.read
 m9.report.read
 m9.trend.read
+p3.onboarding.update
 p3.partner.read
+p3.partner_contract.read
+p3.partner_prospect.create
+p3.partner_score.read
 p3.partner_supply.read
+p3.quality_checklist.read
+p3.sanction.propose
 p3.subscription.read
 p3.support_request.read
 ```
@@ -225,6 +231,15 @@ p3.support_request.read
 | Kemitraan | `/kemitraan/pasokan` | Pasokan & neraca mitra | `p3.partner_supply.read` |  |
 | Kemitraan | `/kemitraan/langganan` | Tagihan langganan | `p3.subscription.read` |  |
 | Kemitraan | `/kemitraan/dukungan` | Dukungan teknis | `p3.support_request.read` |  |
+| Kemitraan | `/kemitraan/kontrak` | Kontrak mitra | `p3.partner_contract.read` |  |
+| Kemitraan | `/kemitraan/mitra/[id]` | Rincian mitra | `p3.partner.read` / `p3.partner_supply.read` | tidak tampil di sidebar |
+| Kemitraan | `/kemitraan/dukungan/[id]` | Rincian permintaan dukungan | `p3.support_request.read` | tidak tampil di sidebar |
+| Kemitraan | `/kemitraan/calon` | Calon mitra | `p3.partner_prospect.create` / `p3.partner.read` | flag `phase3.partner_portal` |
+| Kemitraan | `/kemitraan/calon/[id]` | Rincian calon mitra | `p3.partner_prospect.create` / `p3.partner.read` | tidak tampil di sidebar; flag `phase3.partner_portal` |
+| Kemitraan | `/kemitraan/onboarding` | Onboarding mitra | `p3.onboarding.update` / `p3.partner_contract.read` | flag `phase3.partner_portal` |
+| Kemitraan | `/kemitraan/mutu` | Mutu & audit mitra | `p3.quality_checklist.read` / `p3.partner_score.read` | flag `phase3.partner_portal` |
+| Kemitraan | `/kemitraan/sanksi` | Sanksi mitra | `p3.sanction.propose` / `p3.partner.read` | flag `phase3.partner_portal` |
+| Kemitraan | `/kemitraan/dasbor` | Dashboard kemitraan | `p3.partner.read` / `p3.partner_score.read` | flag `phase3.partner_portal` |
 | Akses & pengaturan | `/akses/pengguna` | Pengguna | `m10.user.read` |  |
 | Akses & pengaturan | `/akses/peran` | Peran & matriks | `m10.role.read` |  |
 | Akses & pengaturan | `/akses/perangkat` | Perangkat | `m10.device.read` |  |
