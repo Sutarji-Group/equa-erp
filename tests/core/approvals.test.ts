@@ -104,7 +104,8 @@ describe("Alur persetujuan (US-M10-04)", () => {
       const objectId = newId();
       const req = await approvals.submit(seededContext("keuangan1", { now: T0 }), {
         type: "correction",
-        objectType: "trip",
+        // Jenis objek netral: `trip`/`trip_payment` kini punya handler `correction` nyata di M3 (B-34, S5).
+        objectType: "objek_uji",
         objectId,
         amount: 600_000,
         reason: "Salah pelanggan saat Selesai",
@@ -114,7 +115,7 @@ describe("Alur persetujuan (US-M10-04)", () => {
       expect(decided.decidedBy).toBe(userIdByUsername("pemilik"));
       expect(decided.outcome).toEqual({ applied: true });
       expect(calls).toEqual([`approved:${objectId}`]);
-      const objAudit = await t.db.select().from(auditLogs).where(and(eq(auditLogs.objectType, "trip"), eq(auditLogs.objectId, objectId)));
+      const objAudit = await t.db.select().from(auditLogs).where(and(eq(auditLogs.objectType, "objek_uji"), eq(auditLogs.objectId, objectId)));
       expect(objAudit[0]!.action).toBe("approve");
       const ev = await t.db.select().from(domainEvents).where(eq(domainEvents.objectId, req.id));
       expect(ev[0]!.type).toBe("approval.decided");

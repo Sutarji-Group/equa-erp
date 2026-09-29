@@ -42,7 +42,8 @@ describe("Handler persetujuan per jenis objek (jenis bersama 'correction', BR-38
 
       const otherReq = await approvals.submit(keu, {
         type: "correction",
-        objectType: "trip_payment",
+        // Jenis objek tanpa handler khusus (trip/trip_payment kini punya handler M3 — B-34, S5) → cadangan umum.
+        objectType: "objek_uji",
         objectId: newId(),
         amount: 600_000,
         reason: "Pembayaran rit dicatat pada pelanggan yang salah",
