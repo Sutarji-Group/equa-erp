@@ -36,6 +36,7 @@ export {
 export type { CreditNoteRequestResult, InvoiceListFilter, InvoiceListRow } from "./service/invoices";
 export { renderInvoicePdf, renderPaymentReceiptPdf } from "./service/pdf";
 export { pendingTransferInvoice, prepaidAmountOfTrip } from "./service/sources";
+export { INVOICE_REVENUE_SOURCES } from "./service/common";
 
 // --- Pelunasan & uang muka (US-M5-02, 7.5.6) -------------------------------------------------------------------------
 export {
