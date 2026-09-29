@@ -301,6 +301,19 @@ mendengar `cash_day.closed` (`m9-reports:publish_h0` → H+0 terkunci), event ko
 notifikasi; kunci ulang → revisi baru). Rincian di `docs/dev/modules/m11-accounting.md` §3 dan
 `docs/dev/modules/m9-reports.md` §3; uji `tests/integration/m9-m11.test.ts`.
 
+Tambahan modul (integrasi P3 + P2): TIDAK ada tipe event baru. P3 menambah field OPSIONAL pada
+`partner.subscription_invoiced` (`subscriptionAmount`, `royaltyAmount`, `initialFeeAmount`, `mergedWaterAmount`,
+`periodMonth`, `customerId`, `number`, `issueDate`, `dueDate`, `option`; `amount` = pendapatan L5 saja, baris air tempo
+yang digabung ke faktur BR-05 bukan pendapatan baru — D-10 butir 1) dan memancarkan `invoice.issued` kind
+`partner_subscription`; P2 menambah field opsional pada `digital_payment.succeeded` (`customerPaymentId`, `orderId`,
+`prepaid`, `gatewayOrderId`, `gateway`, `advanceAmount`, `businessDate`). Satu pembayaran digital P2 memancarkan
+`collection.recorded` (kanal `digital`, M5 menerapkan alokasi/uang muka) DAN `digital_payment.succeeded` (M4 transfer masuk
+untuk dicocokkan); M11 menjurnal pelunasan dari `collection.recorded` saja dan dari `digital_payment.succeeded` hanya biaya
+gerbang bila `customerPaymentId` terisi (B-62; uji `tests/integration/p2-m11.test.ts`). P3 mendengar `order.created`,
+`trip.completed`, `water_supply.confirmed`, `shift.opened`, `pos_sale.recorded`, `credit_status.changed`; P2 mendengar
+`order.status_changed`, `trip.departed`, `trip.completed`, `trip.failed`, `transfer.matched` (rincian di
+`docs/dev/modules/p3-partner.md` §3 dan `docs/dev/modules/p2-customer.md` §3).
+
 Payload tiap event diketik di `src/server/core/events.types.ts`. Modul menambah event baru hanya dengan menambah entri
 di berkas itu (tambahan, tidak mengubah yang ada). M11 berlangganan event keuangan untuk jurnal otomatis (PRD 7.11.4);
 M9 membaca data modul untuk angka laporan dan hanya berlangganan event untuk menerbitkan H+0, addenda, dan versi Final

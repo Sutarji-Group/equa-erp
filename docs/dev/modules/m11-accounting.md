@@ -69,7 +69,8 @@ bersumber selisih), `petty_cash.recorded`, `restitution.settled`, `restitution.s
 `pos_sale.voided`, `store_return.recorded`, `consumable.usage_posted/received/receipt_reversed`, `stock.adjusted`,
 `internal_transfer.sent`, `purchase_receipt.recorded` (saldo awal utang dilewati), `purchase_receipt.corrected`,
 `supplier_payment.recorded`, `water_supply.confirmed` (transfer internal L2 → L3), `partner.subscription_invoiced` (L5),
-`digital_payment.succeeded`. Peristiwa sengaja tidak dijurnal: `SKIPPED_EVENTS` (constants.ts; tampil di layar
+`digital_payment.succeeded` (bila `customerPaymentId` terisi hanya biaya gerbang — pelunasan/uang muka dari
+`collection.recorded` kanal `digital`; integrasi P3+P2, B-62). Peristiwa sengaja tidak dijurnal: `SKIPPED_EVENTS` (constants.ts; tampil di layar
 pemetaan).
 
 ### 3.2 Dipancarkan M11

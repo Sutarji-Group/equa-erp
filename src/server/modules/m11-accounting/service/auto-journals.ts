@@ -428,12 +428,15 @@ function partnerSubscription(e: Ev<"partner.subscription_invoiced">): EventJourn
 
 function digitalPayment(e: Ev<"digital_payment.succeeded">): EventJournalSpec {
   const p = e.payload;
+  // Integrasi P2: bila pelunasan M5 (`customerPaymentId`) sudah dibentuk, `collection.recorded` kanal `digital` yang
+  // menjurnal pelunasan piutang/uang muka — di sini hanya biaya gerbang (hindari piutang dikredit dua kali).
+  const settledViaCollection = !!p.customerPaymentId;
   return journal(
     "digital_payment.succeeded",
     eventDate(e),
     `Pembayaran digital (${p.method})`,
     [
-      { entryKey: "default", amount: p.amount },
+      ...(settledViaCollection ? [] : [{ entryKey: "default", amount: p.amount }]),
       { entryKey: "gateway_fee", amount: p.gatewayFee },
     ],
     { type: "payment_intent", id: p.paymentIntentId },

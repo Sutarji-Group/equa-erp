@@ -158,7 +158,7 @@ harian yang sudah dibayar di muka → aplikasi sopir dapat menampilkan "sudah di
 ## 8. Isu terbuka / tindak lanjut modul lain
 1. **M2**: `createOrder` belum menerima `source`/`slot` → `order.created` terpancar dengan `source: office`; P2
    memperbarui kolom setelahnya. Usul: parameter `source`/`slot` di M2.
-2. **M11 — jurnal dobel pembayaran digital (TERKONFIRMASI saat cek akhir)**: satu pembayaran Berhasil memancarkan
+2. **M11 — jurnal dobel pembayaran digital (TERKONFIRMASI saat cek akhir; DIPERBAIKI integrasi P3+P2, backlog B-62 — `digitalPayment()` hanya menjurnal `gateway_fee` bila `customerPaymentId` terisi, uji `tests/integration/p2-m11.test.ts`)**: satu pembayaran Berhasil memancarkan
    `collection.recorded` (kanal/cara `digital`) DAN `digital_payment.succeeded`. M11 menjurnal keduanya dengan pemetaan
    yang sama (`collection.recorded`/`transfer` dan `digital_payment.succeeded`/`default`, keduanya D 1-1301 / K 1-1401,
    `src/db/seed/accounting.ts`) → piutang terkredit dua kali. Usul perbaikan di M11 (`auto-journals.ts` `digitalPayment()`):
