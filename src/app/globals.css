@@ -189,6 +189,15 @@ html:has([data-theme="field"]) {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
   }
+  /*
+   * NFR-19 (S5-B): anak grid/flex di area konten boleh menyusut di bawah lebar isinya — tabel lebar menggulir di dalam
+   * pembungkus `overflow-x-auto`-nya sendiri, bukan melebarkan seluruh halaman di ponsel. Utilitas `min-w-*` tetap menang
+   * (lapisan utilities di atas base).
+   */
+  main .grid > *,
+  main .flex > * {
+    min-width: 0;
+  }
   /* Angka rupiah & liter rata kanan & lebar tetap. */
   .tabular {
     font-variant-numeric: tabular-nums;

@@ -26,9 +26,14 @@ async function loginOwner(page: Page): Promise<void> {
   throw new Error("Gagal masuk sebagai pemilik");
 }
 
-async function expectNoHorizontalScroll(page: Page): Promise<void> {
-  const { scrollWidth, innerWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
-  expect(scrollWidth).toBeLessThanOrEqual(innerWidth + 1);
+/**
+ * NFR-19: bandingkan dengan lebar VIEWPORT tetap (bukan `window.innerWidth` — pada emulasi ponsel ikut melebar mengikuti
+ * konten sehingga asersi lama selalu lulus).
+ */
+async function expectNoHorizontalScroll(page: Page, what = page.url()): Promise<void> {
+  const viewport = page.viewportSize()!.width;
+  const scrollWidth = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
+  expect(scrollWidth, `${what}: lebar halaman ${scrollWidth}px > layar ${viewport}px`).toBeLessThanOrEqual(viewport + 1);
 }
 
 test("US-M9-01 KP-5 H+0, laporan bulanan & kotak masuk terbaca di ponsel pemilik tanpa gulir mendatar; muat ≤ 2 detik (dihitung server)", async ({ page }) => {
@@ -48,4 +53,47 @@ test("US-M9-01 KP-5 H+0, laporan bulanan & kotak masuk terbaca di ponsel pemilik
   await page.goto("/laporan/bulanan");
   await expect(page.getByTestId("monthly-lines")).toBeVisible();
   await expectNoHorizontalScroll(page);
+});
+
+/** Rute kantor yang dibuka pemilik di ponsel (temuan audit S5-B: halaman melebar karena tabel di dalam kartu). */
+const OWNER_MOBILE_ROUTES = [
+  "/beranda",
+  "/piutang",
+  "/piutang/faktur",
+  "/piutang/pelunasan",
+  "/piutang/pengingat",
+  "/piutang/status-kredit",
+  "/piutang/umur",
+  "/kas/tutup",
+  "/jadwal/kru",
+  "/armada/riwayat",
+  "/armada/bbm",
+  "/armada/perangkat",
+  "/produksi/neraca-air",
+  "/produksi/pengisian",
+  "/produksi/utilisasi",
+  "/produksi/mutu",
+  "/outlet",
+  "/toko/barang",
+  "/toko/laporan",
+  "/master/pelanggan",
+  "/akuntansi/laporan",
+  "/kemitraan",
+  "/keluhan",
+  "/akses/sinkron",
+  "/persetujuan",
+];
+
+test("NFR-19 US-M9-01 KP-5 halaman kantor pemilik di ponsel tidak melebar melewati layar (tabel menggulir di dalam kartu)", async ({ page }) => {
+  test.setTimeout(360_000);
+  await loginOwner(page);
+  const failures: string[] = [];
+  for (const route of OWNER_MOBILE_ROUTES) {
+    await page.goto(route);
+    await page.waitForLoadState("networkidle").catch(() => undefined);
+    const viewport = page.viewportSize()!.width;
+    const width = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
+    if (width > viewport + 1) failures.push(`${route}: ${width}px`);
+  }
+  expect(failures, `Halaman melebar melewati ${page.viewportSize()!.width}px`).toEqual([]);
 });
