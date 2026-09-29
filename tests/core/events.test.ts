@@ -31,6 +31,8 @@ const ARCHITECTURE_EVENTS = [
   "order.created", "order.status_changed",
   // Tambahan modul M7: retur barang toko setelah shift/hari transaksi (US-M7-01 KP-5, PTB-46).
   "store_return.recorded",
+  // Tambahan S5 paket B (M5 → M11): uang muka pelanggan dipakai/dikembalikan pada faktur (B-65).
+  "customer_advance.applied",
 ];
 
 const payload = {
