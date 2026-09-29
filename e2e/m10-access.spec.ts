@@ -184,8 +184,10 @@ test.describe("M10 — Pengguna, hak akses & jejak audit", () => {
     await page.getByLabel("Ulangi kata sandi baru").fill("dispatcher2-baru-2026");
     await page.getByRole("button", { name: "Simpan kata sandi baru" }).click();
     await expect(page).toHaveURL(/\/beranda/);
+    // Ubah kata sandi mandiri (bukan paksaan): kolom "Kata sandi saat ini", tanpa pita wajib ganti.
     await page.goto("/akun/kata-sandi");
-    await expect(page.getByRole("heading", { name: "Ubah kata sandi" })).toBeVisible();
+    await expect(page.getByText("Ubah kata sandi", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Kata sandi saat ini")).toBeVisible();
     await expect(page.getByTestId("wajib-ganti-sandi")).toHaveCount(0);
   });
 });
