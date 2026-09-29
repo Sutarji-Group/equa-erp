@@ -11,12 +11,14 @@ import "server-only";
 
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
-import { customerPayments, invoiceLines, invoices, outlets, partnerAudits, paymentAllocations, customers, qualityTests, royaltyCalculations } from "@/db/schema";
+import { customerPayments, devices, invoiceLines, invoices, outlets, partnerAudits, paymentAllocations, customers, qualityTests, royaltyCalculations } from "@/db/schema";
 import { addDays, lastDayOfMonth, type BusinessDate } from "@/lib/time";
 
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { NotFoundError } from "@/server/core/errors";
+import * as params from "@/server/core/params";
+import { compareVersions } from "@/server/core/sync";
 import { authorize } from "@/server/core/rbac";
 import { dailyOutletReport, shiftReport, voidReport, waterSupplyReport } from "@/server/modules/m6-pos";
 
@@ -100,6 +102,47 @@ export async function portalHome(ctx: ActorContext, input: { month?: string | nu
         }
       : null,
     readRights: EQUA_READ_RIGHTS,
+    posVersion: await partnerPosVersion(tx, tenant.id, today),
+  };
+}
+
+export type PartnerPosVersion = {
+  minVersion: string;
+  /** Versi minimal terjadwal berikutnya (tenggat pembaruan), bila ada. */
+  next: { version: string; effectiveFrom: string } | null;
+  devices: { id: string; name: string; outletId: string | null; appVersion: string | null; lastSeenAt: Date | null; belowMin: boolean; belowNext: boolean }[];
+};
+
+/**
+ * PRD 9.7 (mitra menolak pembaruan versi POS), US-M10-07 KP-4, NFR-32 (temuan S5B): versi minimal POS yang berlaku,
+ * versi minimal terjadwal berikutnya + tanggal berlakunya (tenggat), dan versi terpasang per tablet outlet mitra
+ * (perangkat tenant sendiri saja, NFR-30).
+ */
+export async function partnerPosVersion(tx: Tx, tenantId: string, today: BusinessDate): Promise<PartnerPosVersion> {
+  const minVersion = (await params.get(tx, "app.min_supported_version", today)).version;
+  const upcoming = (await params.history(tx, "app.min_supported_version", {}))
+    .filter((r) => r.effectiveFrom > today)
+    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))[0];
+  const next = upcoming ? { version: String((upcoming.value as { version?: unknown }).version ?? ""), effectiveFrom: upcoming.effectiveFrom } : null;
+  const rows = await tx
+    .select({ id: devices.id, name: devices.name, outletId: devices.outletId, appVersion: devices.appVersion, lastSeenAt: devices.lastSeenAt, status: devices.status })
+    .from(devices)
+    .where(eq(devices.tenantId, tenantId))
+    .orderBy(asc(devices.name));
+  return {
+    minVersion,
+    next,
+    devices: rows
+      .filter((d) => d.status !== "wiped")
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        outletId: d.outletId,
+        appVersion: d.appVersion,
+        lastSeenAt: d.lastSeenAt,
+        belowMin: !!d.appVersion && compareVersions(d.appVersion, minVersion) < 0,
+        belowNext: !!d.appVersion && !!next?.version && compareVersions(d.appVersion, next.version) < 0,
+      })),
   };
 }
 

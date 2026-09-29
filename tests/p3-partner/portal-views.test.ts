@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { accessLogs, invoices, partnerSanctions, qualityChecklistItems, qualityChecklists, tenants } from "@/db/schema";
+import { accessLogs, devices, invoices, partnerSanctions, qualityChecklistItems, qualityChecklists, tenants } from "@/db/schema";
 import { EQUA_TENANT_ID, userIdByUsername } from "@/db/seed";
 import { P3_DEMO_TENANT_ID, seedDemoP3Partner } from "@/db/seed/demo-p3-partner";
 import { newId } from "@/lib/ids";
@@ -9,6 +9,7 @@ import { buildActorContext, setActorResolver } from "@/server/core/actor";
 import * as approvals from "@/server/core/approvals";
 import { withTx } from "@/server/core/db";
 import { ForbiddenError } from "@/server/core/errors";
+import * as params from "@/server/core/params";
 import { put } from "@/server/core/storage";
 import { recordOfficePayment } from "@/server/modules/m5-receivables";
 import {
@@ -111,6 +112,17 @@ describe("US-P3-04 Pembayaran tagihan mitra & portal Tahap 3 (flag)", () => {
     expect(await portalDashboard(p.portal(now), { month: "2026-09" })).toBeNull();
     expect((await portalHome(p.portal(now))).phase3).toBe(false);
     await enablePhase3();
+  });
+
+  it("PRD 9.7 US-M10-07 KP-4 NFR-32 beranda portal menampilkan versi minimal POS, versi berikutnya + tenggat, dan versi terpasang tiap tablet outlet mitra", async () => {
+    const p = await setupPartner(t.db);
+    await t.db.update(devices).set({ appVersion: "0.1.0" }).where(eq(devices.tenantId, p.tenantId));
+    await params.set(owner(), "app.min_supported_version", { version: "0.3.0" }, "2027-01-01", "Rilis POS 0.3.0 wajib awal tahun");
+    const home = await portalHome(p.portal());
+    expect(home.posVersion.minVersion).toBe("0.1.0");
+    expect(home.posVersion.next).toEqual({ version: "0.3.0", effectiveFrom: "2027-01-01" });
+    expect(home.posVersion.devices).toHaveLength(1);
+    expect(home.posVersion.devices[0]).toMatchObject({ appVersion: "0.1.0", belowMin: false, belowNext: true });
   });
 
   it("US-P3-05 KP-1 daftar periksa POS: muatan klien + foto per butir lewat jenis lampiran `quality_photo_<butir>` (offline, tanpa ID lampiran)", async () => {
