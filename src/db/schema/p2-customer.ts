@@ -309,7 +309,7 @@ export const customerNotifications = pgTable(
   {
     id: pk(),
     tenantId: tenantRef(),
-    customerAccountId: uuid("customer_account_id").references((): AnyPgColumn => customerAccounts.id),
+    customerAccountId: uuid("customer_account_id"),
     customerId: uuid("customer_id").references((): AnyPgColumn => customers.id),
     kind: text("kind").notNull(),
     title: text("title").notNull(),
@@ -323,7 +323,10 @@ export const customerNotifications = pgTable(
     readAt: tstz("read_at"),
     ...createdAtOnly(),
   },
-  (t) => [index("customer_notifications_account_idx").on(t.customerAccountId, t.createdAt)],
+  (t) => [
+    index("customer_notifications_account_idx").on(t.customerAccountId, t.createdAt),
+    foreignKey({ name: "customer_notifications_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
 );
 
 /** Langganan Web Push perangkat pelanggan (PWA). Dicabut dengan `revoked_at` (tanpa DELETE). */
@@ -331,9 +334,7 @@ export const customerPushSubscriptions = pgTable(
   "customer_push_subscriptions",
   {
     id: pk(),
-    customerAccountId: uuid("customer_account_id")
-      .notNull()
-      .references((): AnyPgColumn => customerAccounts.id),
+    customerAccountId: uuid("customer_account_id").notNull(),
     endpoint: text("endpoint").notNull().unique("customer_push_subscriptions_endpoint_uq"),
     p256dh: text("p256dh").notNull(),
     auth: text("auth").notNull(),
@@ -342,7 +343,10 @@ export const customerPushSubscriptions = pgTable(
     revokedAt: tstz("revoked_at"),
     ...createdAtOnly(),
   },
-  (t) => [index("customer_push_subscriptions_account_idx").on(t.customerAccountId)],
+  (t) => [
+    index("customer_push_subscriptions_account_idx").on(t.customerAccountId),
+    foreignKey({ name: "customer_push_subscriptions_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
 );
 
 /** Biaya per pesan WhatsApp Cloud API (NFR-29; US-P2-08 KP-3): satu baris per pesan tertagih dari webhook status. */
@@ -370,15 +374,16 @@ export const customerDownloadLogs = pgTable(
   {
     id: pk(),
     tenantId: tenantRef(),
-    customerAccountId: uuid("customer_account_id")
-      .notNull()
-      .references((): AnyPgColumn => customerAccounts.id),
+    customerAccountId: uuid("customer_account_id").notNull(),
     kind: text("kind").notNull(),
     objectType: text("object_type"),
     objectId: text("object_id"),
     ...createdAtOnly(),
   },
-  (t) => [index("customer_download_logs_account_idx").on(t.customerAccountId, t.createdAt)],
+  (t) => [
+    index("customer_download_logs_account_idx").on(t.customerAccountId, t.createdAt),
+    foreignKey({ name: "customer_download_logs_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
 );
 
 /**
@@ -390,9 +395,7 @@ export const customerAccountRequests = pgTable(
   {
     id: pk(),
     tenantId: tenantRef(),
-    customerAccountId: uuid("customer_account_id")
-      .notNull()
-      .references((): AnyPgColumn => customerAccounts.id),
+    customerAccountId: uuid("customer_account_id").notNull(),
     kind: text("kind").notNull(),
     /** open | done | rejected */
     status: text("status").notNull().default("open"),
@@ -406,7 +409,11 @@ export const customerAccountRequests = pgTable(
     handledNote: text("handled_note"),
     ...timestamps(),
   },
-  (t) => [index("customer_account_requests_status_idx").on(t.kind, t.status), index("customer_account_requests_account_idx").on(t.customerAccountId)],
+  (t) => [
+    index("customer_account_requests_status_idx").on(t.kind, t.status),
+    index("customer_account_requests_account_idx").on(t.customerAccountId),
+    foreignKey({ name: "customer_account_requests_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
 );
 
 /** Tindak lanjut keluhan (US-P2-06 KP-2/KP-3): tanggapan, pemindahan kotak, sengketa faktur, penyelesaian — tanpa hapus. */
@@ -432,9 +439,7 @@ export const phoneChangeRequests = pgTable(
   "phone_change_requests",
   {
     id: pk(),
-    customerAccountId: uuid("customer_account_id")
-      .notNull()
-      .references((): AnyPgColumn => customerAccounts.id),
+    customerAccountId: uuid("customer_account_id").notNull(),
     oldPhone: text("old_phone").notNull(),
     newPhone: text("new_phone").notNull(),
     oldVerifiedAt: tstz("old_verified_at"),
@@ -442,7 +447,10 @@ export const phoneChangeRequests = pgTable(
     expiresAt: tstz("expires_at").notNull(),
     ...createdAtOnly(),
   },
-  (t) => [index("phone_change_requests_account_idx").on(t.customerAccountId)],
+  (t) => [
+    index("phone_change_requests_account_idx").on(t.customerAccountId),
+    foreignKey({ name: "phone_change_requests_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
 );
 
 export const customerAppOrdersRelations = relations(customerAppOrders, ({ one }) => ({

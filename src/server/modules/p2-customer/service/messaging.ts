@@ -18,8 +18,11 @@ import { devSecretsAllowed, serverEnv } from "@/lib/env";
 import type { WaMessageKind } from "@/lib/labels";
 
 import { DomainError } from "@/server/core/errors";
-import { sendWebPush, type PushPayload, type PushResult } from "@/server/core/notifications";
+import { sendWebPush } from "@/server/core/notifications";
 import { assertWaNumber, buildWaLink, linkProvider, type TemplateVars, type WaSendRequest, type WaSendResult, type WhatsAppProvider } from "@/server/core/wa";
+
+type PushPayload = Parameters<typeof sendWebPush>[1];
+type PushResult = Awaited<ReturnType<typeof sendWebPush>>;
 
 // =====================================================================================================================
 // WhatsApp Cloud API (template)

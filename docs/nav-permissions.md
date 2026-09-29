@@ -125,6 +125,13 @@ m9.parallel_run.read
 m9.performance.read
 m9.report.read
 m9.trend.read
+p2.adoption.read
+p2.app_order.read
+p2.complaint.read
+p2.customer_account.read
+p2.payment_intent.read
+p2.rating.read
+p2.wa_cost.read
 p3.partner.read
 p3.partner_supply.read
 p3.subscription.read
@@ -235,5 +242,12 @@ p3.support_request.read
 | Akses & pengaturan | `/pengaturan/parameter` | Parameter | `m10.parameter.read` |  |
 | Akses & pengaturan | `/pengaturan/notifikasi` | Pengaturan notifikasi | _(semua pengguna web kantor)_ |  |
 | Akses & pengaturan | `/bantuan` | Bantuan | `m10.support_ticket.create` |  |
+| Aplikasi pelanggan | `/keluhan` | Kotak keluhan | `p2.complaint.read` | flag `phase2.customer_app` |
+| Aplikasi pelanggan | `/keluhan/[id]` | Rincian keluhan | `p2.complaint.read` | tidak tampil di sidebar |
+| Aplikasi pelanggan | `/keluhan/pesanan-aplikasi` | Pesanan aplikasi | `p2.app_order.read` | flag `phase2.customer_app` |
+| Aplikasi pelanggan | `/keluhan/penilaian` | Penilaian layanan | `p2.rating.read` | flag `phase2.customer_app` |
+| Aplikasi pelanggan | `/keluhan/pembayaran` | Pembayaran digital & WA | `p2.payment_intent.read` / `p2.wa_cost.read` | flag `phase2.customer_app` |
+| Aplikasi pelanggan | `/keluhan/laporan` | Laporan aplikasi | `p2.adoption.read` | flag `phase2.customer_app` |
+| Aplikasi pelanggan | `/keluhan/akun` | Akun pelanggan | `p2.customer_account.read` |  |
 
 <!-- END:AUTO nav-permissions -->
