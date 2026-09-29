@@ -158,3 +158,16 @@ Tanggal baseline: 27 September 2026.
    permintaan akses memakai `approval.requested` (tidak ada notifikasi ganda).
 6. **Uji bergantung jam dinding:** DILARANG. Semua uji memakai `ctx.now` / waktu tetap (penyebab dua kegagalan ronde 5 sudah
    diperbaiki integrator).
+
+## D-11 Keputusan PM atas isu integrasi ronde 7 (P2 + P3) (29 Sep 2026)
+1. **Aksi portal Tahap 3 (B-71):** DISETUJUI diberikan bersyarat lewat `authorizePortalAction` hanya bila flag
+   `phase3.partner_portal` aktif untuk tenant itu — dengan syarat keempat izin (`p3.portal_order.create`,
+   `p3.portal_dispute.create`, `p3.portal_sop.sign`, `p3.portal_settings.update`) terdaftar di katalog izin sebagai
+   **izin bersyarat** (seperti izin kernet pengganti) sehingga tampil di ekspor matriks peran (US-M10-03 KP-4).
+2. **Proxy portal (B-70):** `/mitra/:path*` ditambahkan ke matcher `src/proxy.ts` (pengalihan cookie ringan), pemeriksaan
+   sesi sebenarnya tetap di layout server portal.
+3. **Pengaburan wajah foto bukti kirim di aplikasi pelanggan (B-75):** tidak dibangun di v1.0 (Tahap 2 di balik flag).
+   Foto bukti kirim hanya tampil ke akun pemilik pesanan itu sendiri. Pengaburan menjadi syarat gerbang aktivasi Tahap 2
+   (TG-9) — dicatat di `docs/uat` & risiko.
+4. **Pembayaran digital prabayar (B-65):** rit yang sudah dibayar digital tampil "sudah dibayar" di aplikasi sopir dan
+   pendapatan diakui terhadap uang muka pelanggan saat rit Selesai (bukan kurang bayar). Wajib diselesaikan di S5.
