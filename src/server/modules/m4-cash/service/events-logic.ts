@@ -131,21 +131,30 @@ export async function onDepositSubmitted(event: DomainEvent<"deposit.submitted">
   await recordSlipDepositTransfer(tx, event.payload.depositId);
 }
 
-/** `digital_payment.succeeded` (Tahap 2) → transfer masuk pembayaran digital. */
+/**
+ * `digital_payment.succeeded` (Tahap 2) → transfer masuk pembayaran digital sebesar SETTLEMENT gerbang (B-63):
+ * bruto − biaya gerbang. Mutasi bank berisi nilai neto, sehingga pencocokan memakai angka yang sama dan jurnal
+ * `transfer.matched` (Dr bank / Cr 1-1301 neto) mengembalikan akun perantara ke nol setelah biaya gerbang dibebankan
+ * (`digital_payment.succeeded/gateway_fee`, PTB-50).
+ */
 export async function onDigitalPayment(event: DomainEvent<"digital_payment.succeeded">, tx: Tx): Promise<void> {
   const p = event.payload;
   if (!(await isOwnerTenant(tx, event.tenantId)) || p.amount <= 0) return;
   const date = eventDate(event);
+  const fee = Math.max(0, Math.min(p.gatewayFee ?? 0, p.amount));
+  const settlement = p.amount - fee;
+  if (settlement <= 0) return;
   await recordIncomingTransfer(tx, {
     tenantId: event.tenantId!,
     sourceKind: "digital_payment",
     sourceObjectType: "payment_intent",
     sourceObjectId: p.paymentIntentId,
-    amount: p.amount,
+    amount: settlement,
     transferDate: date,
     businessDate: date,
     customerId: p.customerId,
-    reference: p.method,
+    reference: p.gatewayOrderId ?? p.method,
+    notes: fee > 0 ? `Settlement gerbang: bruto ${formatRupiah(p.amount)} − biaya gerbang ${formatRupiah(fee)} (${p.method})` : null,
     createdBy: event.actorUserId,
   });
 }

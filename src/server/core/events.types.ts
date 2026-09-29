@@ -137,6 +137,12 @@ export interface TripCompletedPayload {
   photoAttachmentIds?: string[];
   signatureAttachmentId?: string | null;
   transferProofAttachmentId?: string | null;
+  /**
+   * Tambahan S5 (B-65, D-11 butir 4): rit dibayar di muka lewat aplikasi pelanggan (`paymentMethod: "digital"`) —
+   * nilai yang sudah dibayar digital (bawaan = `price`). M5 menerbitkan faktur rit yang langsung dilunasi uang muka
+   * pelanggan; M11 mengakui pendapatan terhadap uang muka (bukan kurang bayar/tempo).
+   */
+  prepaidAmount?: number;
 }
 export interface TripFailedPayload {
   tripId: string;
@@ -1076,6 +1082,25 @@ export interface StoreReturnRecordedPayload {
   businessDate: string;
 }
 
+// --- Tambahan S5 (M5, B-65) — hanya tambah ------------------------------------------------------------------------------
+/**
+ * Uang muka pelanggan dipakai/dikembalikan pada faktur (US-M5-02 KP-3): `amount` > 0 = uang muka dialokasikan ke
+ * faktur (Dr uang muka 2-1201 / Cr piutang 1-1401); `amount` < 0 = alokasi dibatalkan / kelebihan alokasi pelunasan
+ * menjadi uang muka (sebaliknya). Satu-satunya jalur reklasifikasi piutang ↔ uang muka di buku besar (M11), agar saldo
+ * 1-1401/2-1201 sama dengan buku bantu M5 (termasuk rit prabayar digital B-65).
+ */
+export interface CustomerAdvanceAppliedPayload {
+  customerId: string;
+  invoiceId: string;
+  invoiceNumber?: string | null;
+  /** Uang muka yang dipakai/dikembalikan (null = kelebihan alokasi pelunasan menjadi uang muka baru). */
+  customerAdvanceId?: string | null;
+  amount: number;
+  reason: "applied" | "allocation_reversed" | "overpayment_to_advance";
+  tripId?: string | null;
+  businessDate?: string;
+}
+
 /** Peta tipe event → payload. */
 export interface DomainEventMap {
   "trip.published": TripPublishedPayload;
@@ -1141,6 +1166,7 @@ export interface DomainEventMap {
   "order.created": OrderCreatedPayload;
   "order.status_changed": OrderStatusChangedPayload;
   "store_return.recorded": StoreReturnRecordedPayload;
+  "customer_advance.applied": CustomerAdvanceAppliedPayload;
 }
 
 export type DomainEventType = keyof DomainEventMap;
@@ -1210,6 +1236,7 @@ export const DOMAIN_EVENT_LABELS: Record<DomainEventType, string> = {
   "order.created": "Pesanan dibuat",
   "order.status_changed": "Status pesanan berubah",
   "store_return.recorded": "Retur barang toko tercatat",
+  "customer_advance.applied": "Uang muka dipakai pada faktur",
 };
 
 export const DOMAIN_EVENT_TYPES = Object.keys(DOMAIN_EVENT_LABELS) as DomainEventType[];

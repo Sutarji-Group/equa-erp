@@ -267,4 +267,25 @@ describe("M11 jurnal otomatis dari transaksi operasional (US-M11-02)", () => {
     expect(isHardeningViolation(del)).toBe(true);
     expect((await t.db.select().from(journalQueue).where(eq(journalQueue.tenantId, EQUA_TENANT_ID))).length).toBeGreaterThan(0);
   });
+
+  it("B-65 US-M11-02 KP-1 uang muka dipakai pada faktur → Dr uang muka 2-1201 / Cr piutang 1-1401; bertanda negatif (alokasi dibatalkan) → sebaliknya; rit prabayar digital → pendapatan", async () => {
+    const invoiceId = newId();
+    const used = await emitEvent("customer_advance.applied", { customerId: newId(), invoiceId, invoiceNumber: "F-26-777001", customerAdvanceId: newId(), amount: 120_000, reason: "applied", businessDate: TODAY });
+    expect((await linesOf(t.db, (await journalOfEvent(t.db, used.id))!.id)).map((l) => [l.code, l.debit, l.credit])).toEqual([
+      ["2-1201", 120_000, 0],
+      ["1-1401", 0, 120_000],
+    ]);
+    const back = await emitEvent("customer_advance.applied", { customerId: newId(), invoiceId, invoiceNumber: "F-26-777001", customerAdvanceId: null, amount: -20_000, reason: "overpayment_to_advance", businessDate: TODAY });
+    expect((await linesOf(t.db, (await journalOfEvent(t.db, back.id))!.id)).map((l) => [l.code, l.debit, l.credit])).toEqual([
+      ["1-1401", 20_000, 0],
+      ["2-1201", 0, 20_000],
+    ]);
+    // Rit prabayar digital: pendapatan L2 penuh (sisi piutang dilunasi uang muka oleh M5), tanpa kas/transfer.
+    const prepaid = tripPayload({ paymentMethod: "digital", cashReceived: 0, transferAmount: 0, creditAmount: 0, underpaymentAmount: 0, price: 300_000 });
+    const ev = await emitEvent("trip.completed", prepaid);
+    expect((await linesOf(t.db, (await journalOfEvent(t.db, ev.id))!.id)).map((l) => [l.code, l.profitCenter, l.debit, l.credit])).toEqual([
+      ["1-1401", "SHARED", 300_000, 0],
+      ["4-1101", "L2", 0, 300_000],
+    ]);
+  });
 });

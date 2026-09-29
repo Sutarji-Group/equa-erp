@@ -95,6 +95,7 @@ export const REQUIRED_MAPPINGS: readonly RequiredMapping[] = [
   m("partner.subscription_invoiced", "default", "Tagihan langganan sistem mitra", "RL-7"),
   m("digital_payment.succeeded", "default", "Pembayaran digital berhasil", "PTB-50"),
   m("digital_payment.succeeded", "gateway_fee", "Biaya gerbang pembayaran", "PTB-50"),
+  m("customer_advance.applied", "default", "Uang muka pelanggan dipakai pada faktur (piutang ↔ uang muka)", "US-M5-02 KP-3, B-65"),
   // Jurnal internal M11 (alokasi, pelepasan aset, saldo awal)
   m("m11.allocation", "l1_allocation", "Alokasi biaya L1 → L2/L3 (debit: beban alokasi, kredit: alokasi keluar)", "PTB-39, PAR-65"),
   m("m11.allocation", "shared_costs", "Alokasi biaya bersama (debit: beban alokasi, kredit: alokasi keluar)", "US-M11-01 KP-5"),
@@ -228,6 +229,7 @@ export const SOURCE_MODULE: Record<string, string> = {
   "asset.depreciated": "M11",
   "partner.subscription_invoiced": "P3",
   "digital_payment.succeeded": "P2",
+  "customer_advance.applied": "M5",
 };
 
 /** Sumber jurnal transfer internal (dieliminasi pada konsolidasi, BR-33, US-M11-01 KP-4). */
