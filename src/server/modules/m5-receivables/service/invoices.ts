@@ -41,6 +41,7 @@ import { agingBucket, customerCardLink, invoiceLink, lineOfInvoice, loadCustomer
 import { changeCreditStatus, afterReceivablesChanged } from "./credit-hold";
 import { computeExposure } from "./balance";
 import { applyWriteOff, issueCreditNote, issueInvoice, recomputeInvoice } from "./ledger";
+import { assertPartnerCreditNoteWithinL5 } from "./partner-credit";
 import { customerBankAccount } from "./payments";
 import { activeTemplate, companyName } from "./templates";
 
@@ -364,6 +365,7 @@ export async function requestCreditNote(ctx: ActorContext, input: unknown, opts:
     if (data.amount > inv.outstandingAmount) {
       throw ValidationError.field("amount", `Nota kredit ${formatRupiah(data.amount)} melebihi sisa faktur ${formatRupiah(inv.outstandingAmount)}.`);
     }
+    await assertPartnerCreditNoteWithinL5(tx, inv, data.amount);
     const par21 = await params.get(tx, "PAR-21", ctxBusinessDate(ctx));
     if (data.amount > par21.amount_gt) {
       const req = await approvals.submit(
