@@ -565,7 +565,7 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   p("p3.subscription.issue", "Menerbitkan tagihan langganan mitra periode lalu (bila job belum berjalan)", [FA], { finance: true, ref: "US-P3-09 KP-1" }),
   p("p3.partner_report.publish", "Menerbitkan laporan bulanan mitra sekarang", [FA], { ref: "US-P3-10 KP-3" }),
   // Tahap 3 (flag `phase3.partner_portal`).
-  p("p3.partner_prospect.override", "Mengesampingkan pelanggaran radius eksklusif calon mitra (beralasan)", [O], { kind: "approve", ref: "US-P3-01 KP-2" }),
+  p("p3.partner_prospect.waive_radius", "Mengesampingkan pelanggaran radius eksklusif calon mitra (beralasan)", [O], { kind: "approve", ref: "US-P3-01 KP-2" }),
   p("p3.partner_evaluation.create", "Mencatat evaluasi mitra berkala (PAR-77)", [RC], { ref: "US-P3-01 KP-5" }),
   p("p3.partner_quality_test.create", "Mencatat hasil uji air laboratorium outlet mitra", [RC], { ref: "US-P3-05 KP-3, US-M8-06" }),
   p("p3.sanction.lift", "Mencabut sanksi mitra (beralasan)", [O], { kind: "approve", ref: "US-P3-07 KP-3" }),

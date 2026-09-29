@@ -45,6 +45,7 @@ import {
   tenantOutlets,
   type ContractRow,
 } from "./common";
+import { createOnboardingForContract } from "./onboarding";
 
 // =====================================================================================================================
 // Parameter kontrak berlaku per periode (US-P3-04 KP-5)
@@ -394,7 +395,9 @@ export async function activateContract(tx: Tx, ctx: ActorContext, contractId: st
       }
     }
   }
-  return { ...effects, outletsBilling: billing, territories };
+  // Tahap 3: outlet yang belum Aktif mendapat daftar periksa onboarding (US-P3-01 KP-4).
+  const onboardingItems = await createOnboardingForContract(tx, { ...contract, status: "active" });
+  return { ...effects, outletsBilling: billing, territories, onboardingItems };
 }
 
 /** Terapkan usulan parameter yang disetujui sebagai `pending_terms` (berlaku mulai `effectiveFrom`). */

@@ -857,6 +857,8 @@ export const PARAM_REGISTRY = {
         void_threshold_max: rupiah,
         /** POS tidak dipakai N hari → pemicu sanksi (US-P3-07 KP-1). */
         pos_unused_days: int(1),
+        /** Butir daftar periksa mutu harian yang wajib berfoto bukti (US-P3-05 KP-1; kunci label `partner_quality_item`). */
+        quality_photo_items: z.array(z.string().min(1)).max(20),
       })
       .strict(),
     affectedRoles: ["regional_coach", "finance_admin"],
@@ -877,6 +879,7 @@ export const PARAM_REGISTRY = {
       void_threshold_min: 20_000,
       void_threshold_max: 200_000,
       pos_unused_days: 3,
+      quality_photo_items: ["sterilization", "reservoir"],
     },
     meta: {
       name: "Aturan kemitraan (kapasitas, baca-saja, sengketa, kontrak, laporan bulanan, audit, batas pengaturan mitra)",
@@ -895,6 +898,25 @@ export const PARAM_REGISTRY = {
       unit: "%",
       reference: "US-P3-05 KP-4",
       description: "Skor mutu bulanan per outlet = gabungan berbobot; bobot ditetapkan pemilik (jumlah bobot dinormalisasi).",
+    },
+  }),
+  "p3.economics_illustration": defineParam({
+    schema: z
+      .object({
+        /** Ilustrasi pendapatan EQUA per mitra per bulan (BRD 9.7) — pembanding ekonomi kemitraan (US-P3-06 KP-3). */
+        water_per_month: rupiah,
+        spare_part_per_month: rupiah,
+        subscription_per_month: rupiah,
+        royalty_per_month: rupiah,
+      })
+      .strict(),
+    affectedRoles: ["owner"],
+    fallback: { water_per_month: 3_420_000, spare_part_per_month: 500_000, subscription_per_month: 150_000, royalty_per_month: 0 },
+    meta: {
+      name: "Ilustrasi ekonomi kemitraan per mitra per bulan (BRD 9.7)",
+      unit: "Rp/bulan",
+      reference: "US-P3-06 KP-3, BRD 9.7",
+      description: "Pendapatan EQUA yang diharapkan per mitra per bulan (air, spare part, langganan, royalti) sebagai pembanding angka nyata di dashboard ekonomi kemitraan.",
     },
   }),
 } as const satisfies Record<string, ParamDef>;
