@@ -16,6 +16,7 @@ import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, ne, 
 import { z } from "zod";
 
 import {
+  approvalRequests,
   customerAddresses,
   customerCreditHistory,
   customers,
@@ -33,6 +34,7 @@ import { isValidLatLng } from "@/lib/geo";
 import { enumValues, label, type CustomerSegment } from "@/lib/labels";
 import { addDays, daysBetween, toBusinessDate, type BusinessDate } from "@/lib/time";
 
+import * as approvals from "@/server/core/approvals";
 import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
@@ -373,7 +375,14 @@ const updateCustomerSchema = z.object({
 });
 export type UpdateCustomerInput = z.input<typeof updateCustomerSchema>;
 
-export type UpdateCustomerResult = { status: "updated"; customer: CustomerRow } | { status: "duplicates"; candidates: DuplicateCandidate[] };
+export type UpdateCustomerResult =
+  | {
+      status: "updated";
+      customer: CustomerRow;
+      /** US-M1-01 KP-4: segmen berubah untuk pelanggan bertempo → batas lama tetap; batas bawaan segmen baru diajukan ke pemilik. */
+      creditTermsApproval?: { id: string; number: string; creditLimit: number } | null;
+    }
+  | { status: "duplicates"; candidates: DuplicateCandidate[] };
 
 /** Ubah data pelanggan (bukan status kredit/batas/tempo — itu lewat persetujuan pemilik). */
 export async function updateCustomer(ctx: ActorContext, customerId: string, input: UpdateCustomerInput, opts: { tx?: Tx } = {}): Promise<UpdateCustomerResult> {
@@ -396,6 +405,8 @@ export async function updateCustomer(ctx: ActorContext, customerId: string, inpu
       if (candidates.length) return { status: "duplicates", candidates };
     }
     const patch: Partial<typeof customers.$inferInsert> = {};
+    let proposedLimit: number | null = null;
+    let proposedTermDays = 0;
     if (data.name !== undefined) patch.name = data.name;
     if (data.waPhone !== undefined) patch.waPhone = data.waPhone;
     if (data.contactName !== undefined) patch.contactName = data.contactName;
@@ -410,7 +421,14 @@ export async function updateCustomer(ctx: ActorContext, customerId: string, inpu
         throw new DomainError("HOUSEHOLD_CASH_ONLY", "Segmen rumah tangga tidak dapat memakai tagihan bulanan (BR-04).");
       }
       patch.segment = data.segment;
-      if (!before.creditLimitOverridden || terms.cashOnly) patch.creditLimit = terms.creditLimit;
+      // US-M1-01 KP-4 / BR-04: batas kredit pelanggan bertempo hanya diubah pemilik dengan alasan — perubahan segmen
+      // oleh Dispatcher TIDAK mengubah batas; batas bawaan segmen baru diajukan sebagai `credit_terms_change`.
+      if (before.creditStatus === "cash") {
+        if (!before.creditLimitOverridden || terms.cashOnly) patch.creditLimit = terms.creditLimit;
+      } else if (!before.creditLimitOverridden && terms.creditLimit !== before.creditLimit) {
+        proposedLimit = terms.creditLimit;
+        proposedTermDays = terms.paymentTermDays;
+      }
     }
     if (Object.keys(patch).length === 0) return { status: "updated", customer: before };
     const [after] = await tx.update(customers).set(patch).where(eq(customers.id, customerId)).returning();
@@ -421,10 +439,40 @@ export async function updateCustomer(ctx: ActorContext, customerId: string, inpu
       action: before.isInitialData ? "correct" : "update",
       before: pick(before, Object.keys(patch)),
       after: pick(after!, Object.keys(patch)),
-      reason: data.correctionReason ?? null,
-      rule: before.isInitialData ? "US-M1-06 KP-3" : null,
+      reason: [data.correctionReason, proposedLimit !== null ? `Batas kredit tetap ${before.creditLimit}; batas segmen baru ${proposedLimit} diajukan ke pemilik (US-M1-01 KP-4).` : null].filter(Boolean).join(" ") || null,
+      rule: before.isInitialData ? "US-M1-06 KP-3" : proposedLimit !== null ? "US-M1-01 KP-4" : null,
     });
-    return { status: "updated", customer: after! };
+    let creditTermsApproval: { id: string; number: string; creditLimit: number } | null = null;
+    if (proposedLimit !== null && can(ctx, "m1.customer.request_credit_terms")) {
+      const open = await tx
+        .select({ id: approvalRequests.id })
+        .from(approvalRequests)
+        .where(and(eq(approvalRequests.type, "credit_terms_change"), eq(approvalRequests.objectType, "customer"), eq(approvalRequests.objectId, customerId), eq(approvalRequests.status, "submitted")))
+        .limit(1);
+      if (!open[0]) {
+        const req = await approvals.submit(
+          ctx,
+          {
+            type: "credit_terms_change",
+            objectType: "customer",
+            objectId: customerId,
+            amount: proposedLimit,
+            reason: `Segmen berubah ${label("customer_segment", before.segment)} → ${label("customer_segment", after!.segment)}: usulan batas bawaan segmen baru.`,
+            payload: {
+              customerName: after!.name,
+              creditLimitBefore: before.creditLimit,
+              creditLimit: proposedLimit,
+              paymentTermDaysBefore: before.paymentTermDays,
+              paymentTermDays: before.paymentTermDays ?? proposedTermDays,
+              link: `/master/pelanggan/${customerId}`,
+            },
+          },
+          { tx },
+        );
+        creditTermsApproval = { id: req.id, number: req.number, creditLimit: proposedLimit };
+      }
+    }
+    return { status: "updated", customer: after!, creditTermsApproval };
   });
 }
 

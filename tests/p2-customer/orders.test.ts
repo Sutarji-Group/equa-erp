@@ -12,7 +12,8 @@ import * as p2 from "@/server/modules/p2-customer";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
 import { useTestDb } from "../helpers/db";
-import { at, dispatcher, emitEvent, enableApp, finance, linkedCustomer, owner, setTrip, T0, TODAY, TOMORROW } from "./helpers";
+import { truckWithCrew } from "../m2-orders/helpers";
+import { at, dispatcher, enableApp, finance, linkedCustomer, owner, setTrip, T0, TODAY, TOMORROW } from "./helpers";
 
 async function firstAddress(cctx: p2.CustomerContext) {
   const [a] = await p2.listMyAddresses(cctx);
@@ -183,8 +184,13 @@ describe("P2 Pesanan mandiri (US-P2-02)", () => {
   it("US-P2-02 KP-4 Dispatcher menjadwalkan di papan (Terjadwal) → pesanan aplikasi Dikonfirmasi otomatis + notifikasi", async () => {
     const a = await linkedCustomer(t.db);
     const addr = await firstAddress(a.cctx);
-    const placed = await p2.placeOrder(a.cctx, { addressId: addr.id, tankCount: 1, date: addDays(TODAY, 7), slot: "afternoon", paymentMethod: "cash" });
-    await emitEvent("order.status_changed", { orderId: placed.orderId, number: placed.number, customerId: a.customer.id, from: "new", to: "scheduled" }, { now: at(0.5) });
+    const date = addDays(TODAY, 7);
+    const placed = await p2.placeOrder(a.cctx, { addressId: addr.id, tankCount: 1, date, slot: "afternoon", paymentMethod: "cash" });
+    // Integrasi nyata M2 → P2 (tanpa memancarkan event manual): tugaskan & terbitkan jadwal → `order.status_changed` Terjadwal.
+    const truck = await truckWithCrew(t.db);
+    const [trip] = await t.db.select().from(trips).where(eq(trips.orderId, placed.orderId));
+    await m2.assignTrip(dispatcher(at(0.5)), { tripId: trip!.id, truckId: truck.id, date });
+    await m2.publishSchedule(dispatcher(at(0.5)), { truckId: truck.id, date });
     const [app] = await t.db.select().from(customerAppOrders).where(eq(customerAppOrders.orderId, placed.orderId));
     expect(app!.confirmedAt).not.toBeNull();
     expect((await p2.listMyNotifications(a.cctx)).filter((n) => n.kind === "order_confirmed")).toHaveLength(1);
