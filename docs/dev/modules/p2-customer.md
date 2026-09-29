@@ -158,9 +158,14 @@ harian yang sudah dibayar di muka → aplikasi sopir dapat menampilkan "sudah di
 ## 8. Isu terbuka / tindak lanjut modul lain
 1. **M2**: `createOrder` belum menerima `source`/`slot` → `order.created` terpancar dengan `source: office`; P2
    memperbarui kolom setelahnya. Usul: parameter `source`/`slot` di M2.
-2. **M11**: pastikan pembayaran digital tidak terjurnal dobel (`collection.recorded` kanal digital + transfer masuk M4
-   dari `digital_payment.succeeded`); biaya gerbang (`gatewayFee`) sebagai beban; `wa_message_costs` masuk laporan biaya
-   bulanan.
+2. **M11 — jurnal dobel pembayaran digital (TERKONFIRMASI saat cek akhir)**: satu pembayaran Berhasil memancarkan
+   `collection.recorded` (kanal/cara `digital`) DAN `digital_payment.succeeded`. M11 menjurnal keduanya dengan pemetaan
+   yang sama (`collection.recorded`/`transfer` dan `digital_payment.succeeded`/`default`, keduanya D 1-1301 / K 1-1401,
+   `src/db/seed/accounting.ts`) → piutang terkredit dua kali. Usul perbaikan di M11 (`auto-journals.ts` `digitalPayment()`):
+   bila `customerPaymentId` terisi, jurnal HANYA `gateway_fee` (pelunasan & uang muka sudah dari `collection.recorded`).
+   M4 (`onCollectionRecorded`) sudah benar melewati kanal `digital`. Catatan M4: transfer masuk dibuat sebesar nilai
+   bruto, sedangkan settlement gerbang = bruto − `gatewayFee` → pencocokan perlu memperhitungkan biaya gerbang.
+   `wa_message_costs` masuk laporan biaya bulanan M11 (NFR-29).
 3. **M3/M5**: tampilkan "sudah dibayar di muka" di aplikasi sopir memakai pull `p2.prepaid_trips` / cara bayar
    `digital`; rit `digital` tidak ditagih tunai dan tidak menjadi faktur kurang bayar.
 4. **M9**: tampilkan `ratingAggregates` & `complaintReport` di kinerja sopir/truk (US-M9-05).

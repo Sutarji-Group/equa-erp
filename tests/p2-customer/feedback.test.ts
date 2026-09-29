@@ -111,7 +111,7 @@ describe("P2 Penilaian & keluhan (US-P2-06)", () => {
     const { a, trip } = await completedDelivery(t.db, 5);
     const [inv] = await t.db
       .insert(invoices)
-      .values({ tenantId: EQUA_TENANT_ID, number: `F-26-7${Date.now() % 100000}`, kind: "delivery", customerId: a.customer.id, tripId: trip.id, issueDate: TODAY, dueDate: addDays(TODAY, 14), amount: 300_000, outstandingAmount: 300_000, status: "open" })
+      .values({ tenantId: EQUA_TENANT_ID, number: "F-26-790001", kind: "delivery", customerId: a.customer.id, tripId: trip.id, issueDate: TODAY, dueDate: addDays(TODAY, 14), amount: 300_000, outstandingAmount: 300_000, status: "open" })
       .returning();
     const c = await p2.submitComplaint(a.cctx, { kind: "volume", description: "Air yang masuk tandon hanya sekitar 4.000 liter", tripId: trip.id });
     const detail = await p2.getComplaint(dispatcher(), c.id);

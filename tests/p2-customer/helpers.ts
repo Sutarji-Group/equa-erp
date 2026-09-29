@@ -41,10 +41,10 @@ export async function enableApp(): Promise<void> {
 }
 
 let phoneSeq = 0;
-/** Nomor WA unik 62813… (berbeda dari fixture pelanggan 62812…). */
+/** Nomor WA unik & deterministik 62819… (berbeda dari fixture 62812… dan seed 62813…; tanpa jam dinding, D-10). */
 export function uniquePhone(): string {
   phoneSeq++;
-  return `62813${String(Date.now() % 1_000_000).padStart(6, "0")}${String(phoneSeq).padStart(2, "0")}`.slice(0, 13);
+  return `62819${String(phoneSeq).padStart(8, "0")}`;
 }
 
 /** Masuk lewat OTP; mengembalikan konteks pelanggan dari sesi. */
