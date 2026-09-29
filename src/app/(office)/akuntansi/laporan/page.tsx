@@ -161,6 +161,21 @@ export default async function StatementsPage({ searchParams }: { searchParams: S
                   <TableCell />
                   <TableCell />
                 </TableRow>
+                {pl.consolidated.markupRealized || pl.consolidated.markupUnrealized ? (
+                  <TableRow data-testid="eliminasi-markup">
+                    <TableCell>
+                      Eliminasi markup harga mitra (transfer toko → depot)
+                      <span className="block text-xs text-muted-foreground">Masih di persediaan depot: {formatRupiah(pl.consolidated.markupUnrealized)} (dieliminasi di neraca)</span>
+                    </TableCell>
+                    {CENTERS.map((c) => (
+                      <TableCell key={c} />
+                    ))}
+                    <TableCell />
+                    <TableCell className="text-right">
+                      <Amount value={pl.consolidated.markupRealized} />
+                    </TableCell>
+                  </TableRow>
+                ) : null}
                 <TableRow>
                   <TableCell className="font-semibold">Laba (rugi) bersih</TableCell>
                   {CENTERS.map((c) => (

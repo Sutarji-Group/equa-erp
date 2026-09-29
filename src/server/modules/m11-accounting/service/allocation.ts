@@ -2,6 +2,8 @@
  * M11 — alokasi biaya bulanan (US-M11-01 KP-3/KP-5):
  * - L1 (produksi air) = pusat biaya → dialokasikan ke L2 (air truk) & L3 (depot) menurut proporsi volume pengisian
  *   bulan itu (PAR-65 `fill_volume_monthly`, M8 `fillTotalsByDay`: pengisian pelanggan → L2, pasokan depot → L3).
+ *   Bagian L3 dipecah PER OUTLET DEPOT menurut volume pasokan (diisi di sumber) tiap depot bulan itu (M8
+ *   `supplyRows`/`summarizeSupply`) — "L3 depot per outlet" US-M11-01 KP-1 (B-56).
  * - Biaya bersama (SHARED) → dialokasikan ke lini menurut kunci pemilik (`m11.shared_cost_allocation`: omzet atau
  *   persentase tetap) atau dibiarkan di pusat biaya bersama.
  * Jurnal alokasi memakai akun khusus dari pemetaan `m11.allocation` sehingga tampil TERPISAH pada laba rugi per lini.
@@ -20,7 +22,7 @@ import { getDb, type Tx } from "@/server/core/db";
 import { DomainError, parseInput } from "@/server/core/errors";
 import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
-import { fillTotalsByDay } from "@/server/modules/m8-production";
+import { fillTotalsByDay, summarizeSupply, supplyRows } from "@/server/modules/m8-production";
 
 import { LINE_PROFIT_CENTERS } from "../constants";
 import { insertJournal, isOpenStatus, loadPeriod, mappingAccounts, type PeriodRow } from "./common";
@@ -75,6 +77,8 @@ export type AllocationPreview = {
   basis: Record<string, unknown>;
   total: number;
   shares: Record<string, number>;
+  /** B-56: bagian L3 per outlet depot (volume pasokan). Kosong bila tidak ada pasokan per depot tercatat. */
+  l3ByOutlet: { outletId: string; code: string; name: string; liters: number; amount: number }[];
   required: boolean;
   posted: { id: string; journalId: string | null } | null;
   message: string | null;
@@ -105,13 +109,21 @@ export async function previewL1Allocation(tx: Tx, period: PeriodRow): Promise<Al
     depotL += f.depotL;
   }
   const shares = splitByWeights(total, { L2: Math.max(0, customerL), L3: Math.max(0, depotL) });
+  // B-56: bagian L3 dibagi per outlet depot menurut volume pasokan (diisi di sumber) bulan itu.
+  const supply = summarizeSupply(await supplyRows(tx, period.tenantId, { from: period.startDate, to: period.endDate }), "month").filter((s) => s.filledL > 0);
+  const l3Split = shares.L3 ? splitByWeights(shares.L3, Object.fromEntries(supply.map((s) => [s.outletId, s.filledL]))) : {};
+  const l3ByOutlet = supply
+    .filter((s) => (l3Split[s.outletId] ?? 0) !== 0)
+    .map((s) => ({ outletId: s.outletId, code: s.outletCode, name: s.outletName, liters: s.filledL, amount: l3Split[s.outletId]! }))
+    .sort((a, b) => a.code.localeCompare(b.code));
   const run = await postedRun(tx, period.id, "l1_allocation");
   return {
     kind: "l1_allocation",
     period: period.period,
-    basis: { rule: basis, customerL, depotL },
+    basis: { rule: basis, customerL, depotL, depotOutlets: l3ByOutlet.map((o) => ({ outletId: o.outletId, code: o.code, liters: o.liters, amount: o.amount })) },
     total,
     shares,
+    l3ByOutlet,
     required: total !== 0,
     posted: run ? { id: run.id, journalId: run.journalId } : null,
     message: !map ? "Pemetaan m11.allocation / l1_allocation belum ada." : total !== 0 && customerL + depotL <= 0 ? "Belum ada volume pengisian bulan ini — alokasi tidak dapat dihitung." : null,
@@ -140,6 +152,7 @@ export async function previewSharedAllocation(tx: Tx, period: PeriodRow): Promis
     basis: { rule: key.basis, weights },
     total,
     shares: splitByWeights(total, weights),
+    l3ByOutlet: [],
     required: key.basis !== "none" && total !== 0,
     posted: run ? { id: run.id, journalId: run.journalId } : null,
     message: key.basis === "none" ? "Kunci pemilik: biaya bersama dibiarkan di pusat biaya bersama." : !map ? "Pemetaan m11.allocation / shared_costs belum ada." : null,
@@ -168,10 +181,14 @@ export async function runCostAllocation(ctx: ActorContext, input: z.input<typeof
     if (preview.message) throw new DomainError("ALLOCATION_BLOCKED", preview.message);
     const map = await mappingAccounts(tx, ctx.tenantId, "m11.allocation", data.kind, period.endDate);
     const from: ProfitCenter = data.kind === "l1_allocation" ? "L1" : "SHARED";
+    const l3Total = preview.l3ByOutlet.reduce((s, o) => s + o.amount, 0);
+    const splitL3 = preview.l3ByOutlet.length > 0 && l3Total === (preview.shares.L3 ?? 0);
     const lines = [
       ...Object.entries(preview.shares)
-        .filter(([, v]) => v > 0)
+        .filter(([pc, v]) => v > 0 && !(pc === "L3" && splitL3))
         .map(([pc, v]) => ({ accountId: map.debitAccountId, profitCenter: pc as ProfitCenter, debit: v, memo: `Alokasi ${from} → ${pc}` })),
+      // B-56: L3 per outlet depot (dimensi outlet pada baris jurnal).
+      ...(splitL3 ? preview.l3ByOutlet.map((o) => ({ accountId: map.debitAccountId, profitCenter: "L3" as ProfitCenter, outletId: o.outletId, debit: o.amount, memo: `Alokasi ${from} → L3 ${o.code} (${o.liters.toLocaleString("id-ID")} L)` })) : []),
       { accountId: map.creditAccountId, profitCenter: from, credit: preview.total, memo: `Alokasi keluar ${from}` },
     ];
     const { journal } = await insertJournal(tx, {
