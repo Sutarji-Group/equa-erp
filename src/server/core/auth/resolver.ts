@@ -17,6 +17,7 @@ import { setActorResolver } from "../actor";
 import type { ActorContext } from "../context";
 import { getDb, type Tx } from "../db";
 import { buildActorContext } from "../actor";
+import { E2E_CLOCK_COOKIE, e2eNow, e2eRequestNow } from "../e2e-clock";
 import { ROLE_CATALOG } from "../rbac/roles";
 import { authenticateDevice } from "./device-auth";
 import { isAuthError } from "./errors";
@@ -46,14 +47,18 @@ export function isPending2fa(ctx: Pick<ActorContext, "roles">, session: Pick<Ses
   return !session.totpVerifiedAt && ctx.roles.some((r) => ROLE_CATALOG[r]?.requires2fa);
 }
 
-/** Pelaku web dari token sesi (null bila tidak berlaku / menunggu 2FA). */
-export async function webActorFromToken(token: string | null | undefined, options: { now?: Date; tx?: Tx } = {}): Promise<ActorContext | null> {
+/**
+ * Pelaku web dari token sesi (null bila tidak berlaku / menunggu 2FA). `actorNow` (tambahan S5 QA) = `ctx.now` pelaku
+ * bila berbeda dari jam validasi sesi — hanya dipakai jam tersuntik uji E2E (`../e2e-clock.ts`); sesi tetap divalidasi
+ * dengan jam nyata.
+ */
+export async function webActorFromToken(token: string | null | undefined, options: { now?: Date; tx?: Tx; actorNow?: Date } = {}): Promise<ActorContext | null> {
   if (!token) return null;
   const tx = options.tx ?? getDb();
   const now = options.now ?? new Date();
   const v = await validateSession(tx, token, { kind: "web", now });
   if (!v.ok) return null;
-  const ctx = await buildActorContext(tx, v.user.id, { source: "web", now });
+  const ctx = await buildActorContext(tx, v.user.id, { source: "web", now: options.actorNow ?? now });
   if (isPending2fa(ctx, v.session)) return null;
   // B-08: kata sandi sementara wajib diganti dulu — API web menolak pelaku sampai diganti (halaman /akun/kata-sandi).
   const [pw] = await tx.select({ must: users.mustChangePassword }).from(users).where(eq(users.id, v.user.id)).limit(1);
@@ -69,17 +74,20 @@ export async function resolveActor(request?: Request): Promise<ActorContext | nu
         const auth = await authenticateDevice(request, { requireSession: true });
         return buildFieldActorContext(getDb(), auth.device, auth.user!.id, { now: auth.now });
       }
-      return webActorFromToken(readCookie(request.headers.get("cookie"), SESSION_COOKIE));
+      return webActorFromToken(readCookie(request.headers.get("cookie"), SESSION_COOKIE), { actorNow: e2eRequestNow(request) });
     }
     let token: string | null = null;
+    let clock: string | null = null;
     try {
       const { cookies } = await import("next/headers");
-      token = (await cookies()).get(SESSION_COOKIE)?.value ?? null;
+      const jar = await cookies();
+      token = jar.get(SESSION_COOKIE)?.value ?? null;
+      clock = jar.get(E2E_CLOCK_COOKIE)?.value ?? null;
     } catch {
       // Di luar konteks permintaan Next (skrip/uji) → tanpa pelaku.
       return null;
     }
-    return webActorFromToken(token);
+    return webActorFromToken(token, { actorNow: e2eNow(clock) });
   } catch (error) {
     if (isAuthError(error)) return null;
     throw error;

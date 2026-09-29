@@ -11,14 +11,14 @@ import { journalPayables, journals, notifications, suppliers } from "@/db/schema
 import { addDays, daysBetween, toBusinessDate, type BusinessDate } from "@/lib/time";
 
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
-import { getDb, withTx, type Tx } from "@/server/core/db";
+import { getDb, type Tx } from "@/server/core/db";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize } from "@/server/core/rbac";
 import { payableRows } from "@/server/modules/m7-store";
 
 import { accountBalanceAt } from "./statements";
-import { isAccountingTenant, mappingAccounts } from "./common";
+import { inJobTx, isAccountingTenant, mappingAccounts } from "./common";
 import { monthOf } from "@/lib/time";
 
 export type AgingBucket = "not_due" | "d1_7" | "d8_30" | "over_30";
@@ -162,5 +162,5 @@ export async function runJournalPayableReminders(now: Date, opts: { db?: Tx } = 
     }
     return sent;
   };
-  return opts.db ? run(opts.db) : withTx(run);
+  return inJobTx(opts.db, run);
 }

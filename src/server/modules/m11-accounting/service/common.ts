@@ -13,7 +13,7 @@ import { formatRupiah } from "@/lib/money";
 import { addDays, firstDayOfMonth, isBusinessDate, lastDayOfMonth, monthOf, type BusinessDate } from "@/lib/time";
 
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
-import type { Tx } from "@/server/core/db";
+import { isTransaction, withTx, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError } from "@/server/core/errors";
 import { isEnabled } from "@/server/core/flags";
 import { resolveMapping, resolvePostingPeriod } from "@/server/core/ledger";
@@ -361,4 +361,14 @@ export async function listPeriodRows(tx: Tx, tenantId: string, opts: { from?: st
 
 export function dayBefore(date: BusinessDate): BusinessDate {
   return addDays(date, -1);
+}
+
+/**
+ * Jalankan pekerjaan terjadwal M11 dalam SATU transaksi. `db` dari runner job (`/api/cron/tick`, `runJobNow`) adalah
+ * koneksi biasa, bukan transaksi: tanpa pembungkus ini setiap perintah ter-COMMIT sendiri sehingga kepala jurnal
+ * terposting diperiksa seimbang (EQ004) sebelum barisnya disisipkan dan job gagal (mis. pembalik akrual tanggal 1,
+ * penyusutan bulanan, proses ulang daftar tunggu). Transaksi yang sudah terbuka dipakai langsung.
+ */
+export function inJobTx<T>(db: Tx | undefined, run: (tx: Tx) => Promise<T>): Promise<T> {
+  return db && isTransaction(db) ? run(db) : withTx(run, { db });
 }

@@ -68,6 +68,15 @@ export const serverEnvSchema = z
       .transform((v) => v === "1" || v === "true"),
     /** Diisi Next.js (`phase-production-build` saat `next build`). */
     NEXT_PHASE: z.string().optional(),
+    /**
+     * Tambahan S5 QA (skenario E2E P-01..P-07): izinkan jam tersuntik KHUSUS uji E2E — cookie `equa_e2e_clock`
+     * (selisih ms untuk waktu pelaku kantor & perangkat lapangan) dan `/api/cron/tick?now=`. Hanya aktif bila juga
+     * ALLOW_DEV_SECRETS=1 dan BUKAN deploy Vercel production/preview (`e2eClockAllowed`). Lihat `src/server/core/e2e-clock.ts`.
+     */
+    E2E_CLOCK_OVERRIDE: z
+      .enum(["0", "1", "true", "false"])
+      .default("0")
+      .transform((v) => v === "1" || v === "true"),
   })
   .superRefine((env, ctx) => {
     const need = (key: keyof typeof env, when: string) =>
@@ -93,6 +102,10 @@ export const serverEnvSchema = z
     }
     if (env.VERCEL_ENV === "production" && env.ALLOW_DEV_SECRETS) {
       ctx.addIssue({ code: "custom", path: ["ALLOW_DEV_SECRETS"], message: "ALLOW_DEV_SECRETS tidak boleh aktif di produksi." });
+    }
+    // Tambahan S5 QA: jam tersuntik E2E tidak boleh dinyalakan di deploy Vercel (fail-closed, bukan diabaikan diam-diam).
+    if ((env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") && env.E2E_CLOCK_OVERRIDE) {
+      ctx.addIssue({ code: "custom", path: ["E2E_CLOCK_OVERRIDE"], message: "E2E_CLOCK_OVERRIDE hanya untuk uji E2E lokal — tidak boleh aktif di deploy Vercel." });
     }
     // Fail-closed: produksi (NODE_ENV=production saat berjalan, termasuk self-host) & deploy Vercel production/preview
     // menolak rahasia bawaan dev yang tertulis di repo. Pengecualian eksplisit hanya ALLOW_DEV_SECRETS=1 (E2E lokal).
@@ -121,6 +134,16 @@ export function isProductionLike(env: Omit<EnvFlags, "ALLOW_DEV_SECRETS">): bool
 export function devSecretsAllowed(env: EnvFlags): boolean {
   if (!isProductionLike(env)) return true;
   return env.ALLOW_DEV_SECRETS && env.VERCEL_ENV !== "production";
+}
+
+/**
+ * Tambahan S5 QA: jam tersuntik khusus E2E boleh dipakai. WAJIB ketiganya: `E2E_CLOCK_OVERRIDE=1`, `ALLOW_DEV_SECRETS=1`
+ * (dua pilihan eksplisit terpisah), dan bukan deploy Vercel production/preview. Bawaan (termasuk produksi & self-host
+ * tanpa kedua flag) = mati; nilai cookie/kueri diabaikan.
+ */
+export function e2eClockAllowed(env: Pick<ServerEnv, "VERCEL_ENV" | "ALLOW_DEV_SECRETS" | "E2E_CLOCK_OVERRIDE">): boolean {
+  if (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") return false;
+  return env.E2E_CLOCK_OVERRIDE === true && env.ALLOW_DEV_SECRETS === true;
 }
 
 /** Urai env dari objek apa pun (string kosong dianggap tidak diisi). Melempar galat berbahasa Indonesia. */

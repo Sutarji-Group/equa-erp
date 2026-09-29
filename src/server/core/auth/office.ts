@@ -29,6 +29,7 @@ import { buildActorContext } from "../actor";
 import { ensureBootstrapped } from "../bootstrap";
 import type { ActorContext } from "../context";
 import { getDb } from "../db";
+import { E2E_CLOCK_COOKIE, e2eNow } from "../e2e-clock";
 import { can, recordDenial, permissionDenied } from "../rbac/authorize";
 import { permissionsForRoles } from "../rbac/matrix";
 import { requestIp } from "./device-auth";
@@ -89,13 +90,15 @@ async function officeUser(userId: string, roles: RoleCode[]): Promise<OfficeUser
 export const getOfficeSession = cache(async (): Promise<OfficeSessionState> => {
   // Registri modul (laporan, handler sinkron, label/objek keuangan audit) harus terisi sebelum halaman kantor membacanya.
   ensureBootstrapped();
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value;
   const db = getDb();
   const v = await validateSession(db, token, { kind: "web" });
   if (!v.ok) return { state: "none", reason: v.reason };
   let ctx: ActorContext;
   try {
-    ctx = await buildActorContext(db, v.user.id, { source: "web" });
+    // Tambahan S5 QA: `ctx.now` mengikuti jam tersuntik uji E2E bila diizinkan (../e2e-clock.ts); selain itu jam nyata.
+    ctx = await buildActorContext(db, v.user.id, { source: "web", now: e2eNow(jar.get(E2E_CLOCK_COOKIE)?.value) });
   } catch {
     return { state: "none", reason: "user_inactive" };
   }

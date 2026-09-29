@@ -13,10 +13,10 @@ import "server-only";
 import { journalQueue } from "@/db/schema";
 import { toBusinessDate } from "@/lib/time";
 
-import { withTx } from "@/server/core/db";
 import { registerJob } from "@/server/core/jobs";
 
 import { runMonthlyDepreciation } from "./service/assets";
+import { inJobTx } from "./service/common";
 import { runAccrualReversals, runRecurringDrafts } from "./service/manual";
 import { runJournalPayableReminders } from "./service/payables";
 import { runPeriodReminders } from "./service/periods";
@@ -71,7 +71,7 @@ export function registerJobs(): void {
         for (const { tenantId } of tenants) posted += (await retryPendingQueue(tx, tenantId, { today: toBusinessDate(now) })).posted;
         return posted;
       };
-      return db ? run(db) : withTx(run);
+      return inJobTx(db, run);
     },
   });
 }

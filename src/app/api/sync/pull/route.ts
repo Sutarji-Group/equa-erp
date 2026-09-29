@@ -15,6 +15,6 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     return okJson(await processPull(auth, { since: url.searchParams.get("since"), keys: url.searchParams.get("keys") }));
   } catch (error) {
-    return apiErrorResponse(error);
+    return apiErrorResponse(error, request);
   }
 }

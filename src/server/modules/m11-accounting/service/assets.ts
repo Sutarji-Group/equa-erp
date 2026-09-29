@@ -21,14 +21,14 @@ import { isBusinessDate, monthOf, toBusinessDate, type BusinessDate } from "@/li
 import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core/context";
 import { emit } from "@/server/core/events";
-import { getDb, withTx, type Tx } from "@/server/core/db";
+import { getDb, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
 
 import { ASSET_CATEGORY_ACCOUNT, ASSET_CATEGORY_PROFIT_CENTER } from "../constants";
-import { accountsByCode, currentCutover, ensurePeriod, insertJournal, isAccountingTenant, isOpenStatus, mappingAccounts, periodEnd, shiftPeriod, type PeriodRow, type PostedLineInput } from "./common";
+import { accountsByCode, currentCutover, ensurePeriod, inJobTx, insertJournal, isAccountingTenant, isOpenStatus, mappingAccounts, periodEnd, shiftPeriod, type PeriodRow, type PostedLineInput } from "./common";
 import { parseAmount, parseDateText, parseTable, pick } from "./import-parse";
 
 export type AssetRow = typeof fixedAssets.$inferSelect;
@@ -208,7 +208,7 @@ export async function runMonthlyDepreciation(now: Date, opts: { db?: Tx } = {}):
     }
     return n;
   };
-  return opts.db ? run(opts.db) : withTx(run);
+  return inJobTx(opts.db, run);
 }
 
 // --- Daftar & rincian -------------------------------------------------------------------------------------------------

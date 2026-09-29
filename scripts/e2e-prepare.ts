@@ -1,7 +1,8 @@
 /**
  * `pnpm e2e:prepare` — siapkan DB PGlite khusus E2E (bawaan `.data/pglite-e2e`): hapus, dorong skema + trigger
- * pengerasan, isi data demo, lalu terbitkan kode aktivasi perangkat demo (HP-T1 = ponsel truk T1) agar skenario
- * aktivasi → PIN → offline dapat dijalankan Playwright. Menolak berjalan pada direktori yang tidak memuat "e2e".
+ * pengerasan, isi data demo + data awal skenario lintas modul (`src/db/seed/e2e-scenarios.ts`), lalu terbitkan kode
+ * aktivasi perangkat demo (HP-T1 = ponsel truk T1) agar skenario aktivasi → PIN → offline dapat dijalankan Playwright.
+ * Menolak berjalan pada direktori yang tidak memuat "e2e".
  */
 import { rmSync } from "node:fs";
 
@@ -13,6 +14,7 @@ import { applyDbHardening } from "@/db/hardening";
 import * as schema from "@/db/schema";
 import { devices } from "@/db/schema";
 import { deviceId, runSeed } from "@/db/seed";
+import { seedE2eScenarioData } from "@/db/seed/e2e-scenarios";
 import { hashCode } from "@/server/core/auth/crypto";
 
 /** Kode aktivasi perangkat demo E2E (HP-T1). */
@@ -30,6 +32,8 @@ async function main(): Promise<void> {
   await result.apply();
   await applyDbHardening(db);
   await runSeed(db);
+  // Data awal khusus skenario lintas modul (e2e/scenarios, docs/qa/skenario-uji.md) — tidak ada di seed dev/demo.
+  await seedE2eScenarioData(db);
   await db
     .update(devices)
     .set({

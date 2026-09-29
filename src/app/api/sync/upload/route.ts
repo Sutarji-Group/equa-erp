@@ -18,6 +18,6 @@ export async function POST(request: Request) {
     }
     return okJson(await processUpload(auth, form));
   } catch (error) {
-    return apiErrorResponse(error);
+    return apiErrorResponse(error, request);
   }
 }

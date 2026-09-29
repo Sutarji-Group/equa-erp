@@ -30,7 +30,7 @@ import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, authorizeAny, runService } from "@/server/core/rbac";
 
-import { isAccountingTenant, isPeriodLabel, periodEnd, shiftPeriod } from "./common";
+import { inJobTx, isAccountingTenant, isPeriodLabel, periodEnd, shiftPeriod } from "./common";
 import { computeTrialBalance } from "./statements";
 
 const LINES: ProfitCenter[] = ["L1", "L2", "L3", "L4", "L5"];
@@ -255,7 +255,7 @@ export async function runPkpMonitor(now: Date, opts: { db?: Tx } = {}): Promise<
     }
     return sent;
   };
-  return opts.db ? run(opts.db) : withTx(run);
+  return inJobTx(opts.db, run);
 }
 
 // =====================================================================================================================

@@ -14,6 +14,6 @@ export async function POST(request: Request) {
     const auth = await authenticateDevice(request);
     return okJson(await processPush(auth, await readJson(request)));
   } catch (error) {
-    return apiErrorResponse(error);
+    return apiErrorResponse(error, request);
   }
 }

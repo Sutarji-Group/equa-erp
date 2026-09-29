@@ -4,16 +4,20 @@
  */
 import "server-only";
 
+import { e2eRequestNow } from "../e2e-clock";
 import { errorResponse, ValidationError } from "../errors";
 import { AuthError } from "./errors";
 
 const SAFE_DETAIL_KEYS = ["wipe", "lockedUntil", "attemptsLeft"] as const;
 
-/** Seperti `errorResponse`, ditambah detail aman dari `AuthError`. */
-export function apiErrorResponse(error: unknown): Response {
+/**
+ * Seperti `errorResponse`, ditambah detail aman dari `AuthError`. `request` (opsional, tambahan S5 QA) agar `serverTime`
+ * mengikuti jam tersuntik uji E2E yang sama dengan `authenticateDevice` (../e2e-clock.ts).
+ */
+export function apiErrorResponse(error: unknown, request?: { headers: Headers }): Response {
   if (error instanceof AuthError) {
     // `serverTime` agar klien dapat mengoreksi selisih jam walau permintaannya ditolak (mis. token kedaluwarsa).
-    const body: Record<string, unknown> = { ok: false, code: error.code, message: error.message, serverTime: new Date().toISOString() };
+    const body: Record<string, unknown> = { ok: false, code: error.code, message: error.message, serverTime: e2eRequestNow(request).toISOString() };
     for (const key of SAFE_DETAIL_KEYS) {
       if (error.details && key in error.details) body[key] = error.details[key];
     }

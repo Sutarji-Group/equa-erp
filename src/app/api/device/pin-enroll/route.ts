@@ -14,6 +14,6 @@ export async function POST(request: Request) {
     const result = await enrollPin(auth, { code: String(body?.code ?? ""), pin: String(body?.pin ?? "") });
     return okJson({ ok: true, ...result });
   } catch (error) {
-    return apiErrorResponse(error);
+    return apiErrorResponse(error, request);
   }
 }

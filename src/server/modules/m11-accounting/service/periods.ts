@@ -31,7 +31,7 @@ import { authorize, runService } from "@/server/core/rbac";
 
 import { previewL1Allocation, previewSharedAllocation } from "./allocation";
 import { depreciationPending, postDepreciationFor } from "./assets";
-import { currentCutover, ensurePeriod, isAccountingTenant, isOpenStatus, listPeriodRows, loadPeriod, shiftPeriod, type PeriodRow } from "./common";
+import { currentCutover, ensurePeriod, inJobTx, isAccountingTenant, isOpenStatus, listPeriodRows, loadPeriod, shiftPeriod, type PeriodRow } from "./common";
 import { openingPosted } from "./opening";
 import { pendingQueueCount } from "./queue";
 import { reconciliationOverviewTx } from "./reconciliation";
@@ -354,7 +354,7 @@ export async function runPeriodReminders(now: Date, opts: { db?: Tx } = {}): Pro
     }
     return sent;
   };
-  return opts.db ? run(opts.db) : withTx(run);
+  return inJobTx(opts.db, run);
 }
 
 /** Dasar sistem untuk handler persetujuan (ctx penyetuju) — dipakai `approvals.ts`. */

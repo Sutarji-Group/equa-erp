@@ -189,3 +189,19 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
   + `trip_correction`.
 - **Nav (B-34)**: `m3.corrections` → `/sopir-kantor/koreksi` (izin `m3.trip.correct`).
 
+
+## QA skenario lintas modul P-01..P-07 — tambahan inti (hanya tambah, dilaporkan)
+
+- **Jam tersuntik E2E** `src/server/core/e2e-clock.ts` (BARU, `server-only`): `E2E_CLOCK_COOKIE` (`equa_e2e_clock` =
+  selisih ms), `e2eClockOffset`, `e2eNow(raw, env?)`, `e2eRequestNow(request, env?)`, `e2eCronNow(param, env?)`,
+  `E2eClockDisabledError` (400), batas 400 hari. Aktif HANYA bila `e2eClockAllowed(env)` (`src/lib/env.ts`):
+  `E2E_CLOCK_OVERRIDE=1` + `ALLOW_DEV_SECRETS=1` + `VERCEL_ENV` bukan production/preview; `serverEnv()` menolak
+  `E2E_CLOCK_OVERRIDE` di deploy Vercel. Tanpa izin cookie diabaikan (jam nyata) dan `?now=` → 400.
+- Pemakai (perubahan kecil berkas bersama, perilaku produksi tidak berubah): `getOfficeSession` & `resolveActor`/
+  `webActorFromToken({ actorNow })` → `ctx.now` kantor (validasi sesi tetap jam nyata); `authenticateDevice` →
+  `auth.now` perangkat (JWT/sesi/sinkron konsisten); `apiErrorResponse(error, request?)` → `serverTime`; 9 rute
+  `/api/sync/*` & `/api/device/*` meneruskan `request`; `/api/cron/tick?now=<ISO>`.
+- `playwright.config.ts`: proyek `scenarios` (terakhir, 15 menit/uji) + `E2E_CLOCK_OVERRIDE=1` di `webServer.env`;
+  `.env.example` mendokumentasikan variabelnya. Uji: `tests/core/e2e-clock.test.ts` (NFR-09 tidak aktif di produksi).
+- Data awal skenario: `src/db/seed/e2e-scenarios.ts` (`seedE2eScenarioData`, pelanggan Tempo PLG-0951) — HANYA dari
+  `pnpm e2e:prepare`, tidak termasuk `runSeed`. Rincian suite: `docs/qa/skenario-uji.md`.

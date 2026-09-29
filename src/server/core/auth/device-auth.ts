@@ -23,6 +23,7 @@ import { logAccess } from "../access-log";
 import { record as auditRecord } from "../audit";
 import { getDb, withTx, type Tx } from "../db";
 import { notify } from "../notifications/service";
+import { e2eRequestNow } from "../e2e-clock";
 import { deviceSecretFromRecord, deviceSecretKeyBytes } from "./crypto";
 import { deviceActorContext, logDeviceUsage, type DeviceRow } from "./devices";
 import { AuthError } from "./errors";
@@ -185,7 +186,8 @@ async function loadSessionFor(tx: Tx, device: DeviceRow, claims: DeviceTokenClai
 
 /** Verifikasi permintaan perangkat. Melempar `AuthError` (lihat keterangan berkas). */
 export async function authenticateDevice(request: DeviceRequestLike, options: AuthenticateDeviceOptions = {}): Promise<DeviceAuth> {
-  const now = options.now ?? new Date();
+  // Tambahan S5 QA: jam tersuntik uji E2E (cookie `equa_e2e_clock`, ../e2e-clock.ts) bila diizinkan; selain itu jam nyata.
+  const now = options.now ?? e2eRequestNow(request);
   const headers = request.headers;
   const ip = requestIp(headers);
   const userAgent = headers.get("user-agent")?.slice(0, 500) ?? null;

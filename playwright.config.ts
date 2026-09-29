@@ -30,7 +30,7 @@ export default defineConfig({
     {
       // Web kantor & portal (desktop).
       name: "chromium",
-      testIgnore: /\.mobile\.spec\.ts$/,
+      testIgnore: [/\.mobile\.spec\.ts$/, /scenarios\//],
       use: {
         ...devices["Desktop Chrome"],
         launchOptions: executablePath ? { executablePath } : {},
@@ -42,6 +42,19 @@ export default defineConfig({
       testMatch: /\.mobile\.spec\.ts$/,
       use: {
         ...devices["Pixel 7"],
+        launchOptions: executablePath ? { executablePath } : {},
+      },
+    },
+    {
+      // Skenario lintas modul BRD Bab 5 P-01..P-07 (docs/qa/skenario-uji.md): satu hari operasi di atas data yang sama,
+      // web kantor (desktop) + aplikasi lapangan/POS (konteks ponsel/tablet dibuat di dalam uji). Didaftarkan TERAKHIR
+      // agar berjalan setelah spesifikasi modul (workers = 1) dan menutup kas/buku atas seluruh transaksi hari itu.
+      name: "scenarios",
+      testMatch: /scenarios\/.*\.spec\.ts$/,
+      timeout: 15 * 60_000,
+      use: {
+        ...devices["Desktop Chrome"],
+        actionTimeout: 20_000,
         launchOptions: executablePath ? { executablePath } : {},
       },
     },
@@ -60,6 +73,9 @@ export default defineConfig({
         env: {
           // `next start` = NODE_ENV production → rahasia bawaan dev & TOTP seed `plain:` hanya dengan izin eksplisit.
           ALLOW_DEV_SECRETS: "1",
+          // Jam tersuntik KHUSUS E2E (cookie `equa_e2e_clock`, `/api/cron/tick?now=`) — skenario P-01/P-05/P-07
+          // (src/server/core/e2e-clock.ts). Tidak berlaku tanpa ALLOW_DEV_SECRETS & tidak pernah di deploy Vercel.
+          E2E_CLOCK_OVERRIDE: "1",
           DB_DRIVER: process.env.DB_DRIVER ?? "pglite",
           PGLITE_DATA_DIR: process.env.PGLITE_DATA_DIR ?? "./.data/pglite-e2e",
         },

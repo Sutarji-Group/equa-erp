@@ -24,7 +24,7 @@ import * as approvals from "@/server/core/approvals";
 import type { ApprovalRow } from "@/server/core/approvals";
 import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core/context";
-import { getDb, withTx, type Tx } from "@/server/core/db";
+import { getDb, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
@@ -38,6 +38,7 @@ import {
   assertBalancedLines,
   assertPostableAccounts,
   existingReversal,
+  inJobTx,
   insertJournal,
   loadJournal,
   loadLines,
@@ -577,7 +578,7 @@ export async function runRecurringDrafts(now: Date, opts: { db?: Tx } = {}): Pro
     for (const { tenantId } of tenants) n += (await generateRecurringDraftsFor(tx, tenantId, monthOf(toBusinessDate(now)), systemContext({ tenantId, now }))).length;
     return n;
   };
-  return opts.db ? run(opts.db) : withTx(run);
+  return inJobTx(opts.db, run);
 }
 
 // --- Akrual (P-07 langkah 3) ----------------------------------------------------------------------------------------
@@ -613,7 +614,7 @@ export async function runAccrualReversals(now: Date, opts: { db?: Tx } = {}): Pr
     }
     return n;
   };
-  return opts.db ? run(opts.db) : withTx(run);
+  return inJobTx(opts.db, run);
 }
 
 // --- Template & gaji -------------------------------------------------------------------------------------------------

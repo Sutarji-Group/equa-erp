@@ -11,6 +11,6 @@ export async function GET(request: Request) {
     const users = await listDeviceUsers(getDb(), auth.device, auth.now);
     return okJson({ ok: true, users, serverTime: auth.now.toISOString() });
   } catch (error) {
-    return apiErrorResponse(error);
+    return apiErrorResponse(error, request);
   }
 }

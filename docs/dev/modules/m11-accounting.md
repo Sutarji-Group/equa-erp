@@ -85,6 +85,9 @@ periode), `opening_balance_adjustment` (objek `opening_adjustment_journal`).
 `m11.depreciation.monthly` (tgl 1 01.30), `m11.accrual.reverse` (00.30), `m11.recurring.drafts` (06.00),
 `m11.pkp.monitor` (06.40), `m11.period.reminders` (07.15; PAR-71 & terlambat > PAR-23), `m11.payable.reminders` (07.20),
 `m11.queue.retry` (05.00). Semua idempoten (groupKey notifikasi / cek entri).
+Runner job (`/api/cron/tick`, `runJobNow`) meneruskan koneksi BIASA: setiap fungsi job M11 membuka transaksinya sendiri
+lewat `inJobTx(db, run)` (`service/common.ts`) — tanpa itu kepala jurnal terposting ter-COMMIT sebelum barisnya dan
+ditolak EQ004 (temuan QA skenario P-07; regresi `tests/m11-accounting/jobs-runner.test.ts`).
 
 ## 6. Laporan ekspor (`reports.ts`, `/api/export/<kunci>`)
 `m11.accounts`, `m11.mappings`, `m11.journals`, `m11.journal_queue`, `m11.ledger`, `m11.trial_balance`,

@@ -22,6 +22,6 @@ export async function GET(request: Request) {
       updateRequired: !!auth.appVersion && compareVersions(auth.appVersion, minVersion) < 0,
     });
   } catch (error) {
-    return apiErrorResponse(error);
+    return apiErrorResponse(error, request);
   }
 }
