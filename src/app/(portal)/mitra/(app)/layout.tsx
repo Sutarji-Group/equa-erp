@@ -1,4 +1,5 @@
 import { LogOut } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { PortalNav, type PortalNavItem } from "@/components/p3-partner/portal-nav";
@@ -49,6 +50,9 @@ export default async function PortalLayout({ children }: { children: ReactNode }
           {tenant.readOnly ? <ToneBadge tone="warning">Mode baca-saja</ToneBadge> : null}
           {!tenant.isActive ? <ToneBadge tone="muted">Kemitraan berakhir</ToneBadge> : null}
           <span className="hidden text-sm text-muted-foreground sm:inline">{user.name}</span>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/akun/kata-sandi">Ubah kata sandi</Link>
+          </Button>
           <form action="/mitra/keluar" method="post">
             <Button type="submit" variant="outline" size="sm">
               <LogOut aria-hidden /> Keluar

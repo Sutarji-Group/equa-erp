@@ -93,6 +93,29 @@ test.describe.serial("Aplikasi sopir — layar kantor (M3)", () => {
     expect(res.status()).toBe(200);
   });
 
+  test("B-34 US-M3-10 KP-2 FR-M3-07 Admin Keuangan mengoreksi volume rit Selesai beralasan di layar Koreksi rit; pembayaran asal tetap tampil", async ({ page }) => {
+    test.setTimeout(120_000);
+    const doneNo = `P-${wibToday().slice(2, 4)}-900203/1`;
+    await login(page, "keuangan1");
+    await page.goto(`/sopir-kantor/koreksi?rit=${encodeURIComponent(doneNo)}`);
+    await expect(page.getByRole("heading", { level: 1, name: "Koreksi rit" })).toBeVisible();
+    await expect(page.getByTestId("koreksi-rit-status")).toContainText("Selesai");
+    const form = page.getByTestId("form-koreksi-rit");
+    // Alasan terlalu singkat ditolak dengan pesan berisi tindakan.
+    await form.getByLabel("Volume terkirim (liter)").fill("4500");
+    await form.getByLabel("Alasan koreksi").fill("salah");
+    await form.getByRole("button", { name: "Simpan koreksi" }).click();
+    await expect(form.getByRole("alert")).toContainText(/alasan/i);
+    await form.getByLabel("Volume terkirim (liter)").fill("4500");
+    await form.getByLabel("Alasan koreksi").fill("Volume terkirim sebenarnya 4.500 L sesuai nota pelanggan");
+    await form.getByRole("button", { name: "Simpan koreksi" }).click();
+    await expect(page.getByText("Koreksi rit tersimpan.").first()).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("4.500 L")).toBeVisible();
+    // Pembayaran tunai asal tetap tampil (tidak dihapus) dengan tindakan pembalik.
+    await expect(page.getByRole("row").filter({ hasText: "Tunai" }).first()).toContainText("Berlaku");
+  });
+
   test("US-M3-06 KP-3 Dispatcher melihat kendala sopir dan mengonfirmasinya dengan catatan", async ({ page }) => {
     await login(page, "dispatcher1");
     await page.goto("/sopir-kantor/kendala");

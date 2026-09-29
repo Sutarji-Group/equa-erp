@@ -142,21 +142,35 @@ export const linkProvider: WhatsAppProvider = {
 };
 
 /**
- * Tahap 2 (US-P2-08): WhatsApp Cloud API (Meta). Mengirim pesan teks; bila gagal, kembalikan tautan cadangan
- * (NFR-20: alur tetap berjalan). Template resmi Meta dipetakan saat Tahap 2 diaktifkan.
+ * Tahap 2 (US-P2-08): WhatsApp Cloud API (Meta). Dengan `templateName` → pesan TEMPLATE resmi Meta (bahasa `id`,
+ * `variables` berurutan sebagai parameter body); tanpa `templateName` → pesan teks. Bila gagal, kembalikan tautan
+ * cadangan (NFR-20: alur tetap berjalan). Dipakai bersama semua modul lewat `getWhatsAppProvider()` (B-69).
  */
-export function cloudApiProvider(config: { token: string; phoneNumberId: string; fetchImpl?: typeof fetch }): WhatsAppProvider {
+export function cloudApiProvider(config: { token: string; phoneNumberId: string; fetchImpl?: typeof fetch; apiVersion?: string }): WhatsAppProvider {
   const doFetch = config.fetchImpl ?? fetch;
+  const version = config.apiVersion ?? "v21.0";
   return {
     kind: "cloud_api",
     async send(request) {
       const to = assertWaNumber(request.to);
       const fallbackLink = buildWaLink(to, request.text);
+      const payload = request.templateName
+        ? {
+            messaging_product: "whatsapp",
+            to,
+            type: "template",
+            template: {
+              name: request.templateName,
+              language: { code: "id" },
+              components: [{ type: "body", parameters: Object.values(request.variables ?? {}).map((v) => ({ type: "text", text: String(v ?? "") })) }],
+            },
+          }
+        : { messaging_product: "whatsapp", to, type: "text", text: { body: request.text } };
       try {
-        const res = await doFetch(`https://graph.facebook.com/v21.0/${config.phoneNumberId}/messages`, {
+        const res = await doFetch(`https://graph.facebook.com/${version}/${config.phoneNumberId}/messages`, {
           method: "POST",
           headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ messaging_product: "whatsapp", to, type: "text", text: { body: request.text } }),
+          body: JSON.stringify(payload),
         });
         const body = (await res.json().catch(() => ({}))) as { messages?: { id: string }[]; error?: { message?: string } };
         if (!res.ok || !body.messages?.[0]?.id) {
@@ -180,4 +194,10 @@ export function getWhatsAppProvider(): WhatsAppProvider {
     return cloudApiProvider({ token: env.WA_CLOUD_TOKEN, phoneNumberId: env.WA_CLOUD_PHONE_ID });
   }
   return linkProvider;
+}
+
+/** Rahasia webhook WhatsApp Cloud API dari env bersama tervalidasi (B-69): verifikasi langganan & tanda tangan Meta. */
+export function waWebhookSecrets(): { verifyToken: string | null; appSecret: string | null } {
+  const env = serverEnv();
+  return { verifyToken: env.WA_WEBHOOK_VERIFY_TOKEN ?? null, appSecret: env.WA_APP_SECRET ?? null };
 }

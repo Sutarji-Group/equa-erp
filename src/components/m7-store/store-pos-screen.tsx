@@ -1,8 +1,10 @@
 "use client";
 
-import { ClipboardList, History, Lightbulb, Package, PackagePlus, ShoppingCart } from "lucide-react";
+import { ClipboardList, History, LifeBuoy, Lightbulb, Package, PackagePlus, ShoppingCart } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import type { StoreCartPrefill } from "@/client/m7-store/contract";
+import { PosHelpView } from "@/components/m6-pos/help-view";
 import { HistoryView } from "@/components/m6-pos/history-view";
 import { usePos } from "@/components/m6-pos/pos-context";
 import { CloseShiftForm, OpenShiftView, PartialDepositForm, ShiftSales } from "@/components/m6-pos/shift-view";
@@ -12,13 +14,14 @@ import { formatRupiah } from "@/lib/money";
 import { formatTanggal } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
+import { PartnerOrdersPanel, usePendingPartnerOrders } from "./partner-orders-panel";
 import { StoreProvider, useStore } from "./store-context";
 import { StoreProposalsView } from "./store-proposals-view";
 import { StoreReceiveView } from "./store-receive-view";
 import { StoreReceiptView, StoreSaleView, type SavedStoreSale } from "./store-sale-view";
 import { StoreStockView } from "./store-stock-view";
 
-type View = "jual" | "shift" | "terima" | "stok" | "usulan" | "riwayat";
+type View = "jual" | "shift" | "terima" | "stok" | "usulan" | "riwayat" | "bantuan";
 
 const NAV: { view: View; label: string; icon: typeof ShoppingCart }[] = [
   { view: "jual", label: "Jual", icon: ShoppingCart },
@@ -27,6 +30,8 @@ const NAV: { view: View; label: string; icon: typeof ShoppingCart }[] = [
   { view: "stok", label: "Stok & opname", icon: Package },
   { view: "usulan", label: "Usulan", icon: Lightbulb },
   { view: "riwayat", label: "Riwayat", icon: History },
+  // B-03 (US-M10-07 KP-3): laporan kendala aplikasi & status sinkron (sama dengan POS depot).
+  { view: "bantuan", label: "Bantuan", icon: LifeBuoy },
 ];
 
 function StoreScreen() {
@@ -34,6 +39,9 @@ function StoreScreen() {
   const { store } = useStore();
   const [view, setView] = useState<View>("jual");
   const [lastSale, setLastSale] = useState<SavedStoreSale | null>(null);
+  // B-73: keranjang terisi dari pesanan spare part portal mitra (`p3.store_partner_orders`).
+  const [prefill, setPrefill] = useState<StoreCartPrefill | null>(null);
+  const partnerOrders = usePendingPartnerOrders();
   const sync = session.sync;
   const pendingApprovals = (store?.recentSales ?? []).filter((s) => s.status === "pending_approval").length;
 
@@ -53,6 +61,11 @@ function StoreScreen() {
           <n.icon className="size-5" aria-hidden />
           {n.label}
           {n.view === "stok" && store?.reorder.length ? <span className="rounded-full bg-warning px-2 text-sm text-warning-foreground">{store.reorder.length}</span> : null}
+          {n.view === "jual" && partnerOrders.length ? (
+            <span className="rounded-full bg-warning px-2 text-sm text-warning-foreground" aria-label={`${partnerOrders.length} pesanan mitra menunggu`}>
+              {partnerOrders.length}
+            </span>
+          ) : null}
         </button>
       ))}
     </nav>
@@ -63,6 +76,7 @@ function StoreScreen() {
   else if (view === "stok") body = <StoreStockView />;
   else if (view === "usulan") body = <StoreProposalsView />;
   else if (view === "riwayat") body = <HistoryView />;
+  else if (view === "bantuan") body = <PosHelpView />;
   else if (!shift) body = <OpenShiftView />;
   else if (view === "shift") {
     body = (
@@ -95,7 +109,28 @@ function StoreScreen() {
           </Banner>
         ) : null}
         {pendingApprovals ? <Banner tone="warning">{pendingApprovals} transaksi menunggu persetujuan pemilik (diskon/tempo). Barang diserahkan setelah disetujui.</Banner> : null}
-        {lastSale ? <StoreReceiptView sale={lastSale} onDone={() => setLastSale(null)} /> : <StoreSaleView blocked={stale} onSaved={setLastSale} />}
+        {lastSale ? null : (
+          <PartnerOrdersPanel
+            disabled={!!stale}
+            onUse={(p) => {
+              setPrefill(p);
+              window.scrollTo({ top: 0 });
+            }}
+          />
+        )}
+        {lastSale ? (
+          <StoreReceiptView sale={lastSale} onDone={() => setLastSale(null)} />
+        ) : (
+          <StoreSaleView
+            key={prefill?.key ?? "baru"}
+            prefill={prefill}
+            blocked={stale}
+            onSaved={(sale) => {
+              setPrefill(null);
+              setLastSale(sale);
+            }}
+          />
+        )}
       </div>
     );
   }

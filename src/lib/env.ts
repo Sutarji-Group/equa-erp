@@ -43,6 +43,10 @@ export const serverEnvSchema = z
     WA_PROVIDER: z.enum(["link", "cloud_api"]).default("link"),
     WA_CLOUD_TOKEN: optionalString,
     WA_CLOUD_PHONE_ID: optionalString,
+    /** Tambahan S5 (B-69): token verifikasi langganan webhook Meta (`hub.verify_token`). */
+    WA_WEBHOOK_VERIFY_TOKEN: optionalString,
+    /** Tambahan S5 (B-69): rahasia aplikasi Meta untuk tanda tangan webhook `X-Hub-Signature-256`. */
+    WA_APP_SECRET: optionalString,
 
     PAYMENT_GATEWAY: z.enum(["none", "midtrans"]).default("none"),
     MIDTRANS_SERVER_KEY: optionalString,
@@ -73,6 +77,11 @@ export const serverEnvSchema = z
     if (env.WA_PROVIDER === "cloud_api") {
       if (!env.WA_CLOUD_TOKEN) need("WA_CLOUD_TOKEN", "WA_PROVIDER=cloud_api");
       if (!env.WA_CLOUD_PHONE_ID) need("WA_CLOUD_PHONE_ID", "WA_PROVIDER=cloud_api");
+    }
+    // B-69: webhook status Cloud API di produksi wajib bertanda tangan (tanpa rahasia → webhook ditolak, fail-closed).
+    if (env.WA_PROVIDER === "cloud_api" && !devSecretsAllowed(env)) {
+      if (!env.WA_APP_SECRET) need("WA_APP_SECRET", "WA_PROVIDER=cloud_api di produksi/preview");
+      if (!env.WA_WEBHOOK_VERIFY_TOKEN) need("WA_WEBHOOK_VERIFY_TOKEN", "WA_PROVIDER=cloud_api di produksi/preview");
     }
     if (env.PAYMENT_GATEWAY === "midtrans" && !env.MIDTRANS_SERVER_KEY) {
       need("MIDTRANS_SERVER_KEY", "PAYMENT_GATEWAY=midtrans");

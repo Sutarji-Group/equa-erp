@@ -57,7 +57,8 @@ export { detectTruckTravel, detectionEnabledFor, runTravelDetection } from "./se
 export type { DetectionTruckResult } from "./service/detection";
 
 // --- Geofence (US-M12-06) --------------------------------------------------------------------------------------------
-export { checkFillGeofence, geofenceFlagsFor, processTruckGeofences, runGeofenceProcessing } from "./service/geofence";
+export { checkFillGeofence, geofenceFlagsFor, geofenceFlagsForSourceDay, processTruckGeofences, runGeofenceProcessing } from "./service/geofence";
+export type { SourceDayGeofenceFlag } from "./service/geofence";
 
 // --- BBM & zona (US-M12-07) ------------------------------------------------------------------------------------------
 export { fuelMonthly, runZoneCheckMonthly, upsertFuelEstimate, zoneCheck, zoneCheckRows } from "./service/fuel";

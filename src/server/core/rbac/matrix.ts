@@ -13,7 +13,7 @@
  */
 import { label, type RoleCode } from "@/lib/labels";
 
-import { CONDITIONAL_GRANTS, MODULE_LABELS, PERMISSIONS, type PermissionDef } from "./permissions";
+import { CONDITIONAL_GRANTS, MODULE_LABELS, PERMISSIONS, type ConditionalGrantCondition, type PermissionDef } from "./permissions";
 import { ALL_ROLES, ROLE_CATALOG } from "./roles";
 
 function buildMatrix(): Record<RoleCode, ReadonlySet<string>> {
@@ -44,8 +44,8 @@ export function rolesHavePermission(roles: readonly RoleCode[], permission: stri
   return roles.some((r) => roleHasPermission(r, permission));
 }
 
-/** Izin bersyarat yang berlaku untuk peran (mis. kernet pengganti). */
-export function conditionalGrant(role: RoleCode, permission: string): "substitute_driver" | null {
+/** Izin bersyarat yang berlaku untuk peran (mis. kernet pengganti, portal mitra Tahap 3). */
+export function conditionalGrant(role: RoleCode, permission: string): ConditionalGrantCondition | null {
   for (const g of CONDITIONAL_GRANTS) {
     if (g.role === role && g.permissions.includes(permission)) return g.condition;
   }

@@ -17,6 +17,7 @@ import { record as auditRecord } from "@/server/core/audit";
 import { systemContext, type ActorContext } from "@/server/core/context";
 import { DomainError, ValidationError, parseInput } from "@/server/core/errors";
 import { evaluateCreditOrder } from "@/server/modules/m2-orders";
+import { prepaidTrips } from "@/server/modules/p2-customer";
 
 import type { paymentSchema } from "../schemas";
 import { fieldCreditSchema } from "../schemas";
@@ -35,7 +36,8 @@ import {
 export type TripPaymentRow = typeof tripPayments.$inferSelect;
 
 export type ResolvedPayment = {
-  method: "cash" | "transfer" | "credit";
+  /** `digital` = dibayar di muka lewat aplikasi pelanggan (B-65); sopir tidak menagih. */
+  method: "cash" | "transfer" | "credit" | "digital";
   expected: number;
   received: number;
   underpayment: number;
@@ -45,6 +47,9 @@ export type ResolvedPayment = {
   transferProofAttachmentId: string | null;
   /** Permintaan tempo tidak disetujui / luring → dicatat kurang bayar (US-M3-04 KP-4). */
   convertedToUnderpayment: boolean;
+  /** B-65: uang muka pembayaran digital yang diakui untuk rit ini (hanya `method: "digital"`). */
+  prepaidAmount?: number;
+  prepaidReference?: string | null;
 };
 
 type PaymentInput = z.output<typeof paymentSchema>;
@@ -67,7 +72,15 @@ export async function resolvePayment(ctx: ActorContext, tc: TripContext, input: 
   const { trip } = tc;
   const price = trip.price;
   const orderMethod = trip.paymentMethod as "cash" | "transfer" | "credit";
-  if (input.method === "none") throw new DomainError("PAYMENT_REQUIRED", "Pembayaran wajib dicatat sebelum rit Selesai (tunai, transfer, atau tempo).");
+  if (input.method === "none") {
+    throw new DomainError(
+      "PAYMENT_REQUIRED",
+      trip.paymentMethod === "digital"
+        ? "Rit ini sudah dibayar di muka: pilih \"Sudah dibayar\" sebelum menyimpan Selesai."
+        : "Pembayaran wajib dicatat sebelum rit Selesai (tunai, transfer, atau tempo).",
+    );
+  }
+  if (input.method === "prepaid") return resolvePrepaid(tc, meta);
   const tooMuch = (what: string) =>
     ValidationError.field("payment", `${what} lebih besar dari harga rit ${formatRupiah(price)} tidak dapat dicatat — berikan kembalian di lapangan.`);
 
@@ -151,6 +164,42 @@ export async function resolvePayment(ctx: ActorContext, tc: TripContext, input: 
     approvalId: approval?.id ?? null,
     transferProofAttachmentId: null,
     convertedToUnderpayment: true,
+  };
+}
+
+/**
+ * B-65 (US-P2-04 KP-4, D-11 butir 4): rit yang SUDAH DIBAYAR DI MUKA lewat pembayaran digital aplikasi pelanggan
+ * (`trips.payment_method = digital`, pembayaran P2 Berhasil). Sopir tidak menagih; pembayaran rit dicatat `digital`
+ * sebesar uang muka yang diakui (≤ harga). Sisa harga (bila pembayaran di muka kurang) menjadi kurang bayar (PTB-18).
+ * Pendapatan diakui terhadap uang muka pelanggan oleh M5/M11 dari `trip.completed.prepaidAmount` (kontrak hand-off M3).
+ */
+async function resolvePrepaid(tc: TripContext, meta: M3WriteMeta): Promise<ResolvedPayment> {
+  const { trip } = tc;
+  if (trip.paymentMethod !== "digital") {
+    throw new DomainError("TRIP_NOT_PREPAID", `Rit ${trip.number} belum dibayar di muka. Catat tunai, transfer, atau tempo.`);
+  }
+  const paid = await prepaidTrips(meta.tx, [trip.id]);
+  const total = paid.reduce((s, p) => s + p.paidAmount, 0);
+  if (total <= 0) {
+    throw new DomainError(
+      "PREPAID_NOT_FOUND",
+      `Pembayaran di muka rit ${trip.number} belum tercatat berhasil. Minta pelanggan menunjukkan bukti bayar di aplikasi, lalu catat tunai/transfer atau hubungi Admin Keuangan.`,
+    );
+  }
+  const applied = Math.min(trip.price, total);
+  const under = trip.price - applied;
+  return {
+    method: "digital",
+    expected: trip.price,
+    received: applied,
+    underpayment: under,
+    underpaymentReason: under > 0 ? `prepaid_short: pembayaran di muka ${formatRupiah(applied)} kurang dari harga rit ${formatRupiah(trip.price)}` : null,
+    originalMethod: null,
+    approvalId: null,
+    transferProofAttachmentId: null,
+    convertedToUnderpayment: false,
+    prepaidAmount: applied,
+    prepaidReference: paid.map((p) => p.reference).filter(Boolean).join(", ") || null,
   };
 }
 

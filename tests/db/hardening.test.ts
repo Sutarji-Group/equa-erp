@@ -24,6 +24,7 @@ import {
   accountingPeriods,
   customerAdvances,
   customerPayments,
+  dailySummaries,
   employees,
   invoices,
   journalLines,
@@ -655,5 +656,35 @@ describe("pengerasan: idempotensi & pembantu", () => {
     }
     expect(hardeningViolationCode({ code: "23505" })).toBeUndefined();
     expect(hardeningViolationCode(new Error("x"))).toBeUndefined();
+  });
+});
+
+describe("B-59 ringkasan H+0 terbit terkunci di DB (EQ003)", () => {
+  it("B-59 US-M9-01 KP-6 snapshot & cap waktu H+0 terbit tidak dapat diubah; tinjauan pemilik boleh; H+0 berjalan bebas", async () => {
+    const [draft] = await t.db
+      .insert(dailySummaries)
+      .values({ tenantId: EQUA_TENANT_ID, businessDate: "2031-01-02", status: "running", snapshot: { omzet: 1 } })
+      .returning({ id: dailySummaries.id });
+    // Belum terbit: layanan M9 boleh mengisi snapshot & menerbitkan.
+    await t.db
+      .update(dailySummaries)
+      .set({ snapshot: { omzet: 2 }, status: "published", publishedAt: new Date("2031-01-02T15:10:00Z"), cashClosedAt: new Date("2031-01-02T15:00:00Z") })
+      .where(eq(dailySummaries.id, draft!.id));
+    await expectSqlState(
+      t.db.update(dailySummaries).set({ snapshot: { omzet: 999 } }).where(eq(dailySummaries.id, draft!.id)),
+      SQLSTATE_IMMUTABLE,
+      "pembalik",
+    );
+    await expectSqlState(t.db.update(dailySummaries).set({ publishedLate: true }).where(eq(dailySummaries.id, draft!.id)), SQLSTATE_IMMUTABLE);
+    await expectSqlState(t.db.update(dailySummaries).set({ publishedAt: new Date("2031-01-04T00:00:00Z") }).where(eq(dailySummaries.id, draft!.id)), SQLSTATE_IMMUTABLE);
+    // Alur sah setelah terbit: tinjauan pemilik.
+    await t.db
+      .update(dailySummaries)
+      .set({ status: "reviewed", reviewedBy: userIdByUsername("pemilik"), reviewedAt: new Date("2031-01-03T01:00:00Z") })
+      .where(eq(dailySummaries.id, draft!.id));
+    const [row] = await t.db.select().from(dailySummaries).where(eq(dailySummaries.id, draft!.id));
+    expect(row!.snapshot).toEqual({ omzet: 2 });
+    expect(row!.status).toBe("reviewed");
+    await expectSqlState(t.db.update(dailySummaries).set({ snapshot: {} }).where(eq(dailySummaries.id, draft!.id)), SQLSTATE_IMMUTABLE);
   });
 });

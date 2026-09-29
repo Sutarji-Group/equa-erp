@@ -1,15 +1,17 @@
 "use client";
 
-import { ClipboardList, Droplets, History, Package, ShoppingCart } from "lucide-react";
+import { ClipboardList, Droplets, History, LifeBuoy, Package, ShoppingCart } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import type { PosSaleRef } from "@/client/m6-pos/contract";
 import { FieldGate } from "@/components/field/field-gate";
+import { PosQualityChecklist } from "@/components/p3-partner/pos-quality-checklist";
 import { PosShell } from "@/components/pos/pos-shell";
 import { formatRupiah } from "@/lib/money";
 import { formatTanggal } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
+import { PosHelpView } from "./help-view";
 import { HistoryView } from "./history-view";
 import { PosProvider, usePos } from "./pos-context";
 import { ReceiptView, SaleView, type SaleDraft } from "./sale-view";
@@ -17,7 +19,7 @@ import { CloseShiftForm, OpenShiftView, PartialDepositForm, ShiftSales } from ".
 import { StockView, SupplyView } from "./stock-view";
 import { Banner } from "./ui";
 
-type View = "jual" | "shift" | "pasokan" | "stok" | "riwayat";
+type View = "jual" | "shift" | "pasokan" | "stok" | "riwayat" | "bantuan";
 
 const NAV: { view: View; label: string; icon: typeof ShoppingCart }[] = [
   { view: "jual", label: "Jual", icon: ShoppingCart },
@@ -25,6 +27,8 @@ const NAV: { view: View; label: string; icon: typeof ShoppingCart }[] = [
   { view: "pasokan", label: "Pasokan air", icon: Droplets },
   { view: "stok", label: "Stok bahan", icon: Package },
   { view: "riwayat", label: "Riwayat", icon: History },
+  // B-03 (US-M10-07 KP-3): laporan kendala aplikasi & status sinkron.
+  { view: "bantuan", label: "Bantuan", icon: LifeBuoy },
 ];
 
 /** Layar POS depot (diekspor untuk pemilih mode outlet M7: toko memakai layarnya sendiri di dalam PosProvider yang sama). */
@@ -67,11 +71,21 @@ export function PosScreen() {
     body = <StockView />;
   } else if (view === "riwayat") {
     body = <HistoryView />;
+  } else if (view === "bantuan") {
+    body = <PosHelpView />;
   } else if (!shift) {
-    body = <OpenShiftView />;
+    // B-72 (US-P3-05 KP-1): daftar periksa mutu harian outlet mitra diisi saat buka shift — tampil bersama layar buka
+    // shift (menu Jual & Shift); komponen menyembunyikan diri untuk outlet EQUA / flag Tahap 3 mati.
+    body = (
+      <div className="flex flex-col gap-4">
+        <PosQualityChecklist shiftId={null} className="mx-auto w-full max-w-xl" />
+        <OpenShiftView />
+      </div>
+    );
   } else if (view === "shift") {
     body = (
       <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+        <PosQualityChecklist shiftId={shift.id} className="lg:col-span-2" />
         <div className="flex flex-col gap-4">
           <section className="rounded-2xl border-2 bg-card p-4">
             <h2 className="text-lg font-bold">Transaksi shift ini</h2>

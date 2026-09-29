@@ -38,6 +38,8 @@ export const paymentSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("cash"), cashReceived: rupiah, underpaymentReasonCode: reasonCode, underpaymentReasonText: optText(300) }),
   z.object({ method: z.literal("transfer"), transferAmount: rupiah, underpaymentReasonCode: reasonCode, underpaymentReasonText: optText(300) }),
   z.object({ method: z.literal("credit"), creditApprovalId: uuid.nullable().optional(), cashReceivedIfRejected: rupiah.optional() }),
+  // B-65 (US-P2-04 KP-4, D-11 butir 4): rit sudah dibayar di muka lewat aplikasi pelanggan — sopir tidak menagih.
+  z.object({ method: z.literal("prepaid") }),
 ]);
 
 export const completeSchema = z.object({
@@ -184,4 +186,22 @@ export const confirmIncidentSchema = z.object({
 
 export const dateFilterSchema = z.object({
   date: z.string().refine(isBusinessDate, { error: "Tanggal harus YYYY-MM-DD." }),
+});
+
+// --- Koreksi Admin Keuangan (tambahan S5, B-34; FR-M3-07, BR-38) ------------------------------------------------------
+
+export const correctTripSchema = z
+  .object({
+    tripId: uuid,
+    /** Harga rit baru (rupiah bulat). Kosong = tidak diubah. */
+    price: rupiah.nullable().optional(),
+    /** Volume terkirim baru (liter bulat). Kosong = tidak diubah. */
+    deliveredVolumeL: z.number({ error: "Volume harus angka." }).int({ error: "Volume harus liter bulat." }).min(0).max(100_000).nullable().optional(),
+    reason: text(500).min(10, { error: "Tulis alasan koreksi (minimal 10 karakter)." }),
+  })
+  .refine((v) => v.price != null || v.deliveredVolumeL != null, { error: "Isi harga atau volume yang dikoreksi.", path: ["price"] });
+
+export const reverseTripPaymentSchema = z.object({
+  tripPaymentId: uuid,
+  reason: text(500).min(10, { error: "Tulis alasan pembalik (minimal 10 karakter)." }),
 });

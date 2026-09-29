@@ -6,11 +6,14 @@
  * - Halaman lapangan: NetworkFirst (timeout 3 dtk) → tetap tampil tanpa sinyal.
  * - API (`/api/**`) dan halaman web kantor TIDAK pernah di-cache (data kantor tidak tertinggal di perangkat).
  * - Dokumen yang tidak tersedia offline → /~offline.
+ * - Web Push (B-68, PTB-05): event `push` menampilkan notifikasi (pelanggan aplikasi P2 & pengguna lapangan/kantor)
+ *   dari muatan `{ title, body, url, tag, severity }`; mengetuk notifikasi membuka/memfokuskan tautan asal yang sama.
  */
 import type { PrecacheEntry, RuntimeCaching, SerwistGlobalConfig } from "serwist";
 import { CacheFirst, ExpirationPlugin, NetworkFirst, NetworkOnly, Serwist, StaleWhileRevalidate } from "serwist";
 
 import { isFieldPath } from "../lib/field-routes";
+import { buildPushNotification, safeNotificationPath } from "../lib/push-notification";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -70,3 +73,36 @@ const serwist = new Serwist({
 });
 
 serwist.addEventListeners();
+
+// --- Web Push (B-68) -------------------------------------------------------------------------------------------------
+self.addEventListener("push", (event) => {
+  let raw: string | null = null;
+  try {
+    raw = event.data ? event.data.text() : null;
+  } catch {
+    raw = null;
+  }
+  const n = buildPushNotification(raw, self.location.origin);
+  event.waitUntil(self.registration.showNotification(n.title, n.options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = event.notification.data as { url?: unknown } | null;
+  const path = safeNotificationPath(data?.url, self.location.origin);
+  const target = new URL(path, self.location.origin).href;
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of windows) {
+        if (client.url === target) return client.focus();
+      }
+      const any = windows[0];
+      if (any) {
+        await any.focus();
+        return any.navigate(target);
+      }
+      return self.clients.openWindow(target);
+    })(),
+  );
+});

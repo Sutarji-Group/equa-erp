@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleHelp, Droplets, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun } from "lucide-react";
+import { CircleHelp, Droplets, KeyRound, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -146,6 +146,12 @@ function UserMenu({ user, signOutAction }: { user: OfficeShellUser; signOutActio
           <Link href="/pengaturan/notifikasi">
             <Settings aria-hidden />
             Pengaturan notifikasi
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/akun/kata-sandi">
+            <KeyRound aria-hidden />
+            Ubah kata sandi
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>

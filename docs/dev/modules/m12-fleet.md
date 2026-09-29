@@ -176,3 +176,17 @@ Integrasi M8 + M12: seed demo M8 memberi T4 rit kemarin (sumber SA2) sehingga je
 M12 tetap menambahkan perjalanan di luar jadwal 15.00 (pool → warung → pool, `offScheduleExcursion`) setelah rit terakhir
 agar jejak selaras dengan kejadian demo `off_schedule_trip` T4. Uji seed gabungan di `tests/integration/m8-m12.test.ts`
 (jejak T4, pengisian demo M8 tanpa penanda geofence, jejak hari ini tanpa kejadian).
+
+## 10. Pengerasan S5 (paket A)
+- **B-42 SELESAI**: `/akses/perangkat/[id]` (M10) menyematkan `GpsHealthCard` untuk perangkat GPS; job pemantauan M10 tidak
+  lagi membuat insiden/peringatan `gps.device_dead` (M12 pemilik tunggal; M10 hanya menghitung untuk ringkasan).
+- **B-45 SELESAI**: `geofenceFlagsForSourceDay(ctx, { sourceId, date })` (izin `m8.water_balance.read` atau
+  `m12.fleet_event.read`) untuk rincian neraca air M8.
+- **B-48 SELESAI**: M3 kini mengukur Tiba/Selesai rit internal terhadap koordinat depot tujuan (`deviationTarget`, pull
+  `m3.today` mengirim titik depot) → tingkat penyimpangan M3 = kejadian M12 (`location_deviation_l2`,
+  `details.targetKind = "depot"`); uji `tests/m3-driver/trips.test.ts` (B-48 US-M12-04 KP-5). `openExplanationTasks`
+  (M3) tetap berjendela hari ini & kemarin: BR-25 meminta keterangan "hari yang sama"; kemarin diberi sebagai kelonggaran
+  sinkron terlambat — tugas yang lebih lama tetap tampil ke pemilik (M9 H+0 / kotak masuk), bukan ke sopir.
+- **B-46** (peta komersial): keputusan D-10 butir 4 sudah tercermin — OSM + garis lurus × 1,3 bawaan, OSRM opsional lewat
+  `MAP_ROUTING_PROVIDER=osrm` + `MAP_ROUTING_URL` (`src/server/core/maps.ts`, `src/lib/env.ts`); tidak ada perubahan kode.
+

@@ -61,7 +61,7 @@ async function issueActivationCodeForT2(page: Page): Promise<string> {
 }
 
 test.describe("Aplikasi sopir (M3)", () => {
-  test("US-M3-01 KP-1 KP-7 US-M3-02 KP-1 US-M3-03 KP-1 KP-7 US-M3-04 KP-1 US-M3-07 KP-1 KP-2 US-M3-09 KP-1 KP-2 sopir: Berangkat → Tiba → Selesai (foto, tanda tangan, tunai) → struk → Setor tanpa sinyal → terkirim", async ({
+  test("B-33 US-M5-01 KP-3 US-M3-01 KP-1 KP-7 US-M3-02 KP-1 US-M3-03 KP-1 KP-7 US-M3-04 KP-1 US-M3-07 KP-1 KP-2 US-M3-09 KP-1 KP-2 sopir: Berangkat → Tiba → Selesai (foto, tanda tangan, tunai) → struk → Setor tanpa sinyal → terkirim", async ({
     page,
     context,
   }) => {
@@ -86,6 +86,15 @@ test.describe("Aplikasi sopir (M3)", () => {
     await expect(card).toBeVisible();
     await expect(list.locator("[data-testid^='rit-']").first()).toContainText("Perumahan Citra Cianjur Residence");
     await expect(list.locator("[data-testid^='rit-']").filter({ hasText: "Bapak Dadang Suhendar" })).toContainText("Selesai");
+
+    // B-33 (US-M5-01 KP-3): rincian rit menampilkan status kredit, saldo & eksposur pelanggan (pull M5, data sinkron).
+    await card.locator("[data-slot='field-list-item']").click();
+    const credit = page.getByTestId("kredit-pelanggan");
+    await expect(credit).toBeVisible({ timeout: 30_000 });
+    await expect(credit).toContainText("Status kredit");
+    await expect(credit).toContainText("Saldo piutang");
+    await page.getByRole("button", { name: "Kembali" }).click();
+    await expect(heading).toBeVisible();
 
     // KP-7: setiap tindakan ≤ 3 ketukan dari daftar — Berangkat (1), Tiba (1), Selesai & bayar (1) langsung di kartu.
     let taps = 0;

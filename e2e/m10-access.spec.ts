@@ -151,5 +151,43 @@ test.describe("M10 — Pengguna, hak akses & jejak audit", () => {
     await page.getByRole("link", { name: "HP-T4" }).click();
     await expect(page.getByRole("heading", { level: 1, name: /HP-T4/ })).toBeVisible();
     await expect(page.getByText("Riwayat pemakaian")).toBeVisible();
+    // B-42 (US-M12-08 KP-4): perangkat GPS menampilkan kartu kesehatan GPS dari M12.
+    await page.goto("/akses/perangkat?q=GPS-T1");
+    await page.getByRole("link", { name: "GPS-T1" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: /GPS-T1/ })).toBeVisible();
+    await expect(page.getByTestId("kesehatan-gps")).toBeVisible();
+    await expect(page.getByTestId("kesehatan-gps").getByText(/Kesehatan perangkat GPS/)).toBeVisible();
+  });
+
+  test("B-08 US-M10-02 KP-4 kata sandi sementara hasil reset wajib diganti saat masuk; halaman ubah kata sandi mandiri", async ({ page }) => {
+    await login(page, "admin1");
+    await page.goto("/akses/pengguna?q=dispatcher2");
+    await page.getByRole("link", { name: "Neng Siti Nurhasanah" }).click();
+    await page.getByText("Reset kata sandi").click();
+    await page.getByLabel("Alasan & cara verifikasi di luar sistem").fill("Lupa kata sandi, verifikasi tatap muka");
+    await page.getByRole("button", { name: "Buat kata sandi sementara" }).click();
+    const temp = (await page.getByTestId("kode-sekali").textContent())!.trim();
+    expect(temp.length).toBeGreaterThanOrEqual(10);
+    await logout(page);
+
+    await page.goto("/masuk");
+    await page.getByLabel("Nama pengguna").fill("dispatcher2");
+    await page.getByLabel("Kata sandi", { exact: true }).fill(temp);
+    await page.getByRole("button", { name: "Masuk", exact: true }).click();
+    await expect(page).toHaveURL(/\/akun\/kata-sandi\?wajib=1/);
+    await expect(page.getByTestId("wajib-ganti-sandi")).toBeVisible();
+    // Halaman kantor lain tetap dialihkan sampai kata sandi diganti.
+    await page.goto("/jadwal");
+    await expect(page).toHaveURL(/\/akun\/kata-sandi/);
+    await page.getByLabel("Kata sandi sementara").fill(temp);
+    await page.getByLabel("Kata sandi baru", { exact: true }).fill("dispatcher2-baru-2026");
+    await page.getByLabel("Ulangi kata sandi baru").fill("dispatcher2-baru-2026");
+    await page.getByRole("button", { name: "Simpan kata sandi baru" }).click();
+    await expect(page).toHaveURL(/\/beranda/);
+    // Ubah kata sandi mandiri (bukan paksaan): kolom "Kata sandi saat ini", tanpa pita wajib ganti.
+    await page.goto("/akun/kata-sandi");
+    await expect(page.getByText("Ubah kata sandi", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Kata sandi saat ini")).toBeVisible();
+    await expect(page.getByTestId("wajib-ganti-sandi")).toHaveCount(0);
   });
 });

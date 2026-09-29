@@ -29,6 +29,8 @@ export { recordDenial, logDenialIfNeeded };
 export type AuthorizeConditions = {
   /** Kernet ditetapkan sebagai pengemudi pengganti untuk truk & tanggal tindakan ini (US-M2-11). */
   substitute_driver?: boolean;
+  /** Tambahan S5 (B-71): Pemilik mitra di tenant mitranya & flag `phase3.partner_portal` aktif (D-11 butir 1). */
+  partner_portal_phase3?: boolean;
 };
 
 export type AuthorizeOptions = {

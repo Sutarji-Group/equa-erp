@@ -326,6 +326,10 @@ $$;
 --   sekali isi. Boleh berubah (alur pelunasan/sengketa/pengiriman): paid_amount, credited_amount, written_off_amount,
 --   outstanding_amount (CHECK konsisten), status, paid_at, due_date, dispute_*, pdf_attachment_id, sent_at, sent_via,
 --   pending_transfer_id, written_off_at, write_off_journal_id, write_off_approval_id, description, updated_at.
+-- daily_summaries (tambahan S5, B-59) — HANYA saat OLD.status <> 'running' (H+0 sudah terbit): terkunci tenant_id,
+--   business_date, snapshot, cash_day_id, cash_closed_at, published_at, published_late. Boleh berubah: status
+--   (Terbit → Ditinjau pemilik), reviewed_by, reviewed_at, updated_at. Koreksi/terlambat sinkron = addendum
+--   (`daily_summary_addenda`, US-M9-01 KP-6); snapshot tidak pernah ditimpa.
 -- ---------------------------------------------------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -354,7 +358,9 @@ BEGIN
       ('truck_fills', NULL, ARRAY['deny', 'tenant_id', 'water_source_id', 'truck_id', 'trip_id:once', 'business_date',
         'volume_l', 'filled_at', 'reversal_of_id', 'device_time', 'recorded_by_office']),
       ('invoices', NULL, ARRAY['deny', 'tenant_id', 'kind', 'customer_id', 'amount', 'issue_date', 'is_opening_balance',
-        'trip_id:once', 'pos_sale_id:once'])
+        'trip_id:once', 'pos_sale_id:once']),
+      ('daily_summaries', 'OLD.status <> ''running''', ARRAY['deny', 'tenant_id', 'business_date', 'snapshot', 'cash_day_id',
+        'cash_closed_at', 'published_at', 'published_late'])
     ) AS v(tbl, cond, spec)
   LOOP
     IF to_regclass(format('public.%I', g.tbl)) IS NULL THEN

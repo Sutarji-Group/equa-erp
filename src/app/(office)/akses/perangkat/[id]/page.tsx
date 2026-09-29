@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ActionForm } from "@/components/m10-access/action-form";
 import { Disclosure, FormRow, M10Badge, TableScroll, TextInput } from "@/components/m10-access/fields";
 import { HolderSelect, UnitSelect } from "@/components/m10-access/unit-select";
+import { GpsHealthCard } from "@/components/m12-fleet/gps-health-card";
 import { ExportButtons } from "@/components/shared/export-buttons";
 import { KeyValueList } from "@/components/shared/key-value-list";
 import { OfficeBreadcrumbLabel } from "@/components/shared/office-shell";
@@ -16,6 +17,7 @@ import { formatTanggalJam } from "@/lib/time";
 import { requirePermission } from "@/server/core/auth/office";
 import { can } from "@/server/core/rbac";
 import { getDeviceDetail, listScopeOptions } from "@/server/modules/m10-access";
+import { getGpsDeviceHealth, type GpsDeviceHealth } from "@/server/modules/m12-fleet";
 
 import { blockDeviceAction, newActivationCodeAction, updateDeviceAction, wipeDeviceAction } from "../actions";
 
@@ -49,6 +51,11 @@ export default async function PerangkatDetailPage({ params }: PageProps<"/akses/
   const canCode = can(ctx, "m10.device.register") && dev.kind !== "gps" && dev.status !== "wipe_pending";
   const options = canUpdate ? await listScopeOptions(ctx) : null;
   const unitValue = dev.truckId ? `truck:${dev.truckId}` : dev.outletId ? `outlet:${dev.outletId}` : dev.waterSourceId ? `water_source:${dev.waterSourceId}` : "";
+  // B-42 (US-M12-08 KP-4): perangkat GPS menampilkan kesehatan dari M12 (daya, versi, status GPS, kejadian terbuka).
+  let gpsHealth: GpsDeviceHealth | null = null;
+  if (dev.kind === "gps" && can(ctx, "m12.fleet_event.read")) {
+    gpsHealth = await getGpsDeviceHealth(ctx, dev.id).catch(() => null);
+  }
 
   return (
     <>
@@ -82,6 +89,12 @@ export default async function PerangkatDetailPage({ params }: PageProps<"/akses/
           ]}
         />
       </SectionCard>
+
+      {gpsHealth ? (
+        <div className="mb-6" data-testid="kesehatan-gps">
+          <GpsHealthCard health={gpsHealth} title={gpsHealth.truckCode ? `Kesehatan perangkat GPS truk ${gpsHealth.truckCode}` : "Kesehatan perangkat GPS"} />
+        </div>
+      ) : null}
 
       {canUpdate || canBlock || canWipe || canCode ? (
         <SectionCard title="Tindakan admin sistem" className="mb-6">

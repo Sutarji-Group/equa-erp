@@ -19,6 +19,8 @@ import { registerApprovalHandler, type ApprovalHandlerArgs } from "@/server/core
 import { record as auditRecord } from "@/server/core/audit";
 import { notify } from "@/server/core/notifications";
 
+import { onTripCorrectionApproved, onTripPaymentReversalApproved } from "./service/corrections";
+
 async function touchTrip(args: ApprovalHandlerArgs): Promise<{ tripNumber: string | null; paid: boolean; paymentMethod: string | null }> {
   const { tx, request, ctx } = args;
   const trip = (await tx.select({ id: trips.id, number: trips.number }).from(trips).where(eq(trips.id, request.objectId)).limit(1))[0];
@@ -34,6 +36,9 @@ async function touchTrip(args: ApprovalHandlerArgs): Promise<{ tripNumber: strin
 }
 
 export function registerApprovals(): void {
+  // Tambahan S5 (B-34, BR-38, D-09 butir 3): koreksi rit & pembalik pembayaran rit > PAR-21 disetujui pemilik.
+  registerApprovalHandler("correction", { onApproved: ({ tx, request, ctx }) => onTripCorrectionApproved(tx, request, ctx) }, { objectType: "trip" });
+  registerApprovalHandler("correction", { onApproved: ({ tx, request, ctx }) => onTripPaymentReversalApproved(tx, request, ctx) }, { objectType: "trip_payment" });
   registerApprovalHandler("field_payment_to_credit", {
     onApproved: async (args) => {
       const { tx, request, ctx } = args;

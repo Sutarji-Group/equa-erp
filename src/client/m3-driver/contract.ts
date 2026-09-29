@@ -34,6 +34,42 @@ export type M3CommandType = (typeof M3_COMMANDS)[keyof typeof M3_COMMANDS];
 /** Kunci data referensi (penyedia pull). */
 export const M3_REFS = { today: "m3.today", deposits: "m3.deposits" } as const;
 
+// --- Data pull modul lain yang ditampilkan aplikasi sopir (tambahan S5) ----------------------------------------------
+
+/** Pull M5 `m5.customer_credit` (B-33, US-M5-01 KP-3) & P2 `p2.prepaid_trips` (B-65, US-P2-04 KP-4). */
+export const M3_EXTERNAL_REFS = { customerCredit: "m5.customer_credit", prepaidTrips: "p2.prepaid_trips" } as const;
+
+/** Cermin `CustomerCreditRef` (src/server/modules/m5-receivables/service/pull.ts). */
+export type DriverCustomerCreditRef = {
+  customerId: string;
+  name: string;
+  creditStatus: "cash" | "credit" | "credit_migrated" | "on_hold" | string;
+  creditLimit: number;
+  /** Saldo piutang = faktur terbuka + belum ditagih. */
+  balance: number;
+  /** Eksposur (BR-06). */
+  exposure: number;
+  remaining: number;
+  overdue: number;
+  onHold: boolean;
+};
+export type DriverCustomerCreditPull = { date: string; generatedAt: string; customers: DriverCustomerCreditRef[] };
+
+/** Cermin `PrepaidTripPull` (src/server/modules/p2-customer/service/overview.ts). */
+export type DriverPrepaidTripsPull = { date: string; trips: { tripId: string; orderId: string; paidAmount: number; paidAt: string | null; reference: string }[] };
+
+/**
+ * Status "sudah dibayar di muka" rit (B-65): cara bayar rit `digital` (P2 menandai pesanan & rit saat pembayaran di
+ * muka Berhasil) atau tercantum di pull `p2.prepaid_trips`. `paidAmount` null = jumlah belum terunduh (pakai harga).
+ */
+export function prepaidInfo(trip: Pick<M3TripRef, "id" | "paymentMethod" | "isInternal">, prepaid: DriverPrepaidTripsPull | null | undefined): { paidAmount: number | null; paidAt: string | null } | null {
+  if (trip.isInternal) return null;
+  const rows = prepaid?.trips.filter((p) => p.tripId === trip.id) ?? [];
+  if (!rows.length && trip.paymentMethod !== "digital") return null;
+  if (!rows.length) return { paidAmount: null, paidAt: null };
+  return { paidAmount: rows.reduce((s, r) => s + r.paidAmount, 0), paidAt: rows.map((r) => r.paidAt).filter((x): x is string => !!x).sort()[0] ?? null };
+}
+
 /** Jenis lampiran perangkat (kolom `attachments.kind`). */
 export const M3_ATTACHMENT_KINDS = {
   deliveryPhoto: "delivery_photo",
@@ -61,7 +97,9 @@ export type CompletePaymentPayload =
       creditApprovalId?: string | null;
       /** Tunai yang tetap diterima bila tempo ternyata tidak disetujui (bawaan 0 → seluruhnya kurang bayar). */
       cashReceivedIfRejected?: number;
-    };
+    }
+  /** B-65: rit sudah dibayar di muka lewat aplikasi pelanggan (`paymentMethod: "digital"`) — sopir tidak menagih. */
+  | { method: "prepaid" };
 
 export type CompletePayload = {
   tripId: string;
@@ -171,7 +209,8 @@ export type M3PaymentRef = {
   tripNumber: string;
   customerId: string;
   customerName: string;
-  method: "cash" | "transfer" | "credit";
+  /** `digital` = dibayar di muka lewat aplikasi pelanggan (B-65), tidak menambah kas di tangan. */
+  method: "cash" | "transfer" | "credit" | "digital";
   expectedAmount: number;
   receivedAmount: number;
   underpaymentAmount: number;

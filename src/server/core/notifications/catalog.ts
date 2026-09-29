@@ -69,6 +69,10 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("store.stock_minimum", "Stok minimum toko", "normal", ["store_cashier"], "Daftar pesan ulang", "FR-M7-02"),
   e("special_price.review_due", "Harga khusus lewat 6 bulan", "info", ["owner"], "Tinjau", "BR-16, PAR-24"),
   e("sync.mass_failure", "Sinkron gagal massal / layanan mati", "critical", ["system_admin"], "Insiden kritis ≤ 30 menit", "NFR-28, NFR-31"),
+  // ALIAS TERDOKUMENTASI (D-10 butir 5, B-60): kode ini dipertahankan agar katalog tetap hanya-tambah & preferensi
+  // pengguna lama tetap sah, tetapi TIDAK dikirim. Permintaan akses (US-M10-01: account_create, role_grant,
+  // multi_role, scope_extension) diberitahukan ke pemilik lewat `approval.requested` (inti persetujuan) — satu
+  // notifikasi per permintaan, tanpa notifikasi ganda. Tenggat 2 hari kerja di bawah = tenggat jenis persetujuan akses.
   e("access.request_pending", "Permintaan akses menunggu", "normal", ["owner"], "Putuskan ≤ 2 hari kerja", "US-M10-01 KP-8", 48),
   e("discrepancy.trip_lock", "Selisih besar mengunci rit", "critical", ["owner", "dispatcher"], "Putuskan sebelum rit pertama esok hari", "PTB-62, PAR-83"),
   e("partner.water_order_sla", "Pesanan air mitra lewat SLA", "high", ["dispatcher", "owner"], "Jadwalkan segera", "US-P3-08, PAR-76"),

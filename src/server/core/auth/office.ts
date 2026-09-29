@@ -37,6 +37,7 @@ import { SESSION_COOKIE, validateSession, type SessionInvalidReason, type Sessio
 import { rolesAllowInterface } from "../rbac/roles";
 import type { RequestMeta } from "./web-login";
 import { loginUrl, reasonParam } from "./login-urls";
+import { FORCED_CHANGE_PASSWORD_URL } from "./password-change";
 
 export { LOGIN_REASON_MESSAGES, loginUrl, safeNextPath } from "./login-urls";
 
@@ -46,6 +47,8 @@ export type OfficeUser = {
   name: string;
   roles: RoleCode[];
   roleLabels: string[];
+  /** Tambahan S5 (B-08): kata sandi sementara wajib diganti sebelum memakai web kantor. */
+  mustChangePassword?: boolean;
 };
 
 export type ActiveOfficeSession = {
@@ -67,7 +70,7 @@ export type OfficeSessionInvalidReason = SessionInvalidReason | "no_web_access";
 
 async function officeUser(userId: string, roles: RoleCode[]): Promise<OfficeUser> {
   const rows = await getDb()
-    .select({ username: users.username, fullName: employees.fullName })
+    .select({ username: users.username, fullName: employees.fullName, mustChangePassword: users.mustChangePassword })
     .from(users)
     .innerJoin(employees, eq(employees.id, users.employeeId))
     .where(eq(users.id, userId))
@@ -78,6 +81,7 @@ async function officeUser(userId: string, roles: RoleCode[]): Promise<OfficeUser
     name: rows[0]?.fullName ?? "Pengguna",
     roles,
     roleLabels: roles.map((r) => label("role", r)),
+    mustChangePassword: rows[0]?.mustChangePassword ?? false,
   };
 }
 
@@ -110,6 +114,8 @@ export const getOfficeSession = cache(async (): Promise<OfficeSessionState> => {
 /** Wajib sesi aktif; bila tidak → redirect ke /masuk (dengan alasan) atau langkah 2FA. */
 export async function requireOfficeSession(): Promise<ActiveOfficeSession> {
   const s = await getOfficeSession();
+  // B-08: kata sandi sementara (reset admin sistem) WAJIB diganti sebelum halaman/aksi kantor mana pun.
+  if (s.state === "active" && s.user.mustChangePassword) return redirect(FORCED_CHANGE_PASSWORD_URL);
   if (s.state === "active") return s;
   if (s.state === "none") return redirect(loginUrl(reasonParam(s.reason)));
   return redirect(s.state === "totp" ? "/masuk/2fa" : "/masuk/atur-2fa");

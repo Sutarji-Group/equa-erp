@@ -165,6 +165,13 @@ export const IMMUTABLE_COLUMN_GUARDS = {
     immutable: ["tenant_id", "kind", "customer_id", "amount", "issue_date", "is_opening_balance"],
     once: ["trip_id", "pos_sale_id"],
   },
+  // Tambahan S5 (B-59, US-M9-01 KP-6, 7.9.7): ringkasan H+0 yang sudah TERBIT terkunci — koreksi/terlambat sinkron
+  // hanya lewat addendum (`daily_summary_addenda`). Boleh berubah: status (Terbit → Ditinjau pemilik), reviewed_by,
+  // reviewed_at, updated_at.
+  daily_summaries: {
+    when: "OLD.status <> 'running'",
+    immutable: ["tenant_id", "business_date", "snapshot", "cash_day_id", "cash_closed_at", "published_at", "published_late"],
+  },
 } as const satisfies Record<
   string,
   { when?: string; immutable?: readonly string[]; once?: readonly string[]; allowOnly?: readonly string[] }

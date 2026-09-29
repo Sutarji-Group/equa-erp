@@ -202,11 +202,14 @@ export async function partnerTerms(tx: Tx): Promise<PartnerTerms> {
  */
 export async function authorizePortalAction(ctx: ActorContext, permission: string, opts: { tx?: Tx } = {}): Promise<void> {
   const db = opts.tx ?? getDb();
+  let phase3 = false;
   if (hasRole(ctx, "partner_owner") && ctx.scope.tenantIds.includes(ctx.tenantId)) {
     const tenant = await loadTenant(db, ctx.tenantId);
-    if (tenant?.kind === "partner" && (await portalEnabled(db, ctx.tenantId))) return;
+    phase3 = tenant?.kind === "partner" && (await portalEnabled(db, ctx.tenantId));
   }
-  await authorize(ctx, permission, { tx: opts.tx });
+  // B-71 (D-11 butir 1): izin bersyarat katalog (`CONDITIONAL_GRANTS` partner_portal_phase3) — syarat tidak terpenuhi
+  // → ditolak & tercatat seperti izin lain.
+  await authorize(ctx, permission, { tx: opts.tx, conditions: { partner_portal_phase3: phase3 } });
 }
 
 /** Tolak & catat percobaan lintas tenant (US-P3-10 KP-4, US-M10-03). */

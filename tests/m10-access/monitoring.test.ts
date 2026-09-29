@@ -75,7 +75,7 @@ describe("US-M10-07 Kesehatan perangkat, sinkron, dan pemantauan", () => {
     expect((await notificationsOf(t.db, "admin1", "incident.opened")).some((n) => n.objectId === rows[0]!.id)).toBe(true);
   });
 
-  it("US-M10-07 KP-2 layanan tidak dapat diakses (jeda denyut pemantauan) & perangkat GPS mati tercatat sebagai insiden; M12 dapat memakai raiseIncident", async () => {
+  it("US-M10-07 KP-2 B-42 layanan tidak dapat diakses (jeda denyut pemantauan) tercatat sebagai insiden; GPS mati hanya dihitung (insiden & peringatan milik M12 lewat raiseIncident, tanpa ganda)", async () => {
     await t.db.insert(jobRuns).values({ jobKey: MONITOR_JOB_KEY, runKey: "uji-denyut", status: "succeeded", startedAt: new Date(IN_HOURS.getTime() - 45 * 60_000) });
     await t.db.update(devices).set({ gpsLastPositionAt: new Date(IN_HOURS.getTime() - 20 * 60_000) }).where(eq(devices.kind, "gps"));
     await t.db.update(devices).set({ gpsLastPositionAt: new Date(IN_HOURS.getTime() - 2 * 60_000) }).where(inArray(devices.id, [deviceId("GPS-T2"), deviceId("GPS-T3")]));
@@ -85,12 +85,20 @@ describe("US-M10-07 Kesehatan perangkat, sinkron, dan pemantauan", () => {
     expect(down).toHaveLength(1);
     // 7 GPS truk aktif; T2 & T3 masih mengirim posisi → 5 dianggap mati (> PAR-25 = 15 menit tanpa sinyal).
     expect(res!.gpsDead.devices).toBe(5);
-    const gps = await t.db.select().from(incidents).where(eq(incidents.kind, "gps_device_dead"));
-    expect(gps.map((g) => g.objectId)).toContain(deviceId("GPS-T1"));
+    // B-42: job M10 tidak membuat insiden/peringatan GPS mati sendiri (tidak menggandakan `gps.device_dead` M12).
+    expect(res!.gpsDead.incidentsCreated).toBe(0);
+    expect(await t.db.select().from(incidents).where(eq(incidents.kind, "gps_device_dead"))).toHaveLength(0);
+    // M12 mencatat insiden lewat API publik M10; pemanggilan berulang tidak menggandakan insiden terbuka.
+    const first = await withTx((tx) =>
+      raiseIncident(tx, { tenantId: EQUA_TENANT_ID, kind: "gps_device_dead", title: "GPS T1 mati (M12)", objectType: "device", objectId: deviceId("GPS-T1") }),
+    );
+    expect(first.created).toBe(true);
     const again = await withTx((tx) =>
       raiseIncident(tx, { tenantId: EQUA_TENANT_ID, kind: "gps_device_dead", title: "GPS T1 mati (M12)", objectType: "device", objectId: deviceId("GPS-T1") }),
     );
     expect(again.created).toBe(false);
+    await runMonitoring(new Date(IN_HOURS.getTime() + 6 * 60_000));
+    expect(await t.db.select().from(incidents).where(eq(incidents.kind, "gps_device_dead"))).toHaveLength(1);
   });
 
   it("US-M10-07 KP-2 insiden mencatat waktu tanggap (≤ 30 menit) & pemulihan (≤ 4 jam) terhadap target NFR-31", async () => {

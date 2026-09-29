@@ -7,7 +7,8 @@
  *   `monitoring.incident_targets` (bawaan 30 menit / 4 jam) → penanda terlampaui.
  * - Job 5 menit `m10.monitor.health`: (1) sinkron gagal massal (> N perangkat berantrean tidak sinkron > M menit pada jam
  *   layanan PAR-07; parameter `monitoring.mass_sync_failure`), (2) layanan tidak dapat diakses (jeda denyut pemantauan
- *   > `monitoring.service_down` menit pada jam layanan), (3) perangkat GPS tanpa posisi > PAR-25 menit pada jam layanan.
+ *   > `monitoring.service_down` menit pada jam layanan), (3) HITUNGAN perangkat GPS tanpa posisi > PAR-25 menit —
+ *   insiden & peringatan GPS mati dibuat M12 (pemilik deteksi, B-42), job ini tidak menggandakannya.
  */
 import "server-only";
 
@@ -308,20 +309,11 @@ export async function runMonitoring(now: Date = new Date(), db?: Db): Promise<Mo
             .from(devices)
             .where(and(eq(devices.tenantId, tenantId), eq(devices.kind, "gps"), eq(devices.status, "active"), eq(devices.isSpare, false)));
           const dead = gpsRows.filter((g) => g.state === "dead" || g.state === "unplugged" || !g.last || g.last < cutoff);
+          // B-42: GPS mati/dicabut DIMILIKI M12 (`m12` deteksi perangkat: jam layanan, truk beroperasi, gangguan vendor
+          // sistemik tanpa peringatan per truk) — M12 yang membuat kejadian armada, peringatan `gps.device_dead`, dan
+          // insiden `gps_device_dead` (raiseIncident). Job M10 hanya MENGHITUNG untuk ringkasan pemantauan agar tidak
+          // menggandakan insiden/peringatan (`incident.opened`) untuk perangkat yang sama.
           result.gpsDead.devices = dead.length;
-          for (const g of dead) {
-            const r = await raiseIncident(tx, {
-              tenantId,
-              kind: "gps_device_dead",
-              severity: "major",
-              title: `Perangkat GPS ${g.code} tanpa sinyal > ${gps.minutes} menit`,
-              description: g.last ? `Posisi terakhir ${formatTanggalJam(g.last)}.` : "Belum pernah mengirim posisi.",
-              objectType: "device",
-              objectId: g.id,
-              now,
-            });
-            if (r.created) result.gpsDead.incidentsCreated++;
-          }
         }
         out.push(result);
       }
