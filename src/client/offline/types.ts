@@ -86,4 +86,4 @@ export type PullResponse = {
   deviceSeq?: Record<string, number>;
 };
 
-export type ApiErrorBody = { ok: false; code: string; message: string; wipe?: boolean; lockedUntil?: string; attemptsLeft?: number };
+export type ApiErrorBody = { ok: false; code: string; message: string; wipe?: boolean; lockedUntil?: string; attemptsLeft?: number; issues?: { path: string; message: string }[] };

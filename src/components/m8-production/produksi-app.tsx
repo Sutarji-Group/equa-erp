@@ -24,6 +24,7 @@ import { MeterFlow } from "./meter-flow";
 import { ProductionProvider, useProduction, type ProductionView } from "./production-context";
 import { TodayView } from "./today-view";
 import { Banner } from "./ui";
+import { OutboxItemActions } from "@/components/field/outbox-item-actions";
 
 const NAV: { view: "today" | "meter" | "fill" | "history" | "help"; label: string; icon: typeof Home }[] = [
   { view: "today", label: "Hari ini", icon: Home },
@@ -59,6 +60,7 @@ function OutboxList() {
           <p className={cn("text-base", item.status === "rejected" ? "text-destructive" : item.status === "sent" ? "text-success" : "text-warning-foreground")}>
             {outboxStatusText(item)} · {formatJam(new Date(item.createdAt))}
           </p>
+            <OutboxItemActions item={item} />
         </li>
       ))}
     </ul>

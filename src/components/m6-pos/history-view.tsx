@@ -15,6 +15,7 @@ import { MyCashCard } from "@/components/m4-cash/my-cash-card";
 
 import { usePos } from "./pos-context";
 import { Banner, ChoiceButtons, ErrorText, PosSection } from "./ui";
+import { OutboxItemActions } from "@/components/field/outbox-item-actions";
 
 function DepositHandover() {
   const { ref, send } = usePos();
@@ -84,6 +85,7 @@ function QueueList() {
             <p className={cn("text-base", i.status === "rejected" ? "text-destructive" : i.status === "sent" ? "text-success" : "text-warning-foreground")}>
               {outboxStatusText(i)} · {formatJam(new Date(i.createdAt))}
             </p>
+            <OutboxItemActions item={i} />
           </li>
         ))}
       </ul>

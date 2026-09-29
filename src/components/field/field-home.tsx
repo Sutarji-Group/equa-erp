@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { BigButton } from "./big-button";
 import { FieldGate, useFieldSession } from "./field-gate";
 import { FieldShell } from "./field-shell";
+import { OutboxItemActions } from "@/components/field/outbox-item-actions";
 
 export type FieldHomeProps = {
   /** Rute beranda perangkat ini. */
@@ -52,6 +53,7 @@ function OutboxList() {
           >
             {outboxStatusText(item)} · {formatJam(new Date(item.createdAt))}
           </p>
+            <OutboxItemActions item={item} />
         </li>
       ))}
     </ul>
