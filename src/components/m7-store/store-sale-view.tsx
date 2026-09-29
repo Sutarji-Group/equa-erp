@@ -13,6 +13,7 @@ import {
   storePriceKind,
   storeSaleStatusText,
   waLink,
+  type StoreCartPrefill,
   type StoreCustomerRef,
   type StoreProductRef,
 } from "@/client/m7-store/contract";
@@ -171,15 +172,16 @@ export function StoreReceiptView({ sale, onDone }: { sale: SavedStoreSale; onDon
 }
 
 /** Layar jual toko: pilih pelanggan, cari barang, keranjang, diskon beralasan, tunai/QRIS/tempo mitra. */
-export function StoreSaleView({ blocked, onSaved }: { blocked: string | null; onSaved: (sale: SavedStoreSale) => void }) {
+export function StoreSaleView({ blocked, onSaved, prefill }: { blocked: string | null; onSaved: (sale: SavedStoreSale) => void; prefill?: StoreCartPrefill | null }) {
   const { shift, send, nextLocalNumber, session, ref } = usePos();
   const { store } = useStore();
-  const [customerId, setCustomerId] = useState<string | null>(null);
+  // B-73: isian awal dari pesanan spare part portal mitra (pemanggil memasang ulang layar dengan `key` = id pesanan).
+  const [customerId, setCustomerId] = useState<string | null>(prefill?.customerId ?? null);
   const [query, setQuery] = useState("");
-  const [cart, setCart] = useState<StoreCartLine[]>([]);
+  const [cart, setCart] = useState<StoreCartLine[]>(prefill?.cart ?? []);
   const [discount, setDiscount] = useState<number | null>(null);
   const [discountReason, setDiscountReason] = useState("");
-  const [method, setMethod] = useState<"cash" | "qris" | "credit">("cash");
+  const [method, setMethod] = useState<"cash" | "qris" | "credit">(prefill?.method ?? "cash");
   const [received, setReceived] = useState<number | null>(null);
   const [qrisRef, setQrisRef] = useState("");
   const [requestApproval, setRequestApproval] = useState(false);

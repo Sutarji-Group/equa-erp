@@ -37,6 +37,9 @@ export type { DriverLock } from "./service/common";
 export { describeOfficeEntry, officeCompleteTrip, officeEntryBoard, officeEntryReport, officeFailTrip, uploadOfficeEvidence } from "./service/office";
 export type { OfficeDeviceRow, OfficeEntryReportRow, OfficeTripRow } from "./service/office";
 export { confirmIncident, listIncidents } from "./service/incidents";
+// Tambahan S5 (B-34): koreksi rit & pembalik pembayaran rit oleh Admin Keuangan (FR-M3-07, BR-38).
+export { correctTrip, findTripForCorrection, livePaymentOf, reverseTripPayment } from "./service/corrections";
+export type { CorrectionTripView, TripCorrectionResult, TripPaymentReversalResult } from "./service/corrections";
 export type { IncidentListRow } from "./service/incidents";
 export { collectionReport, driverDepositReport, driverTripReport, expenseReport, tripPaymentReport } from "./service/queries";
 export type { DriverTripReportRow, RangeFilter } from "./service/queries";

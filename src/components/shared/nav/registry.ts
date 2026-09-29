@@ -248,6 +248,15 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         permission: ["m3.office_entry.read", "m3.payment_report.read"],
         description: "Dicatat kantor (KPI-01), pembayaran rit, pelunasan, pengeluaran & setoran sopir.",
       },
+      // Tambahan S5 (B-34; FR-M3-07, BR-38) — hanya tambah.
+      {
+        id: "m3.corrections",
+        href: "/sopir-kantor/koreksi",
+        label: "Koreksi rit",
+        icon: Undo2,
+        permission: "m3.trip.correct",
+        description: "Koreksi harga/volume rit Selesai & pembalik pembayaran rit (Admin Keuangan; > PAR-21 disetujui pemilik).",
+      },
     ],
   },
   {

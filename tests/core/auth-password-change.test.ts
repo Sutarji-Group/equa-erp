@@ -12,13 +12,12 @@ import { seededContext } from "../helpers/context";
 import { useTestDb } from "../helpers/db";
 import { createTestUser } from "../helpers/factories";
 
-const t = useTestDb({ seed: true });
-beforeAll(() => bootstrapForTests());
+type TestDb = ReturnType<typeof useTestDb>["db"];
 
-async function userWithPassword(role: RoleCode, password = "kata-sandi-lama-1") {
-  const u = await createTestUser(t.db, { role });
-  await t.db.update(users).set({ passwordHash: await hashPassword(password) }).where(eq(users.id, u.userId));
-  const [row] = await t.db.select({ username: users.username }).from(users).where(eq(users.id, u.userId));
+async function userWithPassword(db: TestDb, role: RoleCode, password = "kata-sandi-lama-1") {
+  const u = await createTestUser(db, { role });
+  await db.update(users).set({ passwordHash: await hashPassword(password) }).where(eq(users.id, u.userId));
+  const [row] = await db.select({ username: users.username }).from(users).where(eq(users.id, u.userId));
   return { ...u, username: row!.username, password };
 }
 
@@ -32,8 +31,11 @@ async function fieldIssue(p: Promise<unknown>): Promise<string | undefined> {
 }
 
 describe("B-08 ubah kata sandi mandiri & wajib ganti kata sandi sementara", () => {
+  const t = useTestDb({ seed: true });
+  beforeAll(() => bootstrapForTests());
+
   it("B-08 US-M10-02 KP-4 kata sandi sementara (reset admin sistem) → sesi web tidak menghasilkan pelaku sampai diganti; setelah diganti normal", async () => {
-    const u = await userWithPassword("dispatcher");
+    const u = await userWithPassword(t.db, "dispatcher");
     const reset = await resetPassword(seededContext("admin1"), { userId: u.userId, reason: "Lupa kata sandi (uji)" });
     expect(await passwordChangeRequired(t.db, u.userId)).toBe(true);
 
@@ -58,7 +60,7 @@ describe("B-08 ubah kata sandi mandiri & wajib ganti kata sandi sementara", () =
   });
 
   it("B-08 US-M10-02 KP-4 ubah mandiri (semua pengguna web): sesi web LAIN dicabut, sesi ini tetap; aturan kata sandi baru ditolak dengan pesan tindakan", async () => {
-    const u = await userWithPassword("dispatcher");
+    const u = await userWithPassword(t.db, "dispatcher");
     const a = await loginWithPassword({ username: u.username, password: u.password });
     const b = await loginWithPassword({ username: u.username, password: u.password });
 
@@ -82,7 +84,7 @@ describe("B-08 ubah kata sandi mandiri & wajib ganti kata sandi sementara", () =
 
   it("B-08 NFR-09 tanpa sesi / sesi menunggu 2FA tidak dapat mengubah kata sandi", async () => {
     await expect(changeOwnPassword(null, { currentPassword: "x", newPassword: "sandi-baru-aman-1", confirmPassword: "sandi-baru-aman-1" })).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
-    const fa = await userWithPassword("finance_admin");
+    const fa = await userWithPassword(t.db, "finance_admin");
     const pending = await loginWithPassword({ username: fa.username, password: fa.password });
     expect(pending.next).not.toBe("done");
     await expect(changeOwnPassword(pending.token, { currentPassword: fa.password, newPassword: "sandi-baru-aman-1", confirmPassword: "sandi-baru-aman-1" })).rejects.toMatchObject({ code: "SESSION_REQUIRED" });

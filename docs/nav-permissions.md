@@ -161,6 +161,7 @@ p3.support_request.read
 | Pesanan & jadwal | `/sopir-kantor/dicatat-kantor` | Dicatat kantor | `m3.office_entry.create` |  |
 | Pesanan & jadwal | `/sopir-kantor/kendala` | Kendala sopir | `m3.trip_incident.read` |  |
 | Pesanan & jadwal | `/sopir-kantor/laporan` | Laporan sopir | `m3.office_entry.read` / `m3.payment_report.read` |  |
+| Pesanan & jadwal | `/sopir-kantor/koreksi` | Koreksi rit | `m3.trip.correct` | Tambahan S5 (B-34): koreksi harga/volume rit & pembalik pembayaran rit |
 | Kas & setoran | `/kas` | Kas hari ini | `m4.cash_position.read` |  |
 | Kas & setoran | `/kas/setoran` | Setoran | `m4.deposit.read` |  |
 | Kas & setoran | `/kas/selisih` | Selisih | `m4.discrepancy.read` |  |

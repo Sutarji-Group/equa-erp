@@ -5,11 +5,12 @@
  * 1. Bukti kirim — foto dari kamera aplikasi (≤ PAR-38, maks. m3.driver_rules), nama penerima (bawaan kontak), tanda
  *    tangan (lewati hanya dengan alasan), volume (bawaan PAR-15; beda → alasan dari daftar).
  * 2. Pembayaran (tidak dapat dilewati; rit internal tanpa bayar) — tunai (bawaan harga; kurang → alasan), transfer
- *    (foto bukti + jumlah; rekening PT tampil), tempo (pesanan tempo / tempo disetujui Dispatcher).
+ *    (foto bukti + jumlah; rekening PT tampil), tempo (pesanan tempo / tempo disetujui Dispatcher). Rit yang sudah
+ *    dibayar di muka lewat aplikasi pelanggan (B-65) → "Sudah dibayar", sopir tidak menagih.
  * 3. Lokasi & simpan — jarak ke alamat dihitung lokal; > PAR-16 alasan wajib (> 1 km: tinjauan pemilik).
  * Semua tersimpan di ponsel lebih dulu (outbox) lalu terkirim otomatis.
  */
-import { Camera, CheckCircle2, MapPin } from "lucide-react";
+import { BadgeCheck, Camera, CheckCircle2, MapPin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { distanceToAddressM, locationRule, M3_ATTACHMENT_KINDS, M3_COMMANDS, type CompletePayload, type FieldLocation } from "@/client/m3-driver/contract";
@@ -29,8 +30,9 @@ import { Banner, Choices, ErrorText, FigureRow, NumberField, TextField } from ".
 type Method = "cash" | "transfer" | "credit";
 
 export function CompleteFlow({ tripId }: { tripId: string }) {
-  const { trip, today, send, go } = useDriver();
+  const { trip, today, send, go, prepaid } = useDriver();
   const t = trip(tripId);
+  const paidAhead = t ? prepaid(t) : null;
   const settings = today?.settings;
   const [step, setStep] = useState(0);
   const [photos, setPhotos] = useState<(CapturedPhoto | null)[]>([null]);
@@ -84,7 +86,7 @@ export function CompleteFlow({ tripId }: { tripId: string }) {
   const distance = t.coordinateLocked ? distanceToAddressM(location, t) : null;
   const rule = locationRule(distance, settings);
   const paid = method === "credit" ? 0 : (amount ?? 0);
-  const under = method === "credit" ? 0 : Math.max(0, t.price - paid);
+  const under = method === "credit" || paidAhead ? 0 : Math.max(0, t.price - paid);
 
   const validateStep = (): string | null => {
     if (step === 0) {
@@ -95,7 +97,7 @@ export function CompleteFlow({ tripId }: { tripId: string }) {
       if (partial && !partialReason) return `Volume berbeda dari ${settings.standardVolumeL.toLocaleString("id-ID")} L: pilih alasan.`;
       if (partial && partialReason === "other" && partialNote.trim().length < 3) return "Tulis keterangan alasan volume.";
     }
-    if (step === 1 && !isInternal) {
+    if (step === 1 && !isInternal && !paidAhead) {
       if (method !== "credit") {
         if (amount === null) return "Isi jumlah yang diterima.";
         if (amount > t.price) return `Jumlah lebih besar dari harga ${formatRupiah(t.price)} tidak dapat dicatat — berikan kembalian.`;
@@ -127,14 +129,16 @@ export function CompleteFlow({ tripId }: { tripId: string }) {
     try {
       const attachments: EnqueueAttachment[] = taken.map((p) => ({ kind: M3_ATTACHMENT_KINDS.deliveryPhoto, blob: p.blob, capturedAt: p.capturedAt, lat: location?.lat, lng: location?.lng }));
       if (!isInternal && !signatureSkip && signatureBlob) attachments.push({ kind: M3_ATTACHMENT_KINDS.signature, blob: signatureBlob, contentType: "image/png" });
-      if (!isInternal && method === "transfer" && transferProof) attachments.push({ kind: M3_ATTACHMENT_KINDS.transferProof, blob: transferProof.blob, capturedAt: transferProof.capturedAt });
+      if (!isInternal && !paidAhead && method === "transfer" && transferProof) attachments.push({ kind: M3_ATTACHMENT_KINDS.transferProof, blob: transferProof.blob, capturedAt: transferProof.capturedAt });
       const payment: CompletePayload["payment"] = isInternal
         ? { method: "none" }
-        : method === "cash"
-          ? { method: "cash", cashReceived: paid, underpaymentReasonCode: under > 0 ? underReason : null, underpaymentReasonText: under > 0 ? underNote.trim() || null : null }
-          : method === "transfer"
-            ? { method: "transfer", transferAmount: paid, underpaymentReasonCode: under > 0 ? underReason : null, underpaymentReasonText: under > 0 ? underNote.trim() || null : null }
-            : { method: "credit", creditApprovalId: t.creditRequest?.approvalId ?? null, cashReceivedIfRejected: cashIfRejected ?? 0 };
+        : paidAhead
+          ? { method: "prepaid" }
+          : method === "cash"
+            ? { method: "cash", cashReceived: paid, underpaymentReasonCode: under > 0 ? underReason : null, underpaymentReasonText: under > 0 ? underNote.trim() || null : null }
+            : method === "transfer"
+              ? { method: "transfer", transferAmount: paid, underpaymentReasonCode: under > 0 ? underReason : null, underpaymentReasonText: under > 0 ? underNote.trim() || null : null }
+              : { method: "credit", creditApprovalId: t.creditRequest?.approvalId ?? null, cashReceivedIfRejected: cashIfRejected ?? 0 };
       const payload: CompletePayload = {
         tripId: t.id,
         recipientName: recipient.trim() || null,
@@ -231,7 +235,19 @@ export function CompleteFlow({ tripId }: { tripId: string }) {
         </div>
       }
 
-      {step === 1 && !isInternal ? (
+      {step === 1 && !isInternal && paidAhead ? (
+        <div className="flex flex-col gap-4" data-testid="langkah-bayar">
+          <FigureRow label="Harga pesanan" value={formatRupiah(t.price)} strong testId="harga-bayar" />
+          <Banner tone="success">
+            <span className="flex items-center gap-2" data-testid="sudah-dibayar-selesai">
+              <BadgeCheck className="size-5 shrink-0" aria-hidden />
+              Sudah dibayar di muka lewat aplikasi pelanggan{paidAhead.paidAmount !== null ? ` (${formatRupiah(paidAhead.paidAmount)})` : ""}. Tidak ada uang yang ditagih — lanjut simpan.
+            </span>
+          </Banner>
+        </div>
+      ) : null}
+
+      {step === 1 && !isInternal && !paidAhead ? (
         <div className="flex flex-col gap-4" data-testid="langkah-bayar">
           <FigureRow label="Harga pesanan" value={formatRupiah(t.price)} strong testId="harga-bayar" />
           <Choices<Method>

@@ -37,7 +37,8 @@ export function TripStatusBadge({ status }: { status: string }) {
 export function tripMeta(t: M3TripRef): string {
   return [
     `${t.plannedVolumeL.toLocaleString("id-ID")} L`,
-    t.isInternal ? "Internal" : label("payment_method", t.paymentMethod),
+    // B-65: rit prabayar digital tampil "Sudah dibayar" (sopir tidak menagih).
+    t.isInternal ? "Internal" : t.paymentMethod === "digital" ? "Sudah dibayar" : label("payment_method", t.paymentMethod),
     t.requestedTime ? `jam ${t.requestedTime.replace(":", ".")}` : null,
   ]
     .filter(Boolean)

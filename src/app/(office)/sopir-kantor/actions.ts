@@ -125,3 +125,33 @@ export async function confirmIncidentAction(incidentId: string, _prev: M3ActionS
     ["/sopir-kantor/kendala"],
   );
 }
+
+// --- Koreksi Admin Keuangan (tambahan S5, B-34; FR-M3-07, BR-38) ------------------------------------------------------
+
+export async function correctTripAction(tripId: string, _prev: M3ActionState, fd: FormData): Promise<M3ActionState> {
+  const { ctx } = await requireOfficeSession();
+  try {
+    const res = await m3.correctTrip(ctx, { tripId, price: num(fd, "price"), deliveredVolumeL: num(fd, "deliveredVolumeL"), reason: str(fd, "reason") ?? "" });
+    revalidatePath("/sopir-kantor/koreksi");
+    return {
+      ok: true,
+      message: res.status === "pending_approval" ? `Koreksi di atas batas — menunggu persetujuan pemilik (${res.approval.number}).` : "Koreksi rit tersimpan. Piutang & jurnal disesuaikan otomatis.",
+    };
+  } catch (error) {
+    return { error: toUserMessage(error) };
+  }
+}
+
+export async function reverseTripPaymentAction(tripPaymentId: string, _prev: M3ActionState, fd: FormData): Promise<M3ActionState> {
+  const { ctx } = await requireOfficeSession();
+  try {
+    const res = await m3.reverseTripPayment(ctx, { tripPaymentId, reason: str(fd, "reason") ?? "" });
+    revalidatePath("/sopir-kantor/koreksi");
+    return {
+      ok: true,
+      message: res.status === "pending_approval" ? `Pembalik di atas batas — menunggu persetujuan pemilik (${res.approval.number}).` : "Pembayaran rit dibalik. Tagihan pelanggan dibuat ulang di Piutang.",
+    };
+  } catch (error) {
+    return { error: toUserMessage(error) };
+  }
+}

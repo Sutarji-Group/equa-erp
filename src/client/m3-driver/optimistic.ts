@@ -45,6 +45,8 @@ export function paymentFromComplete(trip: M3TripRef, p: CompletePayload, recorde
     const received = Math.min(trip.price, p.payment.transferAmount);
     return { ...base, method: "transfer", receivedAmount: received, underpaymentAmount: trip.price - received, originalMethod: trip.paymentMethod !== "transfer" ? trip.paymentMethod : null };
   }
+  // B-65: dibayar di muka (aplikasi pelanggan) — tidak ada uang diterima sopir; server menghitung uang muka yang diakui.
+  if (p.payment.method === "prepaid") return { ...base, method: "digital", receivedAmount: trip.price, underpaymentAmount: 0, originalMethod: null };
   const approved = trip.paymentMethod === "credit" || trip.creditRequest?.status === "approved";
   if (approved) return { ...base, method: "credit", receivedAmount: 0, underpaymentAmount: 0, originalMethod: trip.paymentMethod === "credit" ? null : trip.paymentMethod };
   const received = Math.min(trip.price, p.payment.cashReceivedIfRejected ?? 0);

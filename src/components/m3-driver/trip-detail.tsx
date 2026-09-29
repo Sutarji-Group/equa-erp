@@ -5,7 +5,7 @@
  * PESANAN (satu-satunya harga, BR-19), faktur terbuka (Terima pelunasan), penanda internal depot; tindakan sesuai status
  * (Berangkat/Tiba/Selesai/Gagal/Kendala/Minta tempo) — tiap tindakan ≤ 3 ketukan dari daftar rit.
  */
-import { AlertTriangle, HandCoins, MapPin, MessageCircle, Navigation, Phone, Truck, XCircle } from "lucide-react";
+import { AlertTriangle, BadgeCheck, HandCoins, MapPin, MessageCircle, Navigation, Phone, Truck, XCircle } from "lucide-react";
 import { useState } from "react";
 
 import { M3_COMMANDS, navigationUrl, normalizePhoneForWa, sortInvoicesForCollection } from "@/client/m3-driver/contract";
@@ -19,12 +19,13 @@ import { TripStatusBadge, useTripActions } from "./trip-list";
 import { Banner, ErrorText, FigureRow, Section, TextField } from "./ui";
 
 function CreditRequest({ tripId }: { tripId: string }) {
-  const { trip, send, session } = useDriver();
+  const { trip, send, session, prepaid } = useDriver();
   const t = trip(tripId)!;
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const req = t.creditRequest;
-  if (t.isInternal || t.paymentMethod === "credit") return null;
+  // B-65: rit sudah dibayar di muka → tidak ada tagihan di lokasi, tidak ada permintaan tempo.
+  if (t.isInternal || t.paymentMethod === "credit" || prepaid(t)) return null;
   if (req && req.status !== "rejected" && req.status !== "expired" && req.status !== "cancelled") {
     return (
       <Banner tone={req.status === "approved" ? "success" : "info"}>
@@ -63,11 +64,42 @@ function CreditRequest({ tripId }: { tripId: string }) {
   );
 }
 
+/**
+ * B-33 (US-M5-01 KP-3 "tampil di aplikasi sopir (data sinkron)"): status kredit, saldo piutang, eksposur & sisa batas
+ * pelanggan rit ini dari pull M5 `m5.customer_credit`. Informasi saja — sopir tidak memutuskan kredit (PTB-19).
+ */
+function CustomerCreditSection({ customerId }: { customerId: string }) {
+  const { customerCredit, creditGeneratedAt } = useDriver();
+  const c = customerCredit(customerId);
+  if (!c) return null;
+  const tempo = c.creditStatus === "credit" || c.creditStatus === "credit_migrated";
+  return (
+    <Section title="Kredit pelanggan" testId="kredit-pelanggan">
+      {creditGeneratedAt ? (
+        <p className="text-sm text-muted-foreground">
+          Data sinkron {formatTanggal(creditGeneratedAt, { weekday: false })} {formatJam(creditGeneratedAt)}
+        </p>
+      ) : null}
+      <FigureRow label="Status kredit" value={label("credit_status", c.creditStatus)} strong={c.onHold} testId="status-kredit" />
+      <FigureRow label="Saldo piutang" value={formatRupiah(c.balance)} testId="saldo-piutang" />
+      {tempo ? (
+        <>
+          <FigureRow label="Eksposur / batas" value={`${formatRupiah(c.exposure)} / ${formatRupiah(c.creditLimit)}`} />
+          <FigureRow label="Sisa batas kredit" value={formatRupiah(Math.max(0, c.remaining))} />
+        </>
+      ) : null}
+      {c.overdue > 0 ? <FigureRow label="Lewat jatuh tempo" value={formatRupiah(c.overdue)} strong /> : null}
+      {c.onHold ? <Banner tone="danger">Status Ditahan: terima tunai/transfer saja; tempo tidak dapat diajukan.</Banner> : null}
+    </Section>
+  );
+}
+
 export function TripDetailView({ tripId }: { tripId: string }) {
-  const { trip, today, go, canAct } = useDriver();
+  const { trip, today, go, canAct, prepaid } = useDriver();
   const actions = useTripActions();
   const t = trip(tripId);
   if (!t || !today) return <Banner tone="danger">Rit tidak ditemukan (mungkin ditarik Dispatcher). Kembali ke daftar rit.</Banner>;
+  const paidAhead = prepaid(t);
   const phone = normalizePhoneForWa(t.customerPhone);
   const invoices = sortInvoicesForCollection(today.invoicesByCustomer[t.customerId] ?? []);
   const blocked = actions.blockReason(t);
@@ -89,9 +121,18 @@ export function TripDetailView({ tripId }: { tripId: string }) {
         {t.requestedTime ? <FigureRow label="Jam diminta" value={t.requestedTime.replace(":", ".")} /> : null}
         {!t.isInternal ? (
           <>
-            <FigureRow label="Cara bayar" value={label("payment_method", t.paymentMethod)} />
+            <FigureRow label="Cara bayar" value={paidAhead ? "Sudah dibayar (aplikasi pelanggan)" : label("payment_method", t.paymentMethod)} />
             <FigureRow label="Harga pesanan" value={formatRupiah(t.price)} strong testId="harga-pesanan" />
           </>
+        ) : null}
+        {paidAhead ? (
+          <Banner tone="success">
+            <span className="flex items-center gap-2" data-testid="sudah-dibayar">
+              <BadgeCheck className="size-5 shrink-0" aria-hidden />
+              SUDAH DIBAYAR di muka lewat aplikasi pelanggan
+              {paidAhead.paidAmount !== null ? ` (${formatRupiah(paidAhead.paidAmount)})` : ""}. Jangan menagih tunai.
+            </span>
+          </Banner>
         ) : null}
         {t.contactName ? <FigureRow label="Kontak" value={t.contactName} /> : null}
         {t.creditHold ? <Banner tone="danger">Pelanggan Ditahan: minta pembayaran tunai/transfer.</Banner> : null}
@@ -123,6 +164,8 @@ export function TripDetailView({ tripId }: { tripId: string }) {
         </a>
       </div>
       {!t.coordinateLocked || t.lat === null ? <Banner tone="info">Navigasi memakai teks alamat — titik alamat akan dikunci saat Selesai.</Banner> : null}
+
+      {!t.isInternal ? <CustomerCreditSection customerId={t.customerId} /> : null}
 
       {!t.isInternal && invoices.length > 0 ? (
         <Section title="Faktur terbuka pelanggan" testId="faktur-terbuka">
@@ -162,7 +205,7 @@ export function TripDetailView({ tripId }: { tripId: string }) {
           {t.status === "arrived" || t.status === "departed" ? (
             <>
               <BigButton size="xl" variant="success" onClick={() => go({ name: "complete", tripId: t.id })}>
-                Selesai &amp; bayar
+                {paidAhead ? "Selesai" : "Selesai & bayar"}
               </BigButton>
               {t.status === "arrived" ? <CreditRequest tripId={t.id} /> : null}
               <div className="grid grid-cols-2 gap-2">

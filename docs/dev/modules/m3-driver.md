@@ -20,6 +20,7 @@ kantor), 6.2a (PTB-19), 6.3, 6.4 (tabrakan sinkron), BR-07/08/10/19/22/23/25/37/
 | Kantor | `confirmIncident`, `listIncidents` | | `m3.trip_incident.confirm/read`; truk rusak → `m1.setTruckStatus(maintenance)`. |
 | M9 | `driverTripReport`, `tripPaymentReport`, `collectionReport`, `expenseReport`, `driverDepositReport` | `(ctx, { from?, to?, truckId? })` | Juga terdaftar sebagai laporan ekspor (§6). |
 | Uji/integrasi | `departTrip`, `arriveTrip`, `completeTrip`, `failTrip`, `requestFieldCredit`, `recordCollection`, `reportIncident`, `explainFleetEvent`, `recordExpense`, `submitDeposit`, `addDepositorNote`, `recordReceipt`, `recordPhonePositions` | `(ctx, payload, M3WriteMeta)` | Dipanggil handler sinkron; `fromSyncMeta(meta)` membangun `M3WriteMeta`. |
+| Kantor (S5, B-34) | `correctTrip`, `reverseTripPayment`, `findTripForCorrection`, `livePaymentOf` | `(ctx, input, { tx? })` | Izin `m3.trip.correct` (Admin Keuangan; FR-M3-07, US-M3-10 KP-2, BR-38). Selisih harga / uang dibalik > PAR-21 → persetujuan `correction` objek `trip` / `trip_payment` (handler di `approvals.ts`). Layar `/sopir-kantor/koreksi`. |
 
 ## 2. Event (dipancarkan; payload mandiri PTB-47, tambahan opsional di `events.types.ts`)
 
@@ -42,6 +43,30 @@ kantor), 6.2a (PTB-19), 6.3, 6.4 (tabrakan sinkron), BR-07/08/10/19/22/23/25/37/
 - `trip.expense_recorded` — `{ expenseId, kind, amount, fundingSource, receiptAttachmentId, depositId }` → verifikasi M4.
 - `deposit.submitted` — `{ depositId, depositNumber, userId, expectedCash, claimedCashExpenses, expectedNet, method,
   submittedLate }`.
+- **(S5, B-34)** `trip.corrected` — `{ tripId, orderId, customerId, truckId, changes{price|deliveredVolumeL: {from,to}},
+  priceDelta, volumeDeltaL, profitCenter: "L2", reason, correctionId, tripNumber, businessDate, approvalId,
+  advanceAmount }`. `advanceAmount` = bagian penurunan harga yang melebihi piutang rit yang masih terbuka (M5
+  `tripOpenReceivable`, dihitung SEBELUM event) → uang muka pelanggan. **M5** (`m5-receivables:trip_corrected`): +Δ →
+  faktur koreksi jenis `underpayment` (atau `unbilled_charges` naik bila tagihan bulanan belum terbit); −Δ → kurangi
+  belum ditagih, lalu nota kredit `trip_correction` atas faktur rit bersisa, sisanya uang muka. **M11**: D/K piutang ↔
+  pendapatan sebesar Δ + (bila `advanceAmount`) D 1-1401 / K 2-1201; nota kredit `trip_correction` tidak dijurnal.
+  **M9**: addendum H+0 (sudah ada).
+- **(S5, B-34)** `trip_payment.reversed` — `{ tripPaymentId, reversalId, tripId, customerId, method (cash|transfer),
+  amount (uang yang dibalik), profitCenter, reason, tripNumber, businessDate, driverUserId, depositId, approvalId }`.
+  Baris asal ditandai `reversed_at`/`reversed_by_id`; baris pembalik bertanda negatif (`reversal_of_id`). **M4**
+  membatalkan transfer rit yang belum cocok; **M5** (`m5-receivables:trip_payment_reversed`) faktur koreksi jenis
+  `underpayment` sebesar `amount`; **M11** D 1-1401 / K kas atau transfer. Tempo & digital tidak dibalik di M3.
+- **(S5, B-65, D-11 butir 4) KONTRAK prabayar digital untuk M5/M11 (paket B):** rit `trips.payment_method = digital`
+  (P2 menandai saat pembayaran di muka Berhasil) diselesaikan sopir dengan `payment: { method: "prepaid" }` (UI "Sudah
+  dibayar", tanpa tunai). Server memverifikasi pembayaran P2 Berhasil (`p2.prepaidTrips`) lalu mencatat
+  `trip_payments.method = digital` (diterima = uang muka yang diakui ≤ harga; sisa → kurang bayar PTB-18). Event:
+  `trip.completed` `{ paymentMethod: "digital", prepaidAmount, prepaidReference, cashReceived: 0, transferAmount: 0,
+  creditAmount: 0, underpaymentAmount }` dan `trip.payment_recorded` `{ method: "digital", amount, prepaidAmount }`.
+  Kas di tangan sopir tidak bertambah; M4 mengabaikan (bukan transfer); M5 tidak membuat faktur (kecuali sisa kurang
+  bayar). **Tugas paket B:** M5 memakai uang muka pelanggan sebesar `prepaidAmount` (alokasi uang muka, bukan faktur
+  kurang bayar) dan M11 menjurnal D 2-1201 uang muka / K 4-1101 pendapatan L2 dari `trip.completed.prepaidAmount`
+  (kini jurnal `trip.completed` digital tidak memiliki baris → dilewati). Perangkat lama yang mengirim tunai untuk rit
+  digital tetap diterima (tabrakan): uang muka P2 tetap sebagai saldo pelanggan.
 
 Didengar: `discrepancy.formed` (`m3-driver:par83_trip_lock`) → notifikasi `discrepancy.trip_lock` ke sopir bila PAR-83
 mengunci (B-12; kunci sendiri dihitung saat pull & ditegakkan server saat Berangkat).
@@ -81,9 +106,15 @@ rit sudah Selesai/Gagal oleh perintah lain → konflik (catatan pertama berlaku)
 
 - Lapangan: `/sopir` (PWA; `SopirApp` → FieldGate → DriverProvider; menu Rit/Setor/Keterangan/Riwayat/Bantuan; Bantuan
   memasang `<FieldSupportPanel />` — B-03).
+  (S5) Riwayat memasang `<MyCashCard />` M4 (hasil setoran, keputusan selisih & sisa ganti rugi — B-28); rincian rit
+  menampilkan "Kredit pelanggan" dari pull M5 `m5.customer_credit` (status kredit, saldo, eksposur/batas, lewat jatuh
+  tempo — B-33) dan "SUDAH DIBAYAR" untuk rit prabayar dari cara bayar `digital` / pull P2 `p2.prepaid_trips` (B-65;
+  langkah bayar Selesai tanpa isian uang). Konteks: `useDriver().customerCredit(id)`, `.prepaid(trip)`
+  (`M3_EXTERNAL_REFS`, `prepaidInfo` di `src/client/m3-driver/contract.ts`).
 - Kantor: `/sopir-kantor` (alih ke layar pertama yang diizinkan), `/sopir-kantor/dicatat-kantor`
   (`m3.office_entry.create`), `/sopir-kantor/kendala` (`m3.trip_incident.read`), `/sopir-kantor/laporan`
-  (`m3.office_entry.read` | `m3.payment_report.read`). Nav: `m3.office_entry`, `m3.incidents`, `m3.reports`.
+  (`m3.office_entry.read` | `m3.payment_report.read`), `/sopir-kantor/koreksi` (`m3.trip.correct`, S5 B-34). Nav:
+  `m3.office_entry`, `m3.incidents`, `m3.reports`, `m3.corrections`.
 
 ## 8. Aturan kunci
 
@@ -91,6 +122,9 @@ rit sudah Selesai/Gagal oleh perintah lain → konflik (catatan pertama berlaku)
 - BR-19: sopir hanya melihat harga pesanan; jumlah > harga ditolak (kembalian).
 - BR-22: foto (maks `max_delivery_photos`, ≤ PAR-38) + nama penerima wajib; tanda tangan atau alasan; volume ≠ PAR-15 → alasan.
 - BR-23/PAR-16: jarak dihitung ulang server hanya bila alamat Dikunci; level1 alasan, level2 alasan + tinjauan pemilik.
+  (S5, B-48) Rit INTERNAL (pasokan depot) diukur ke koordinat DEPOT TUJUAN (`deviationTarget`, sama dengan M12
+  US-M12-04 KP-5) — Tiba & Selesai; pull `m3.today` mengirim titik depot sebagai titik navigasi (Dikunci), sehingga
+  tingkat penyimpangan M3 = kejadian M12 (`location_deviation_l2`, `details.targetKind = "depot"`).
 - PTB-18: tunai kurang → `underpaymentAmount` + alasan; PTB-20: pengeluaran dari kas mengurangi kas di tangan.
 - Satu rit berjalan per truk; Setor ditolak bila ada rit Berangkat/Tiba; setelah Setor tidak ada rit baru kecuali dibuka kembali.
 - Setoran sopir dibuat saat tunai/pengeluaran pertama (status Berjalan); tunai hari yang sudah Diajukan → setoran hari berjalan (carry-over).

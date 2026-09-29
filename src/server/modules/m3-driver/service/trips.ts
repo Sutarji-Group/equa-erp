@@ -559,6 +559,8 @@ export async function completeTrip(ctx: ActorContext, input: unknown, meta: M3Wr
       photoAttachmentIds: photos.map((p) => p.id),
       signatureAttachmentId: signature?.id ?? null,
       transferProofAttachmentId: pay?.transferProofAttachmentId ?? null,
+      // B-65: dibayar di muka (aplikasi pelanggan) → pendapatan diakui terhadap uang muka (M5/M11), bukan kurang bayar.
+      ...(pay?.method === "digital" ? { prepaidAmount: pay.prepaidAmount ?? pay.received, prepaidReference: pay.prepaidReference ?? null } : {}),
     },
     { ctx, businessDate: meta.businessDate, objectType: "trip", objectId: trip.id },
   );
@@ -592,6 +594,7 @@ export async function completeTrip(ctx: ActorContext, input: unknown, meta: M3Wr
         isCredit: pay.method === "credit",
         recordedByOffice: !!meta.office,
         lateSync: meta.lateSync,
+        ...(pay.method === "digital" ? { prepaidAmount: pay.prepaidAmount ?? pay.received } : {}),
       },
       { ctx, businessDate: meta.businessDate, objectType: "trip_payment", objectId: payment.id },
     );

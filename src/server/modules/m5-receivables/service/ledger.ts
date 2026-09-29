@@ -434,7 +434,8 @@ export async function applyOpenAdvances(tx: Tx, ctx: ActorContext, invoiceId: st
 // Nota kredit (BR-38, 7.5.6, PTB-46)
 // =====================================================================================================================
 
-export type CreditNotePurpose = "correction" | "dispute" | "store_return" | "pos_void" | "underpayment_conversion" | "pending_transfer_resolved" | "opening_adjustment";
+/** `trip_correction` (tambahan S5, B-34): koreksi harga rit M3 — pendapatan & piutang dijurnal dari `trip.corrected`. */
+export type CreditNotePurpose = "correction" | "dispute" | "store_return" | "pos_void" | "underpayment_conversion" | "pending_transfer_resolved" | "opening_adjustment" | "trip_correction";
 
 /**
  * Terbitkan nota kredit `NK-YY-NNNNNN` atas faktur: bagian ≤ sisa faktur mengurangi faktur; kelebihan (faktur sudah

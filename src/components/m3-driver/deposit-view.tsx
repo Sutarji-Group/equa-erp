@@ -12,6 +12,7 @@ import { useState, useSyncExternalStore } from "react";
 import { M3_ATTACHMENT_KINDS, M3_COMMANDS, type DepositSubmitPayload } from "@/client/m3-driver/contract";
 import { BigButton } from "@/components/field/big-button";
 import { PhotoCapture, type CapturedPhoto } from "@/components/field/photo-capture";
+import { MyCashCard } from "@/components/m4-cash/my-cash-card";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { formatTanggal, toWibParts } from "@/lib/time";
@@ -124,12 +125,22 @@ export function SetorView() {
 }
 
 export function HistoryView() {
-  const { history, send } = useDriver();
+  const { history, send, session } = useDriver();
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  if (!history) return <Banner tone="info">Riwayat setoran belum diunduh. Tekan &quot;Kirim sekarang&quot; saat ada sinyal.</Banner>;
+  // B-28 (US-M4-03 KP-3, US-M4-02 KP-8): hasil penerimaan setoran, keputusan selisih & saldo ganti rugi saya (pull M4).
+  const myCash = <MyCashCard userId={session.user.id} limit={3} />;
+  if (!history) {
+    return (
+      <div className="flex flex-col gap-3">
+        {myCash}
+        <Banner tone="info">Riwayat setoran belum diunduh. Tekan &quot;Kirim sekarang&quot; saat ada sinyal.</Banner>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-3" data-testid="riwayat-setoran">
+      {myCash}
       <p className="text-base text-muted-foreground">Setoran & selisih Anda {history.days} hari terakhir.</p>
       {history.rows.length === 0 ? <p className="rounded-xl border-2 border-dashed p-4 text-center text-base">Belum ada setoran.</p> : null}
       {history.rows.map((r) => (

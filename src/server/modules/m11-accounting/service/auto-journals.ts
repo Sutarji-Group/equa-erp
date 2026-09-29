@@ -69,10 +69,16 @@ function tripCorrected(e: Ev<"trip.corrected">): EventJournalSpec {
   if (!p.priceDelta) return skip("Koreksi rit tanpa perubahan harga.");
   return journal(
     "trip.corrected",
-    eventDate(e),
-    `Koreksi harga rit: ${p.reason}`,
-    [{ eventKey: "trip.completed", entryKey: "credit", amount: p.priceDelta, truckId: p.truckId || null }],
+    eventDate(e, p.businessDate),
+    p.tripNumber ? `Koreksi harga rit ${p.tripNumber}: ${p.reason}` : `Koreksi harga rit: ${p.reason}`,
+    [
+      { eventKey: "trip.completed", entryKey: "credit", amount: p.priceDelta, truckId: p.truckId || null },
+      // Tambahan S5 (B-34): harga turun melebihi piutang rit terbuka (rit sudah dibayar) → bagian itu uang muka
+      // pelanggan (D 1-1401 / K 2-1201), sama dengan kelebihan bayar pelunasan; M5 mencatat `customer_advances`.
+      { eventKey: "collection.recorded", entryKey: "advance", amount: p.priceDelta < 0 ? Math.min(-p.priceDelta, Math.max(0, p.advanceAmount ?? 0)) : 0 },
+    ],
     { type: "trip", id: p.tripId },
+    p.tripNumber ?? null,
   );
 }
 
@@ -244,6 +250,8 @@ function creditNoteIssued(e: Ev<"credit_note.issued">): EventJournalSpec {
   const advance = p.advanceAmount ?? 0;
   const src = { type: "credit_note", id: p.creditNoteId };
   if (purpose === "underpayment_conversion" || purpose === "pending_transfer_resolved") return skip("Nota kredit reklasifikasi piutang — tanpa jurnal.");
+  // Tambahan S5 (B-34): koreksi harga rit M3 — pendapatan & piutang (termasuk bagian uang muka) dijurnal dari `trip.corrected`.
+  if (purpose === "trip_correction") return skip("Nota kredit koreksi harga rit — dijurnal pada trip.corrected (hindari posting ganda).");
   if (purpose === "store_return" || purpose === "pos_void") {
     if (advance <= 0) return skip("Pendapatan sudah dibalik oleh retur/void di sumbernya.");
     return journal("credit_note.issued", eventDate(e), `Nota kredit ${p.number ?? ""}: bagian terbayar menjadi uang muka`.trim(), [{ entryKey: "advance", amount: advance }], src, p.number);

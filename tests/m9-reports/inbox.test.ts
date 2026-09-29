@@ -62,7 +62,8 @@ describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () =
     const a2 = await earlyWithdrawalRequest(t.db, { start: addDays(today, -8) });
     // Selisih ≥ ambang menunggu pemilik (alur M3 → M4 nyata).
     const d = await driverDay(t.db, { trips: 1 });
-    await m4.receiveDeposit(m4Finance(new Date()), { depositId: d.depositId, receivedAmount: PRICE - 60_000, discrepancyReason: "wrong_change" });
+    // D-10 butir 6: tidak bergantung jam dinding — setelah PAR-06 (22.00 WIB) penerimaan wajib beralasan terlambat.
+    await m4.receiveDeposit(m4Finance(new Date()), { depositId: d.depositId, receivedAmount: PRICE - 60_000, discrepancyReason: "wrong_change", lateReason: "Uji otomatis di luar jam tutup kas" });
     const [disc] = await t.db.select().from(discrepancies).where(eq(discrepancies.depositId, d.depositId));
     // Rit gagal yang perlu dijadwal ulang.
     const failed = await makeTrip(t.db, { date: today, status: "failed", failReason: "customer_absent" });

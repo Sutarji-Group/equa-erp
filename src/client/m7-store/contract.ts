@@ -283,3 +283,67 @@ export function waLink(phone: string | null | undefined, text: string): string |
   const n = digits.startsWith("0") ? `62${digits.slice(1)}` : digits.startsWith("62") ? digits : `62${digits}`;
   return `https://wa.me/${n}?text=${encodeURIComponent(text)}`;
 }
+
+// =====================================================================================================================
+// Pesanan spare part portal mitra — pull P3 `p3.store_partner_orders` (tambahan S5, B-73; US-P3-03 KP-3)
+// =====================================================================================================================
+
+/** Kunci pull P3 (peran kasir toko): pesanan spare part portal mitra yang menunggu dicatat sebagai penjualan. */
+export const P3_STORE_PARTNER_ORDERS_KEY = "p3.store_partner_orders";
+
+/** Butir pesanan (harga mitra BR-18 saat dipesan; lihat `partner_portal_orders.items`). */
+export type StorePartnerOrderItem = { productId?: string | null; code?: string | null; name?: string | null; quantity?: number | null; unitPrice?: number | null };
+
+export type StorePartnerOrderRef = {
+  id: string;
+  customerId: string;
+  customerName: string;
+  items: StorePartnerOrderItem[] | null;
+  pickup: "store_pickup" | "with_truck" | string | null;
+  paymentMethod: string | null;
+  estimatedAmount: number;
+  submittedAt: string;
+};
+
+/** Bentuk data pull `p3.store_partner_orders` (src/server/modules/p3-partner/sync.ts). */
+export type StorePartnerOrdersReference = { orders: StorePartnerOrderRef[] };
+
+/** Isian awal layar jual toko (keranjang dari pesanan portal; `key` = id pesanan agar layar dipasang ulang). */
+export type StoreCartPrefill = { key: string; customerId: string; cart: { productId: string; quantity: number }[]; method: "cash" | "credit" };
+
+/**
+ * Isi keranjang POS toko dari pesanan spare part portal (US-P3-03 KP-3): barang pesanan dengan harga mitra master saat
+ * ini. Barang yang tidak dapat dijual (tidak aktif, tanpa harga mitra, stok kurang) dilaporkan agar kasir menyesuaikan;
+ * jumlah dibatasi stok perangkat. Konfirmasi pesanan terjadi otomatis di server saat penjualan harga mitra pelanggan
+ * ini tersinkron (`pos_sale.recorded` → P3 `confirmSparePartOrderFromSale`).
+ */
+export function partnerOrderCart(
+  order: Pick<StorePartnerOrderRef, "items">,
+  products: readonly StoreProductRef[],
+): { lines: { productId: string; quantity: number }[]; issues: string[] } {
+  const byId = new Map(products.map((p) => [p.id, p]));
+  const byCode = new Map(products.map((p) => [p.code.toLowerCase(), p]));
+  const qty = new Map<string, number>();
+  const issues: string[] = [];
+  for (const item of order.items ?? []) {
+    const wanted = Math.max(0, Math.trunc(item.quantity ?? 0));
+    if (!wanted) continue;
+    const p = (item.productId ? byId.get(item.productId) : undefined) ?? (item.code ? byCode.get(item.code.toLowerCase()) : undefined);
+    const name = p?.name ?? item.name ?? item.code ?? "Barang";
+    if (!p) {
+      issues.push(`${name}: tidak ada di katalog toko perangkat ini.`);
+      continue;
+    }
+    const check = sellable(p, "partner");
+    if (!check.ok) {
+      issues.push(`${name}: ${check.reason}.`);
+      continue;
+    }
+    const already = qty.get(p.id) ?? 0;
+    const room = Math.max(0, p.balance - already);
+    if (wanted > room) issues.push(`${name}: dipesan ${wanted} ${p.unit}, stok tinggal ${room} ${p.unit}.`);
+    const take = Math.min(wanted, room);
+    if (take > 0) qty.set(p.id, already + take);
+  }
+  return { lines: [...qty].map(([productId, quantity]) => ({ productId, quantity })), issues };
+}

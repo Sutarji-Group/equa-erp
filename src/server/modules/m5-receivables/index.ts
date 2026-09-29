@@ -36,6 +36,9 @@ export {
 export type { CreditNoteRequestResult, InvoiceListFilter, InvoiceListRow } from "./service/invoices";
 export { renderInvoicePdf, renderPaymentReceiptPdf } from "./service/pdf";
 export { pendingTransferInvoice } from "./service/sources";
+// Tambahan S5 (B-34): piutang rit terbuka (M3 menghitung bagian uang muka koreksi harga sebelum `trip.corrected`).
+export { tripOpenReceivable } from "./service/trip-corrections";
+export type { TripOpenReceivable } from "./service/trip-corrections";
 
 // --- Pelunasan & uang muka (US-M5-02, 7.5.6) -------------------------------------------------------------------------
 export {

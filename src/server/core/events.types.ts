@@ -137,6 +137,16 @@ export interface TripCompletedPayload {
   photoAttachmentIds?: string[];
   signatureAttachmentId?: string | null;
   transferProofAttachmentId?: string | null;
+  // --- Tambahan S5 (B-65, D-11 butir 4; opsional, hanya tambah) ---
+  /**
+   * Rit sudah dibayar di muka lewat pembayaran digital aplikasi pelanggan (`paymentMethod: "digital"`): jumlah uang muka
+   * pelanggan yang DIAKUI sebagai pendapatan rit ini (≤ `price`). Sopir tidak menagih; `cashReceived`/`transferAmount`/
+   * `creditAmount` = 0; sisa harga (bila ada) = `underpaymentAmount`. M5/M11 mengakui pendapatan terhadap uang muka
+   * pelanggan (2-1201), BUKAN faktur kurang bayar (kontrak di docs/dev/modules/m3-driver.md §2).
+   */
+  prepaidAmount?: number;
+  /** Referensi pembayaran di muka (id pesanan gerbang P2) untuk penelusuran. */
+  prepaidReference?: string | null;
 }
 export interface TripFailedPayload {
   tripId: string;
@@ -196,6 +206,8 @@ export interface TripPaymentRecordedPayload {
   isCredit?: boolean;
   recordedByOffice?: boolean;
   lateSync?: boolean;
+  /** Tambahan S5 (B-65): `method: "digital"` = dibayar di muka lewat aplikasi pelanggan; jumlah uang muka yang dipakai. */
+  prepaidAmount?: number;
 }
 export interface CollectionRecordedPayload {
   customerPaymentId: string;
@@ -509,7 +521,8 @@ export interface CreditNoteIssuedPayload {
    * `underpayment_conversion` (kurang bayar → tempo) dan `pending_transfer_resolved` (transfer ternyata diterima)
    * hanya reklasifikasi piutang — TIDAK membalik pendapatan.
    */
-  purpose?: "correction" | "dispute" | "store_return" | "pos_void" | "underpayment_conversion" | "pending_transfer_resolved" | "opening_adjustment";
+  /** Tambahan S5 (B-34): `trip_correction` = nota kredit dari koreksi harga rit M3 (pendapatan dikoreksi di `trip.corrected`). */
+  purpose?: "correction" | "dispute" | "store_return" | "pos_void" | "underpayment_conversion" | "pending_transfer_resolved" | "opening_adjustment" | "trip_correction";
   posSaleId?: string | null;
   storeReturnId?: string | null;
   /** Bagian nota kredit yang melampaui sisa faktur → uang muka pelanggan. */
@@ -921,6 +934,18 @@ export interface TripCorrectedPayload {
   volumeDeltaL: number;
   profitCenter?: ProfitCenter | null;
   reason: string;
+  // --- Tambahan S5 (B-34; opsional, hanya tambah) ---
+  /** Id koreksi (kunci idempoten handler M5: faktur koreksi / nota kredit / uang muka). */
+  correctionId?: string;
+  tripNumber?: string;
+  businessDate?: string;
+  /** Persetujuan pemilik `correction` (> PAR-21, BR-38) bila ada. */
+  approvalId?: string | null;
+  /**
+   * Harga turun melebihi piutang rit yang masih terbuka (rit sudah dibayar): bagian ini menjadi UANG MUKA pelanggan
+   * (M5 `createAdvance`; M11 D 1-1401 / K 2-1201), sisanya mengurangi piutang rit (M5 nota kredit `trip_correction`).
+   */
+  advanceAmount?: number;
 }
 export interface TripPaymentReversedPayload {
   tripPaymentId: string;
@@ -931,6 +956,12 @@ export interface TripPaymentReversedPayload {
   amount: number;
   profitCenter?: ProfitCenter | null;
   reason: string;
+  // --- Tambahan S5 (B-34; opsional, hanya tambah) ---
+  tripNumber?: string;
+  businessDate?: string;
+  driverUserId?: string | null;
+  depositId?: string | null;
+  approvalId?: string | null;
 }
 export interface TripExpenseReversedPayload {
   tripExpenseId: string;

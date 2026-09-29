@@ -14,6 +14,8 @@
  * | `transfer.not_found`     | `m5-receivables:transfer_not_found`       | Piutang sementara "transfer belum diterima" (US-M4-04 KP-4).            |
  * | `transfer.matched`       | `m5-receivables:transfer_matched`         | Penanda dihapus; piutang sementara ditutup nota kredit reklasifikasi.   |
  * | `cash_day.closed`        | `m5-receivables:hold_after_cash_close`    | Evaluasi umur & Ditahan setelah tutup kas (US-M5-03 KP-1).             |
+ * | `trip.corrected`         | `m5-receivables:trip_corrected`           | (S5, B-34) Koreksi harga rit: +Δ faktur koreksi/belum ditagih; −Δ nota kredit `trip_correction` / uang muka. |
+ * | `trip_payment.reversed`  | `m5-receivables:trip_payment_reversed`    | (S5, B-34) Pembayaran tunai/transfer rit dibalik → faktur koreksi sebesar uang yang dibalik. |
  */
 import "server-only";
 
@@ -34,6 +36,7 @@ import {
   onTripCompleted,
   onTripPaymentRecorded,
 } from "./service/sources";
+import { onTripCorrected, onTripPaymentReversed } from "./service/trip-corrections";
 
 function systemFor(event: DomainEvent): ActorContext {
   return systemContext({ tenantId: event.tenantId ?? EQUA_TENANT_ID, now: event.occurredAt });
@@ -58,4 +61,7 @@ export function registerEvents(): void {
     },
     { name: "m5-receivables:hold_after_cash_close" },
   );
+  // Tambahan S5 (B-34): koreksi rit/pembayaran oleh Admin Keuangan (M3) sampai ke piutang.
+  on("trip.corrected", async (event, tx) => void (await onTripCorrected(tx, systemFor(event), event)), { name: "m5-receivables:trip_corrected" });
+  on("trip_payment.reversed", async (event, tx) => void (await onTripPaymentReversed(tx, systemFor(event), event)), { name: "m5-receivables:trip_payment_reversed" });
 }

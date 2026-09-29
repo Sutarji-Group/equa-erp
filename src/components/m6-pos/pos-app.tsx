@@ -74,16 +74,14 @@ export function PosScreen() {
   } else if (view === "bantuan") {
     body = <PosHelpView />;
   } else if (!shift) {
-    // B-72 (US-P3-05 KP-1): daftar periksa mutu harian outlet mitra diisi saat buka shift (tersembunyi untuk outlet EQUA).
-    body =
-      view === "shift" ? (
-        <div className="flex flex-col gap-4">
-          <PosQualityChecklist shiftId={null} />
-          <OpenShiftView />
-        </div>
-      ) : (
+    // B-72 (US-P3-05 KP-1): daftar periksa mutu harian outlet mitra diisi saat buka shift — tampil bersama layar buka
+    // shift (menu Jual & Shift); komponen menyembunyikan diri untuk outlet EQUA / flag Tahap 3 mati.
+    body = (
+      <div className="flex flex-col gap-4">
+        <PosQualityChecklist shiftId={null} className="mx-auto w-full max-w-xl" />
         <OpenShiftView />
-      );
+      </div>
+    );
   } else if (view === "shift") {
     body = (
       <div className="grid gap-4 lg:grid-cols-2 lg:items-start">

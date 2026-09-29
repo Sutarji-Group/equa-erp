@@ -6,7 +6,19 @@
  */
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 
-import { computeDayFigures, M3_REFS, type DayFigures, type M3DepositHistory, type M3Today, type M3TripRef } from "@/client/m3-driver/contract";
+import {
+  computeDayFigures,
+  M3_EXTERNAL_REFS,
+  M3_REFS,
+  prepaidInfo,
+  type DayFigures,
+  type DriverCustomerCreditPull,
+  type DriverCustomerCreditRef,
+  type DriverPrepaidTripsPull,
+  type M3DepositHistory,
+  type M3Today,
+  type M3TripRef,
+} from "@/client/m3-driver/contract";
 import { registerM3Optimistic } from "@/client/m3-driver/optimistic";
 import { enqueue, useReference, type EnqueueAttachment } from "@/client/offline";
 import { useFieldSession, type FieldSession } from "@/components/field/field-gate";
@@ -42,6 +54,12 @@ export type DriverContextValue = {
   /** Catat perintah ke antrean ponsel (≤ 1 detik, tanpa jaringan). */
   send: (type: string, payload: unknown, label: string, attachments?: EnqueueAttachment[]) => Promise<string>;
   trip: (id: string) => M3TripRef | undefined;
+  /** B-33 (US-M5-01 KP-3): status kredit, saldo & eksposur pelanggan rit hari ini (pull `m5.customer_credit`). */
+  customerCredit: (customerId: string) => DriverCustomerCreditRef | null;
+  /** Waktu data kredit disiapkan server (untuk label "data sinkron"). */
+  creditGeneratedAt: string | null;
+  /** B-65 (US-P2-04 KP-4): rit sudah dibayar di muka lewat aplikasi pelanggan (pull `p2.prepaid_trips` / cara bayar digital). */
+  prepaid: (trip: M3TripRef) => { paidAmount: number | null; paidAt: string | null } | null;
 };
 
 const DriverContext = createContext<DriverContextValue | null>(null);
@@ -56,6 +74,8 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const session = useFieldSession();
   const today = useReference<M3Today | null>(M3_REFS.today, session.user.id);
   const history = useReference<M3DepositHistory>(M3_REFS.deposits, session.user.id);
+  const credit = useReference<DriverCustomerCreditPull | null>(M3_EXTERNAL_REFS.customerCredit, session.user.id);
+  const prepaidTrips = useReference<DriverPrepaidTripsPull | null>(M3_EXTERNAL_REFS.prepaidTrips, session.user.id);
   const [view, setView] = useState<DriverView>({ name: "list" });
 
   const value = useMemo<DriverContextValue>(() => {
@@ -76,8 +96,11 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       },
       send: async (type, payload, label, attachments = []) => (await enqueue({ type, payload, label }, attachments)).id,
       trip: (id) => today?.trips.find((t) => t.id === id),
+      customerCredit: (customerId) => credit?.customers.find((c) => c.customerId === customerId) ?? null,
+      creditGeneratedAt: credit?.generatedAt ?? null,
+      prepaid: (t) => prepaidInfo(t, prepaidTrips),
     };
-  }, [session, today, history, view]);
+  }, [session, today, history, view, credit, prepaidTrips]);
 
   return <DriverContext.Provider value={value}>{children}</DriverContext.Provider>;
 }
