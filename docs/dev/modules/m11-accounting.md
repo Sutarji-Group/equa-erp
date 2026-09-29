@@ -128,7 +128,7 @@ ada pemetaan wajib yang tidak tertutup. Data transaksi demo (dev/E2E saja): 8 ju
 bank), jurnal berulang sewa kantor (K15), 2 aset tetap (truk T1, peralatan D01).
 
 ## 11. Butir terbuka (nomor = `docs/dev/backlog.md`)
-- `bank_accounts.gl_account_id` bisa kosong/dipakai bersama → rekonsiliasi per rekening memakai akun bawaan pemetaan
+- SELESAI S5 kecuali B-57 (B-53, B-54, B-55, B-52, B-56, B-18 — lihat §12). `bank_accounts.gl_account_id` bisa kosong/dipakai bersama → rekonsiliasi per rekening memakai akun bawaan pemetaan
   `transfer.matched` (ditandai "akun buku dipakai bersama"). Sebaiknya M4 mewajibkan akun buku per rekening — B-53.
 - Dasbor M9 sebaiknya menampilkan `pkpStatus` (US-M11-08 KP-4 "tampil di dashboard M9") — B-54.
 - Modul lain dapat menautkan `/akuntansi/jurnal?sumberTipe=&sumberId=` dari layar rinciannya (ketertelusuran dua arah) — B-55.
@@ -141,3 +141,29 @@ bank), jurnal berulang sewa kantor (K15), 2 aset tetap (truk T1, peralatan D01).
 Integrasi M9 + M11: laporan M11 `m11.profit_loss`, `m11.balance_sheet`, `m11.cash_flow`, `m11.journals` tampil di katalog
 laporan M9 (`/laporan/katalog`); `period.locked` → M9 menyimpan versi Final laba kotor bulanan (revisi saat dikunci
 ulang). Uji `tests/integration/m9-m11.test.ts` (jurnal otomatis → angka M9 = laba rugi M11 per lini).
+
+## 12. S5 pengerasan — paket B
+
+- **B-53** `bankGlAccountOptions(tx, tenantId)`, `assertBankGlAccount(tx, tenantId, accountId)` (akun kas & bank aktif),
+  `nextBankGlCode`, `createBankGlAccount(tx, ctx, { bankName, accountNumber })` (kode berikutnya `1-12NN`, beraudit) — dipakai M4 untuk akun buku per rekening.
+- **B-54** `pkpStatus` menjadi satu-satunya definisi PKP yang dibaca dasbor/laporan M9.
+- **B-55** `JournalLink` bersama (`src/components/shared/journal-link.tsx`: `journalHref`, `canSeeJournalLink`, izin
+  `m11.journal.read`) di layar rincian M2/M4/M5/M6/M7/M8 → `/akuntansi/jurnal?sumberTipe=&sumberId=`.
+- **B-52** keputusan B-31 dikonfirmasi & dipagari uji: pendapatan/piutang dijurnal dari event sumber
+  (`INVOICE_REVENUE_SOURCES` M5), bukan `invoice.issued`.
+- **B-56** alokasi L1 → L3 dipecah per outlet depot menurut volume pasokan (`AllocationPreview.l3ByOutlet`,
+  `basis.depotOutlets`, baris jurnal berdimensi `outletId`); markup harga mitra transfer internal toko → depot
+  dieliminasi pada konsolidasi (`computeInternalMarkup`: bagian terpakai dari beban → `consolidated.markupRealized`,
+  sisa di persediaan depot → `markupUnrealized` + baris neraca "Eliminasi markup transfer internal" / "Laba internal
+  belum terealisasi"; rata-rata tertimbang per outlet — pendekatan terdokumentasi). Uji
+  `tests/m11-accounting/allocation-markup.test.ts`.
+- **B-63** net settlement digital: `transfer.matched` (D bank / K 1-1301 neto) + `digital_payment.succeeded/gateway_fee`
+  mengembalikan 1-1301 ke nol.
+- **B-65** event `customer_advance.applied` dijurnal (pemetaan wajib `customer_advance.applied/default`, D 2-1201 /
+  K 1-1401, jumlah negatif menukar sisi); `trip.completed` prabayar menambah baris kredit uang muka (`prepaidAmount`).
+  Pemetaan demo di `demo-m11-accounting.ts` (`M11_EXTRA_MAPPINGS`). Uji `tests/m11-accounting/auto-journals.test.ts`,
+  `tests/integration/p2-m11.test.ts`.
+- **B-67** (NFR-29) `itCostReport(ctx, { period })` / `computeItCostReport`: beban komunikasi/cloud/aplikasi dari akun
+  parameter `m11.it_cost_report` (tambahan registri parameter) + biaya pesan WhatsApp (`p2.waCostForMonth`) vs anggaran;
+  laporan ekspor terdaftar, tampil di `/akuntansi/laporan`. Uji `tests/m11-accounting/tax.test.ts` (`B-67 …`).
+- **B-57** (kategori arus kas) tetap menunggu tinjauan akuntan saat UAT.

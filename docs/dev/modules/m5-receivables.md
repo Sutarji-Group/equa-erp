@@ -158,7 +158,7 @@ Ikon tombol klien dikirim sebagai ELEMEN (`icon={<MessageCircle aria-hidden />}`
 ## 10. Tindak lanjut (modul lain / PM)
 
 - **M1**: ringkasan kartu pelanggan menghitung piutang langsung dari `invoices` (tanpa rit belum ditagih) — ganti ke
-  `getReceivableBalance(tx, id).balance` (US-M5-01 KP-3).
+  `getReceivableBalance(tx, id).balance` (US-M5-01 KP-3). SELESAI S5 (B-32).
 - **M3**: aplikasi sopir belum menampilkan pull `m5.customer_credit` (status kredit/saldo di rincian rit, US-M5-01 KP-3);
   `trip.corrected` / `trip_payment.reversed` belum dipancarkan M3 → koreksi rit setelah faktur terbit belum diteruskan.
 - **M4**: berlangganan `collection.recorded` kanal `office` (tunai → kas kantor; transfer → pencocokan; `internal` =
@@ -167,5 +167,36 @@ Ikon tombol klien dikirim sebagai ELEMEN (`icon={<MessageCircle aria-hidden />}`
 - **M11**: jurnal dari event di §3 (pengecualian saldo awal/reklasifikasi), panggil `writeOffInvoice` di jurnal
   penghapusan (PTB-28).
 - **M2/M7**: eksposur toko memakai `storeCreditExposure` (tempo toko belum difakturkan) di atas `computeExposure`.
-- Saldo awal dihitung di lini "Air truk" pada umur piutang per lini (tidak ada lini asal pada faktur kertas).
+- Saldo awal dihitung di lini "Air truk" pada umur piutang per lini (tidak ada lini asal pada faktur kertas) — SELESAI S5
+  (B-37: kolom `invoices.opening_line`).
 - `docs/ARCHITECTURE.md` §9 perlu menambahkan `/piutang/status-kredit` (berkas milik PM).
+
+## 11. S5 pengerasan — paket B
+
+- **B-35** `computeExposure` = SATU definisi eksposur lintas lini (dipakai M1, M2 `computeCreditExposure`, M7, layar M5):
+  saldo piutang + rit tempo berjalan + tempo toko belum difakturkan (`uninvoicedStoreCredit`) + `extraAmount`; opsi
+  `excludeSaleId`.
+- **B-37** faktur saldo awal menyimpan lini asal (`invoices.opening_line`, enum `receivable_line`, bawaan `truck`);
+  input `/piutang/saldo-awal` punya pilihan lini; umur per lini memakai `lineOfInvoice`. Uji
+  `tests/m5-receivables/opening.test.ts`.
+- **B-36** (D-10 butir 2) e-mail dari server: `emailInvoice(ctx, { invoiceId, email })` & `emailStatement(ctx,
+  { customerId, email })` → `EmailDeliveryResult { mode: "email" | "mailto", link, to, text }`. `RESEND_API_KEY` terisi
+  → Resend dengan PDF terlampir (faktur `renderInvoicePdf`; pernyataan = ekspor `m5.customer_card` PDF bertujuan →
+  log ekspor data pribadi; butuh izin `m5.aging.export`), `sent_via = "email"`; gagal kirim → `DomainError
+  EMAIL_NOT_SENT` (transaksi batal, pesan tindakan). Tanpa kunci → draf `mailto:` berpenerima, `sent_via =
+  "email_link"` ("draf dibuka", bukan "terkirim"). `sendInvoice(via: "email")` juga mencatat `email_link`.
+  `invoiceMessage` / `statementMessage` (teks + subjek dari template), `invoiceSentViaLabel(v)`. UI: formulir e-mail di
+  `/piutang/faktur/[id]` & `/piutang/pelanggan/[id]`; `/piutang/faktur-bulanan` mengarah ke rincian faktur bila
+  pengirim server aktif. Uji `tests/m5-receivables/email-delivery.test.ts` (Resend dimock).
+- **B-52** `INVOICE_REVENUE_SOURCES` (per `InvoiceKind` → event sumber pendapatan yang dijurnal M11; `opening_balance`
+  = tidak ada) — `invoice.issued` sengaja tidak dijurnal. Uji `tests/integration/m5-m11-invoice-sources.test.ts`.
+- **B-65** rit berbayar di muka: `prepaidAmountOfTrip(p)` (cara bayar `digital`: `prepaidAmount` atau harga − tunai −
+  transfer − tempo − kurang bayar); `trip.completed` prabayar → faktur kirim (jatuh tempo = tanggal layanan) langsung
+  dilunasi uang muka pelanggan. Event baru `customer_advance.applied` (tambahan katalog: `CustomerAdvanceAppliedPayload`,
+  alasan `applied` | `allocation_reversed` | `overpayment_to_advance`, jumlah bertanda) dipancarkan
+  `applyAdvanceToInvoice` / `moveOverflowToAdvance` → M11 jurnal D 2-1201 / K 1-1401. Kontrak untuk M3 (paket A):
+  `trip.completed` rit `digital` dengan tunai/transfer/tempo/kurang bayar 0 dan `prepaidAmount?` = harga.
+- **B-39** seed demo: PLG-0039 kurang bayar dilunasi transfer via telepon (`bojong-tf`, transfernya "Tidak ditemukan"
+  di M4) + `seedDemoM5PendingTransfers` (piutang sementara, dijalankan sesudah seed M4); pelunasan tunai PLG-0001 pindah
+  ke H-1 (hari kas M4 terbuka). Ekspor `DEMO_M5_PAYMENT_KEYS`, `demoM5PaymentId`, `DEMO_M4_NOT_FOUND_TRANSFER_ID`.
+- **B-55** tautan "Lihat jurnal" di rincian faktur (rit/POS/faktur kemitraan) & pelunasan. **B-18** batas unggah 4 MB.

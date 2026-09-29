@@ -106,3 +106,18 @@ dasar simulasi zona K23; bukan harga transaksi). Tabel lain sudah ada sejak S0.
 
 - Penanda "tagihan bulanan" di KP-1 US-M1-01 disimpan, alur faktur bulanan milik M5.
 - Peringatan deviasi jarak (US-M1-05 KP-6) ditampilkan M12 memakai `compareTripDistanceToZone`.
+
+## 13. S5 pengerasan — paket B
+
+- **B-32** kartu pelanggan `/master/pelanggan/[id]` (`customerSummary`): saldo piutang = M5
+  `getReceivableBalance(tx, id).balance` (faktur terbuka semua lini + rit belum ditagih) dan eksposur/batas tersisa =
+  M5 `computeExposure` (satu definisi dengan M2/M5/M7; kolom baru `uninvoicedStoreCredit`). Uji
+  `tests/m1-master/customers.test.ts` (`B-32 …`).
+- **B-43** `proposeCoordinateFromTrip`: rit Selesai tanpa lokasi ponsel (`no_location`) → posisi perangkat GPS truk saat
+  Selesai (US-M12-04 KP-4): `fleet_events(no_location).details.devicePosition`, atau — karena handler M1 terdaftar
+  sebelum M12 pada event `trip.completed` yang sama — dihitung dengan `m12.devicePositionAt` + `m12Rules`
+  (`inconsistency_window_minutes`). Impor M12 DINAMIS (M12 `fuel.ts` mengimpor M1 → hindari siklus). Audit menyimpan
+  `pointSource` (`phone`/`gps_device`), notifikasi Dispatcher menyebut "tanpa lokasi ponsel". Uji
+  `tests/m1-master/coordinate-device.test.ts`.
+- **B-18/B-24**: formulir `/master/*` memakai `useFlashActionState` (pesan sukses tidak hilang setelah revalidasi) dan
+  penjaga unggah bersama (4 MB, kompresi foto).

@@ -178,4 +178,22 @@ pada payload §3.1), `notifications/catalog.ts` (`deposit.result`, `discrepancy.
 - **M11**: pemetaan `office_cash.moved` (`adjustment`, `opening_balance`, `supplier_payment`), `bank_deposit.reversed`,
   `restitution.settlement_reversed`; aturan akun debit `deposit.received` method `bank_slip` → bank (`bankAccountId`);
   lewati jurnal `transfer.matched` untuk `bank_deposit_slip`/`bank_deposit` (hindari posting ganda).
-- UI: `STATUS_TONES` bersama belum punya `incoming_transfer_status.cancelled` (M4 memakai `ToneBadge`).
+- UI: `STATUS_TONES` bersama belum punya `incoming_transfer_status.cancelled` (M4 memakai `ToneBadge`) — SELESAI S5 (B-38).
+
+## 10. S5 pengerasan — paket B
+
+- **B-38** `STATUS_TONES.incoming_transfer_status.cancelled = "muted"`; `/kas/transfer` memakai `StatusBadge`.
+- **B-53** akun buku per rekening bank WAJIB & tidak dipakai bersama: `createBankAccount` menerima `glAccountId`
+  (divalidasi `m11.assertBankGlAccount`: akun kas & bank aktif; M4 `assertGlAccountFree`: belum dipakai rekening lain) atau membuat akun baru
+  otomatis (`m11.createBankGlAccount`, kode `1-12NN`); `setBankAccountGlAccount(ctx, { bankAccountId, glAccountId })`
+  memperbaiki rekening lama; `bankAccountsNeedingGl(ctx)` untuk peringatan di `/kas/kantor` (kolom "Akun buku",
+  formulir perbaikan). Indeks unik `bank_accounts_gl_account_uq`; DB dev lama: `pre-push.sql` mengosongkan akun yang
+  dipakai bersama kecuali rekening tertua. Uji `tests/m4-cash/bank-gl.test.ts`.
+- **B-63** `digital_payment.succeeded` → transfer masuk sebesar SETTLEMENT (bruto − `gatewayFee`), referensi
+  `gatewayOrderId`; pencocokan memakai angka mutasi bank dan 1-1301 kembali nol. Uji `tests/integration/p2-m11.test.ts`.
+- **B-39** seed demo lintas modul: transfer "Tidak ditemukan" (PLG-0039) merujuk pelunasan kantor M5 `bojong-tf` yang
+  ada; pelunasan transfer kantor demo M5 → transfer masuk `office_payment` (dicocokkan); pelunasan tunai kantor demo M5
+  (H-1) → mutasi kas kantor "Pelunasan tunai kantor". Urutan seed: M5 → M4 → `seedDemoM5PendingTransfers` (piutang
+  sementara). Uji `tests/integration/seed-m4-m5.test.ts`.
+- **B-55** rincian setoran `/kas/setoran/[id]`: tautan "Lihat jurnal". **B-18/B-24**: unggah 4 MB + kompresi foto;
+  `useFlashActionState` di `ActionForm`/`ReceiveForm`.
