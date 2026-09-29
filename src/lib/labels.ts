@@ -351,6 +351,9 @@ export const LABELS = {
     partner_report: "Laporan bulanan mitra",
     // Tambahan M5 (hanya tambah): kirim faktur per rit/toko (US-M5-01 KP-5).
     invoice: "Faktur",
+    // Tambahan P2 (hanya tambah): pengingat isi ulang (US-P2-05 KP-2) & pemberitahuan pelanggan (keluhan, akun).
+    refill_reminder: "Pengingat isi ulang",
+    customer_notice: "Pemberitahuan pelanggan",
   },
   /** Status pesan WhatsApp — tautan hanya mencatat "dibuka" (K21). */
   wa_message_status: {
@@ -1473,6 +1476,77 @@ export const LABELS = {
     low: "Rendah",
     medium: "Sedang",
     high: "Tinggi",
+  },
+
+  // --- Tambahan modul P2 (Aplikasi Pelanggan, Tahap 2) — hanya tambah; daftar tampilan (bukan pgEnum) ---
+  /** Status pesanan dalam istilah pelanggan (NFR-15 Tahap 2; bukan istilah internal). */
+  customer_order_status: {
+    new: "Diajukan",
+    awaiting_approval: "Diajukan",
+    scheduled: "Dikonfirmasi",
+    in_delivery: "Dalam perjalanan",
+    completed: "Selesai",
+    cancelled: "Dibatalkan",
+  },
+  /** Status pengiriman per tangki dalam istilah pelanggan (bukan "rit"). */
+  customer_delivery_status: {
+    assigned: "Dijadwalkan",
+    departed: "Berangkat",
+    arrived: "Tiba",
+    completed: "Selesai",
+    failed: "Gagal",
+  },
+  /** Alasan pengiriman gagal yang layak dilihat pelanggan (US-P2-03 KP-1). */
+  customer_fail_reason: {
+    customer_absent: "Tidak ada yang menerima di lokasi",
+    customer_refused: "Pengiriman ditolak di lokasi",
+    location_inaccessible: "Lokasi tidak dapat dijangkau truk",
+    truck_broken: "Kendala kendaraan di perjalanan",
+    other: "Kendala di lapangan",
+  },
+  /** Cara bayar yang ditawarkan di aplikasi pelanggan (US-P2-02 KP-3). */
+  customer_payment_choice: {
+    cash: "Tunai saat air datang",
+    transfer: "Transfer saat air datang",
+    digital: "Bayar sekarang (QRIS / virtual account)",
+    credit: "Tempo",
+  },
+  /** Permintaan akun pelanggan yang ditangani kantor (US-P2-01 KP-2/KP-4/KP-5, 8.7). */
+  customer_account_request_kind: {
+    review: "Verifikasi nama pelanggan",
+    deletion: "Hapus akun (UU PDP)",
+    phone_change: "Ganti nomor WA",
+  },
+  customer_account_request_status: {
+    open: "Menunggu",
+    done: "Selesai",
+    rejected: "Ditolak",
+  },
+  /** Kotak keluhan (US-P2-06 KP-2). */
+  complaint_box: {
+    dispatcher: "Operasional (Dispatcher)",
+    finance_admin: "Tagihan (Admin Keuangan)",
+  },
+  /** Tindak lanjut keluhan (US-P2-06 KP-2/KP-3). */
+  complaint_action: {
+    respond: "Tanggapan",
+    resolve: "Penyelesaian",
+    reassign: "Dipindah kotak",
+    invoice_dispute: "Faktur ditandai bersengketa",
+    overdue_notified: "Lewat tenggat tanggapan",
+  },
+  /** Alasan pesanan langganan gagal dibuat — istilah pelanggan + tindakan (US-P2-05 KP-3). */
+  customer_recurring_failure: {
+    credit_on_hold: "Ada tagihan lewat jatuh tempo. Lunasi di menu Tagihan agar pengiriman langganan berjalan lagi.",
+    credit_limit: "Batas tempo Anda sudah terpakai. Lunasi sebagian tagihan atau pilih bayar tunai.",
+    underpayment: "Masih ada kekurangan bayar pengiriman sebelumnya. Lunasi di menu Tagihan.",
+    inactive_customer: "Akun pelanggan Anda nonaktif. Hubungi kantor EQUA.",
+    other: "Pesanan tidak dapat dibuat otomatis. Hubungi kantor EQUA.",
+  },
+  /** Metode gerbang pembayaran untuk tampilan pelanggan. */
+  payment_gateway_method: {
+    qris_dynamic: "QRIS",
+    virtual_account: "Virtual account bank",
   },
 } as const satisfies Record<string, Record<string, string>>;
 

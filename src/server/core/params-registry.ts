@@ -919,6 +919,96 @@ export const PARAM_REGISTRY = {
       description: "Pendapatan EQUA yang diharapkan per mitra per bulan (air, spare part, langganan, royalti) sebagai pembanding angka nyata di dashboard ekonomi kemitraan.",
     },
   }),
+
+  // --- Tambahan modul P2 (Aplikasi Pelanggan, Tahap 2) — hanya tambah ---
+  /** Angka aturan aplikasi pelanggan yang disebut PRD Bab 8 tanpa nomor PAR (8.6, US-P2-01..06). */
+  "p2.customer_app_rules": defineParam({
+    schema: z
+      .object({
+        /** 8.6: sesi pelanggan berlaku N hari. */
+        session_days: int(1),
+        /** 8.6: pembayaran wajib verifikasi ulang OTP dalam N menit terakhir. */
+        payment_reverify_minutes: int(1),
+        /** Jeda minimal kirim ulang OTP (detik). */
+        otp_resend_seconds: int(0),
+        /** Batas permintaan OTP per nomor per jam (cegah penyalahgunaan). */
+        otp_max_requests_per_hour: int(1),
+        /** US-P2-01 KP-2: nama yang diketik pelanggan dianggap cocok dengan pelanggan M1 bila kemiripan ≥ N%. */
+        name_match_min_pct: pct,
+        /** US-P2-02 KP-2: tanggal kirim yang dapat dipesan dari aplikasi (hari ke depan). */
+        order_horizon_days: int(1),
+        /** US-P2-04 KP-1: riwayat pesanan N bulan. */
+        history_months: int(1),
+        /** US-P2-05 KP-2: minimal N pesanan selesai sebelum rata-rata jarak antar pesanan dipakai. */
+        refill_min_orders: int(2),
+        /** US-P2-05 KP-2: pengingat dikirim H-N dari perkiraan tanggal pesan berikutnya. */
+        refill_days_before: int(0),
+        /** US-P2-03: interval penyegaran posisi truk di aplikasi (detik). */
+        tracking_refresh_seconds: int(5),
+        /** US-P2-01 KP-5: versi naskah persetujuan UU PDP yang ditampilkan saat daftar. */
+        consent_version: z.string().min(1),
+        /** US-P2-03 KP-3: nomor telepon kantor (Dispatcher) untuk tombol "Hubungi kantor". */
+        office_phone: z.string().min(5),
+      })
+      .strict(),
+    affectedRoles: ["dispatcher", "owner"],
+    fallback: {
+      session_days: 30,
+      payment_reverify_minutes: 15,
+      otp_resend_seconds: 60,
+      otp_max_requests_per_hour: 5,
+      name_match_min_pct: 60,
+      order_horizon_days: 14,
+      history_months: 24,
+      refill_min_orders: 3,
+      refill_days_before: 2,
+      tracking_refresh_seconds: 30,
+      consent_version: "2026-09",
+      office_phone: "0263-000000",
+    },
+    meta: {
+      name: "Aturan aplikasi pelanggan (sesi, OTP, pemesanan, riwayat, pengingat isi ulang, kontak kantor)",
+      unit: null,
+      reference: "PRD 8.6, US-P2-01 KP-2/KP-5, US-P2-02 KP-2, US-P2-03 KP-3, US-P2-04 KP-1, US-P2-05 KP-2",
+      description:
+        "Sesi pelanggan 30 hari dengan verifikasi ulang OTP untuk pembayaran, pembatasan permintaan OTP, ambang kemiripan nama saat menautkan nomor WA ke pelanggan lama, jangkauan tanggal pemesanan, riwayat 24 bulan, pengingat isi ulang H-2, dan nomor telepon kantor untuk tombol \"Hubungi kantor\".",
+    },
+  }),
+  /** Pembayaran digital (PTB-50): biaya gerbang dibukukan sebagai beban; masa berlaku QRIS/VA. */
+  "p2.payment_rules": defineParam({
+    schema: z
+      .object({
+        /** Biaya gerbang QRIS (% dari nilai transaksi). */
+        qris_fee_percent: pct,
+        /** Biaya gerbang virtual account per transaksi (Rp). */
+        va_fee_amount: rupiah,
+        /** Masa berlaku QRIS/VA (menit). */
+        intent_valid_minutes: int(5),
+        /** Bank virtual account bawaan (kode Midtrans: bca, bni, bri, permata). */
+        va_bank: z.enum(["bca", "bni", "bri", "permata"]),
+      })
+      .strict(),
+    affectedRoles: ["finance_admin", "owner"],
+    fallback: { qris_fee_percent: 0.7, va_fee_amount: 4_000, intent_valid_minutes: 60, va_bank: "bca" },
+    meta: {
+      name: "Pembayaran digital pelanggan (biaya gerbang, masa berlaku QRIS/VA)",
+      unit: null,
+      reference: "PTB-50, US-P2-04 KP-3",
+      description: "Biaya gerbang pembayaran (QRIS % / VA per transaksi) dibukukan sebagai beban (M11); masa berlaku kode bayar; bank VA bawaan.",
+    },
+  }),
+  /** Tarif per pesan WhatsApp Business API per kategori Meta (NFR-29, US-P2-08 KP-3). */
+  "p2.wa_pricing": defineParam({
+    schema: z.object({ utility: rupiah, authentication: rupiah, marketing: rupiah, service: rupiah }).strict(),
+    affectedRoles: ["owner", "finance_admin"],
+    fallback: { utility: 320, authentication: 480, marketing: 660, service: 0 },
+    meta: {
+      name: "Tarif pesan WhatsApp Business API per kategori",
+      unit: "Rp per pesan",
+      reference: "NFR-29, US-P2-08 KP-3",
+      description: "Dipakai mencatat biaya per pesan tertagih dari status webhook WhatsApp Cloud API; sesuaikan dengan tagihan Meta.",
+    },
+  }),
 } as const satisfies Record<string, ParamDef>;
 
 export type ParamKey = keyof typeof PARAM_REGISTRY;

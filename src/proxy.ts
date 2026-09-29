@@ -45,5 +45,7 @@ export const config = {
     "/audit/:path*",
     "/pengaturan/:path*",
     "/bantuan/:path*",
+    // Tambahan modul P2 (hanya tambah): kotak keluhan & layar kantor aplikasi pelanggan.
+    "/keluhan/:path*",
   ],
 };

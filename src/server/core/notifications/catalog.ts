@@ -188,6 +188,14 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("partner.quality_failed", "Mutu outlet mitra tidak lulus", "high", ["regional_coach", "owner"], "Pastikan tindakan dilakukan; pertimbangkan sanksi", "US-P3-05 KP-1/KP-3/KP-4"),
   e("partner.read_only", "Tenant mitra beralih ke mode baca-saja", "high", ["owner", "finance_admin"], "Tagih tunggakan; pulihkan setelah lunas", "US-P3-02 KP-4"),
   e("partner.data_export_due", "Ekspor data outlet mitra yang berakhir jatuh tempo", "high", ["owner", "finance_admin"], "Serahkan ekspor data ke mitra ≤ 30 hari (PTB-58)", "US-P3-07 KP-2, PTB-58"),
+  // --- Tambahan modul P2 (Aplikasi Pelanggan, Tahap 2) — hanya tambah ---
+  e("customer_app.order_submitted", "Pesanan baru dari aplikasi pelanggan", "normal", ["dispatcher"], "Konfirmasi (jadwalkan) atau tolak beralasan ≤ PAR-75 jam layanan", "US-P2-02 KP-4, PAR-75"),
+  e("customer_app.order_confirm_overdue", "Pesanan aplikasi belum dikonfirmasi lewat tenggat", "high", ["dispatcher", "owner"], "Konfirmasi atau tolak sekarang; pelanggan menunggu", "US-P2-02 KP-4, PAR-75"),
+  e("customer_app.account_review", "Akun aplikasi menunggu verifikasi nama", "normal", ["dispatcher"], "Hubungi pelanggan; tautkan ke data pelanggan atau buat pelanggan baru (8.7)", "US-P2-01 KP-2, 8.7"),
+  e("customer_app.deletion_requested", "Pelanggan meminta hapus akun (UU PDP)", "normal", ["system_admin"], "Catat permintaan anonimisasi di Akses > Data pribadi; pemilik menyetujui", "US-P2-01 KP-5, US-M10-06 KP-2"),
+  e("customer_app.complaint_submitted", "Keluhan pelanggan baru", "normal", ["dispatcher", "finance_admin"], "Tanggapan pertama ≤ PAR-75 jam layanan", "US-P2-06 KP-2, PAR-75"),
+  e("customer_app.complaint_overdue", "Keluhan pelanggan belum ditanggapi lewat tenggat", "high", ["dispatcher", "finance_admin", "owner"], "Tanggapi keluhan sekarang", "US-P2-06 KP-2, PAR-75"),
+  e("customer_app.payment_succeeded", "Pembayaran digital pelanggan berhasil", "info", ["finance_admin"], "Cocokkan dengan settlement bank di Kas > Transfer masuk", "US-P2-04 KP-3, PTB-50"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */

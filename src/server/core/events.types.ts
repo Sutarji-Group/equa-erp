@@ -894,6 +894,18 @@ export interface DigitalPaymentSucceededPayload {
   gatewayFee: number;
   method: string;
   invoiceIds: string[];
+  // --- Tambahan P2 (opsional, hanya tambah) ---
+  /** Pelunasan M5 (kanal `digital`) yang dibentuk dari pembayaran ini. */
+  customerPaymentId?: string | null;
+  /** Bayar di muka untuk pesanan sebelum kirim (US-P2-04 KP-4) — seluruh nilai menjadi uang muka. */
+  orderId?: string | null;
+  prepaid?: boolean;
+  /** Nomor transaksi di gerbang (dicocokkan dengan settlement bank). */
+  gatewayOrderId?: string | null;
+  gateway?: string | null;
+  /** Bagian yang menjadi uang muka (kelebihan / bayar di muka). */
+  advanceAmount?: number;
+  businessDate?: string;
 }
 
 // --- Koreksi / pembalik (tinjauan pasca-F3c; PRD 7.11.4, 6.7) -------------------------------------------------------

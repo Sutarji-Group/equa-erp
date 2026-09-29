@@ -254,3 +254,210 @@ export const paymentIntentsRelations = relations(paymentIntents, ({ one }) => ({
 export const refillReminderPrefsRelations = relations(refillReminderPrefs, ({ one }) => ({
   account: one(customerAccounts, { fields: [refillReminderPrefs.customerAccountId], references: [customerAccounts.id] }),
 }));
+
+// =====================================================================================================================
+// Tambahan modul P2 (implementasi Tahap 2) — hanya tambah; tabel lama tidak diubah (kolom tambahan = tabel pendamping)
+// =====================================================================================================================
+
+/**
+ * Jejak pesanan mandiri (US-P2-02): menautkan pesanan M2 (`orders.source = customer_app`) ke akun pelanggan beserta
+ * tenggat konfirmasi Dispatcher (PAR-75), konfirmasi/penolakan, cara bayar pilihan pelanggan (digital = bayar di muka
+ * setelah pesanan dibuat), dan pembatalan mandiri (PAR-72). Data bisnis pesanan tetap di M2 (8.4).
+ */
+export const customerAppOrders = pgTable(
+  "customer_app_orders",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    orderId: uuid("order_id")
+      .notNull()
+      .unique("customer_app_orders_order_uq")
+      .references((): AnyPgColumn => orders.id),
+    customerAccountId: uuid("customer_account_id")
+      .notNull()
+      .references((): AnyPgColumn => customerAccounts.id),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references((): AnyPgColumn => customers.id),
+    /** Kunci slot PAR-73 (pagi/siang/sore). */
+    slot: text("slot"),
+    /** Cara bayar yang dipilih di aplikasi (cash/transfer/credit/digital). */
+    paymentPreference: text("payment_preference").notNull().default("cash"),
+    /** Kunci idempoten dari formulir (ketukan ganda tidak membuat pesanan dobel). */
+    clientRequestId: uuid("client_request_id").unique("customer_app_orders_client_request_uq"),
+    /** PAR-75: konfirmasi/penolakan Dispatcher paling lambat (jam layanan). */
+    confirmDueAt: tstz("confirm_due_at"),
+    confirmedAt: tstz("confirmed_at"),
+    confirmedBy: userRef("confirmed_by"),
+    rejectedAt: tstz("rejected_at"),
+    rejectedBy: userRef("rejected_by"),
+    rejectReason: text("reject_reason"),
+    cancelledByCustomerAt: tstz("cancelled_by_customer_at"),
+    cancelReason: text("cancel_reason"),
+    overdueNotifiedAt: tstz("overdue_notified_at"),
+    /** Bayar di muka lewat pembayaran digital (US-P2-04 KP-4). */
+    prepaidAt: tstz("prepaid_at"),
+    prepaidAmount: money("prepaid_amount"),
+    ...timestamps(),
+  },
+  (t) => [index("customer_app_orders_account_idx").on(t.customerAccountId), index("customer_app_orders_due_idx").on(t.confirmedAt, t.confirmDueAt)],
+);
+
+/** Kotak notifikasi pelanggan di aplikasi (+ push & WA; US-P2-03 KP-4, US-P2-05 KP-2/KP-3). Satu per `dedupe_key`. */
+export const customerNotifications = pgTable(
+  "customer_notifications",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    customerAccountId: uuid("customer_account_id"),
+    customerId: uuid("customer_id").references((): AnyPgColumn => customers.id),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    link: text("link"),
+    objectType: text("object_type"),
+    objectId: text("object_id"),
+    dedupeKey: text("dedupe_key").notNull().unique("customer_notifications_dedupe_uq"),
+    pushSentAt: tstz("push_sent_at"),
+    waMessageLogId: uuid("wa_message_log_id"),
+    readAt: tstz("read_at"),
+    ...createdAtOnly(),
+  },
+  (t) => [
+    index("customer_notifications_account_idx").on(t.customerAccountId, t.createdAt),
+    foreignKey({ name: "customer_notifications_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
+);
+
+/** Langganan Web Push perangkat pelanggan (PWA). Dicabut dengan `revoked_at` (tanpa DELETE). */
+export const customerPushSubscriptions = pgTable(
+  "customer_push_subscriptions",
+  {
+    id: pk(),
+    customerAccountId: uuid("customer_account_id").notNull(),
+    endpoint: text("endpoint").notNull().unique("customer_push_subscriptions_endpoint_uq"),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    lastUsedAt: tstz("last_used_at"),
+    revokedAt: tstz("revoked_at"),
+    ...createdAtOnly(),
+  },
+  (t) => [
+    index("customer_push_subscriptions_account_idx").on(t.customerAccountId),
+    foreignKey({ name: "customer_push_subscriptions_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
+);
+
+/** Biaya per pesan WhatsApp Cloud API (NFR-29; US-P2-08 KP-3): satu baris per pesan tertagih dari webhook status. */
+export const waMessageCosts = pgTable(
+  "wa_message_costs",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    waMessageLogId: uuid("wa_message_log_id"),
+    providerMessageId: text("provider_message_id").notNull().unique("wa_message_costs_provider_uq"),
+    /** Kategori harga Meta (utility/authentication/marketing/service). */
+    category: text("category").notNull(),
+    billable: boolean("billable").notNull().default(true),
+    costAmount: money("cost_amount").notNull(),
+    /** Bulan biaya 'YYYY-MM' (WIB). */
+    month: text("month").notNull(),
+    ...createdAtOnly(),
+  },
+  (t) => [index("wa_message_costs_month_idx").on(t.tenantId, t.month)],
+);
+
+/** Unduhan dokumen oleh pelanggan (US-P2-04 KP-5): faktur PDF, riwayat PDF, struk. */
+export const customerDownloadLogs = pgTable(
+  "customer_download_logs",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    customerAccountId: uuid("customer_account_id").notNull(),
+    kind: text("kind").notNull(),
+    objectType: text("object_type"),
+    objectId: text("object_id"),
+    ...createdAtOnly(),
+  },
+  (t) => [
+    index("customer_download_logs_account_idx").on(t.customerAccountId, t.createdAt),
+    foreignKey({ name: "customer_download_logs_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
+);
+
+/**
+ * Permintaan akun yang ditangani kantor: `review` (nama tidak cocok dengan pelanggan M1 — 8.7), `deletion` (hapus akun →
+ * anonimisasi lewat M10, US-M10-06 KP-2), `phone_change` (ganti nomor lewat Dispatcher, US-P2-01 KP-4).
+ */
+export const customerAccountRequests = pgTable(
+  "customer_account_requests",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    customerAccountId: uuid("customer_account_id").notNull(),
+    kind: text("kind").notNull(),
+    /** open | done | rejected */
+    status: text("status").notNull().default("open"),
+    reason: text("reason"),
+    /** Nama yang diketik pelanggan (review) / nomor baru (phone_change). */
+    detail: text("detail"),
+    /** Pelanggan M1 kandidat (nomor WA sama) untuk verifikasi Dispatcher. */
+    candidateCustomerId: uuid("candidate_customer_id").references((): AnyPgColumn => customers.id),
+    handledAt: tstz("handled_at"),
+    handledBy: userRef("handled_by"),
+    handledNote: text("handled_note"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("customer_account_requests_status_idx").on(t.kind, t.status),
+    index("customer_account_requests_account_idx").on(t.customerAccountId),
+    foreignKey({ name: "customer_account_requests_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
+);
+
+/** Tindak lanjut keluhan (US-P2-06 KP-2/KP-3): tanggapan, pemindahan kotak, sengketa faktur, penyelesaian — tanpa hapus. */
+export const complaintActions = pgTable(
+  "complaint_actions",
+  {
+    id: pk(),
+    complaintId: uuid("complaint_id")
+      .notNull()
+      .references((): AnyPgColumn => complaints.id),
+    /** respond | resolve | reassign | invoice_dispute | overdue_notified */
+    action: text("action").notNull(),
+    note: text("note"),
+    visibleToCustomer: boolean("visible_to_customer").notNull().default(true),
+    actorUserId: userRef("actor_user_id"),
+    ...createdAtOnly(),
+  },
+  (t) => [index("complaint_actions_complaint_idx").on(t.complaintId, t.createdAt)],
+);
+
+/** Pergantian nomor WA lewat verifikasi nomor lama & baru (US-P2-01 KP-4). */
+export const phoneChangeRequests = pgTable(
+  "phone_change_requests",
+  {
+    id: pk(),
+    customerAccountId: uuid("customer_account_id").notNull(),
+    oldPhone: text("old_phone").notNull(),
+    newPhone: text("new_phone").notNull(),
+    oldVerifiedAt: tstz("old_verified_at"),
+    completedAt: tstz("completed_at"),
+    expiresAt: tstz("expires_at").notNull(),
+    ...createdAtOnly(),
+  },
+  (t) => [
+    index("phone_change_requests_account_idx").on(t.customerAccountId),
+    foreignKey({ name: "phone_change_requests_account_fk", columns: [t.customerAccountId], foreignColumns: [customerAccounts.id] }),
+  ],
+);
+
+export const customerAppOrdersRelations = relations(customerAppOrders, ({ one }) => ({
+  order: one(orders, { fields: [customerAppOrders.orderId], references: [orders.id] }),
+  account: one(customerAccounts, { fields: [customerAppOrders.customerAccountId], references: [customerAccounts.id] }),
+}));
+
+export const complaintActionsRelations = relations(complaintActions, ({ one }) => ({
+  complaint: one(complaints, { fields: [complaintActions.complaintId], references: [complaints.id] }),
+}));
