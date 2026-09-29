@@ -205,3 +205,26 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
   `.env.example` mendokumentasikan variabelnya. Uji: `tests/core/e2e-clock.test.ts` (NFR-09 tidak aktif di produksi).
 - Data awal skenario: `src/db/seed/e2e-scenarios.ts` (`seedE2eScenarioData`, pelanggan Tempo PLG-0951) — HANYA dari
   `pnpm e2e:prepare`, tidak termasuk `runSeed`. Rincian suite: `docs/qa/skenario-uji.md`.
+
+## S5B perbaikan audit (paket A) — tambahan inti (hanya tambah, dilaporkan)
+
+- `src/server/core/jobs.ts`: `inJobTx(db, run)` — satu unit kerja job dalam transaksi (D-12 butir 8); dipakai job M7 &
+  kebersihan sesi (`src/server/core/auth/session.ts`, per pengguna `withTx`). Uji runner semua job paket A:
+  `tests/core/jobs-tx.test.ts`.
+- `src/server/core/params-registry.ts`: `m6.price_rules` (`offline_price_grace_days`, bawaan 3).
+- `src/server/core/notifications/catalog.ts`: `pos.late_cash_after_close`, `water_supply.transfer_price_missing`.
+- `src/server/core/events.types.ts`: `water_supply.confirmed` + `adjustmentOfAutoAccepted?`, `transferPriceMissing?`.
+- `src/server/core/sync/app-version.ts` (baru): `appUpdateRequired`, `appUpdateMessage`; `processPush` menjawab semua
+  perintah dari versi di bawah `app.min_supported_version` dengan `retry` + `APP_UPDATE_REQUIRED` (log perangkat
+  `update_required`), `pinLogin` menolak `APP_UPDATE_REQUIRED` (426). Header `X-App-Version` kosong tidak diblokir.
+- `src/server/core/audit.ts`: `auditObjectLabel(objectType)` (getter label objek).
+- Klien offline (`src/client/offline/*`): galat unggah lampiran hanya final bila `VALIDATION` berisian atau
+  `ACCOUNT_INACTIVE` (`isFinalUploadError`, kode perintah `ATTACHMENT_FAILED`); galat server ≥ 500, `DEVICE_*`,
+  token/jam, sesi = sementara (lampiran tetap `pending` dengan backoff `nextAttemptAt`, putaran berhenti, perintah tetap
+  `queued`). Baru: `retryOutboxItem` / `canRetryOutboxItem` ("Kirim ulang"), `markRejectedReviewed` + kolom
+  `reviewedAt` ("Sudah dibaca"; pita merah hanya menghitung yang belum dibaca), `pruneOutbox` (Blob lampiran terkirim
+  dihapus; riwayat terkirim/konflik/ditolak-dibaca > `OUTBOX_KEEP_DAYS`=7 hari dipangkas, sisakan
+  `OUTBOX_KEEP_RECENT`=100 per pengguna) dipanggil tiap putaran sinkron; Dexie **v3** menambah indeks outbox
+  `[userId+createdAt]`; `useSyncStatus`/`useReference`/`useOutbox`/`listOutbox` memakai indeks. Komponen bersama
+  `src/components/field/outbox-item-actions.tsx` di daftar antrean sopir, POS, produksi & beranda lapangan.
+  `FieldApiError.issues` (isian validasi server). Uji: `tests/client/offline-resilience.test.ts`.

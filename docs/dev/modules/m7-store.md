@@ -124,3 +124,14 @@ usulan. Reducer optimistis: `registerStoreOptimistic()`.
 - Nomor faktur tempo di struk bergantung M5 (`pos_sales.invoice_id`); sampai M5 ada, struk menulis "terbit setelah terkirim".
 - Pembayaran pemasok belum membuat mutasi kas kantor/bank — M4 berlangganan `supplier_payment.recorded`.
 - `docs/ARCHITECTURE.md` §8 perlu menambahkan `store_return.recorded` (berkas milik PM).
+
+## 10. Perbaikan audit S5B (paket A)
+
+- **Hitung buta (US-M7-05 KP-1)**: baris opname terkunci setelah hitungan pertama (`m7.stock_count.count` →
+  `conflict` + `lockedProductIds`); hitung ulang hanya lewat Admin Keuangan (`recountStoreLine`, berjejak nilai awal);
+  saldo sistem disembunyikan di tab Stok POS selama opname bulan berjalan; kelengkapan diperiksa saat diajukan.
+- **Tempo offline (US-M7-04 KP-4, PTB-42, BR-06)**: status offline ditentukan server dari jeda waktu perangkat vs sinkron
+  (flag klien diabaikan); pelanggan Ditahan/Tunai → `pending_approval` (`store_credit_sale`); klien memblokir tempo
+  offline bila cek kredit perangkat gagal.
+- **D-12 butir 8**: `m7.reorder.sweep`, `m7.payable.due_reminder`, `m7.stock_count.monthly_check` per unit kerja dalam
+  `inJobTx`.

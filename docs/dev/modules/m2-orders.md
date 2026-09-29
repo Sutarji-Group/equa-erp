@@ -130,3 +130,15 @@ baru (laporan & template = tab di `/pesanan`). Papan: DnD HTML5 + tombol (aksesi
   `tests/p3-partner/phase3-pos-orders.test.ts`.
 - **B-55** rincian pesanan `/pesanan/[id]`: kolom "Jurnal" per rit Selesai (`JournalLink`, hanya pemegang
   `m11.journal.read`). **B-24**: formulir memakai `useFlashActionState`.
+
+## 12. Perbaikan audit S5B (paket A)
+
+- **US-M2-02 KP-2**: `recomputeOrderStatus` memancarkan `order.status_changed { from, to, reason }` pada SETIAP
+  transisi turunan rit (terbit, dalam pengiriman, selesai, kembali Baru) — P2 tidak perlu emit manual.
+- **Bab 5.2**: pesanan yang punya rit Selesai berstatus minimal Dalam pengiriman; `cancelOrder` atas pesanan terkirim
+  sebagian menarik sisa rit lalu pesanan menjadi Selesai (audit `cancel_remaining`).
+- **US-M2-05 KP-3/KP-6**: `changePaymentMethod` hanya menggugurkan persetujuan tempo (`only: "credit"`), bukan
+  persetujuan kurang bayar kedua.
+- **BR-24 / PTB-01**: rit internal gagal berturut tidak mewajibkan konfirmasi ulang pelanggan.
+- **PTB-18**: saat terbit ulang, penghalang kurang bayar kedua/konfirmasi ulang hanya untuk rit yang belum terbit.
+- Uji: `tests/m2-orders/status-fixes.test.ts` (5), `tests/p2-customer/orders.test.ts` (KP-4 alur nyata).

@@ -190,3 +190,10 @@ agar jejak selaras dengan kejadian demo `off_schedule_trip` T4. Uji seed gabunga
 - **B-46** (peta komersial): keputusan D-10 butir 4 sudah tercermin — OSM + garis lurus × 1,3 bawaan, OSRM opsional lewat
   `MAP_ROUTING_PROVIDER=osrm` + `MAP_ROUTING_URL` (`src/server/core/maps.ts`, `src/lib/env.ts`); tidak ada perubahan kode.
 
+## 11. Perbaikan audit S5B (paket A)
+
+- **Gangguan vendor GPS (US-M12-01 KP-4, US-M12-08 KP-2, 7.12.6)**: cabang `vendorOutage` di `runDeviceHealthCheck`
+  kini memanggil `startPhoneTracking` untuk setiap truk basi (tanpa notifikasi per truk); ingest posisi perangkat
+  memanggil `stopPhoneTracking` saat umpan pulih.
+- `purgeExpiredPositions` kini juga dipanggil job retensi M10 (satu jalur hapus GPS yang memastikan ringkasan).
+- Uji: `tests/m12-fleet/devices.test.ts` (gangguan vendor: pelacakan ponsel hidup lalu berhenti).
