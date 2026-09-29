@@ -515,10 +515,11 @@ export async function getMonthlyReport(ctx: ActorContext, input: unknown, opts: 
     const snap = fresh ?? (opts.tx ? await finalizeMonthlyReport(opts.tx, { tenantId: ctx.tenantId, month, now: ctx.now }) : await withTx((tx) => finalizeMonthlyReport(tx, { tenantId: ctx.tenantId, month, now: ctx.now })));
     const all = await finalSnapshots(db, ctx.tenantId, month);
     const data = snap!.data as unknown as MonthlyGrossProfit;
+    // Versi Final sebelum B-54 tidak menyimpan proyeksi/sumber PKP.
+    const storedPkp = data.pkp as Partial<MonthlyGrossProfit["pkp"]> & Omit<MonthlyGrossProfit["pkp"], "avg3" | "projectedPeriod" | "source">;
     return {
       ...data,
-      // Versi Final sebelum B-54 tidak menyimpan proyeksi/sumber PKP.
-      pkp: { avg3: 0, projectedPeriod: null, source: "m11", ...data.pkp },
+      pkp: { ...storedPkp, avg3: storedPkp.avg3 ?? 0, projectedPeriod: storedPkp.projectedPeriod ?? null, source: storedPkp.source ?? "m11" },
       final: { snapshotId: snap!.id, revision: snap!.revision, generatedAt: snap!.generatedAt.toISOString() },
       previousFinals: all.filter((s) => s.id !== snap!.id).map((s) => ({ snapshotId: s.id, revision: s.revision, generatedAt: s.generatedAt.toISOString() })),
     };

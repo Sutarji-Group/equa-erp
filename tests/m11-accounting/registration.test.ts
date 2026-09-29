@@ -59,6 +59,7 @@ describe("M11 — registrasi modul (event, persetujuan, job, laporan, izin, navi
         "m11.cash_flow",
         "m11.cash_reconciliations",
         "m11.daily_reconciliation",
+        "m11.it_costs",
         "m11.journal_queue",
         "m11.journals",
         "m11.ledger",

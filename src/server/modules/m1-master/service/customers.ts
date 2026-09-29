@@ -12,14 +12,13 @@
  */
 import "server-only";
 
-import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, ne, or, sql, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
   customerAddresses,
   customerCreditHistory,
   customers,
-  invoices,
   orders,
   products,
   specialPrices,
