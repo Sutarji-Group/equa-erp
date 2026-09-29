@@ -16,11 +16,14 @@ import "server-only";
 
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
-import { fleetEvents, outlets, truckFills, trips, waterSources } from "@/db/schema";
+import { fleetEvents, outlets, truckFills, trips, trucks, waterSources } from "@/db/schema";
+import { label } from "@/lib/labels";
 import { haversineMeters } from "@/lib/geo";
 import { formatJam, toBusinessDate, type BusinessDate } from "@/lib/time";
 
-import { withTx, type Db, type Tx } from "@/server/core/db";
+import type { ActorContext } from "@/server/core/context";
+import { getDb, withTx, type Db, type Tx } from "@/server/core/db";
+import { authorizeAny } from "@/server/core/rbac";
 import { setFillGeofenceResult } from "@/server/modules/m8-production";
 
 import { cleanTrack, locationContaining, type TrackPoint } from "../domain/track";
@@ -388,4 +391,77 @@ export async function geofenceFlagsFor(tx: Tx, input: { tenantId: string; date: 
         input.waterSourceId ? or(eq(fleetEvents.locationId, input.waterSourceId), sql`${fleetEvents.details} ->> 'waterSourceId' = ${input.waterSourceId}`) : sql`true`,
       ),
     );
+}
+
+export type SourceDayGeofenceFlag = {
+  id: string;
+  kind: "geofence_without_fill" | "supply_without_geofence";
+  kindLabel: string;
+  truckCode: string | null;
+  startedAt: Date;
+  endedAt: Date | null;
+  durationS: number | null;
+  status: string;
+  /** Uraian singkat (lama di sumber tanpa pengisian / rit & depot pasokan). */
+  note: string;
+};
+
+/**
+ * Penanda geofence armada SELAIN per pengisian untuk rincian neraca air & investigasi susut M8 (B-45, US-M12-06 KP-4):
+ * `geofence_without_fill` (truk di geofence sumber tanpa pengisian tercatat) dan `supply_without_geofence` (pasokan
+ * depot dari sumber ini tanpa truk masuk geofence depot tujuan — ditautkan lewat pengisian rit itu). Izin: pembaca
+ * neraca air M8 atau kejadian armada M12.
+ */
+export async function geofenceFlagsForSourceDay(ctx: ActorContext, input: { sourceId: string; date: BusinessDate }, opts: { tx?: Tx } = {}): Promise<SourceDayGeofenceFlag[]> {
+  await authorizeAny(ctx, ["m8.water_balance.read", "m12.fleet_event.read"], { tx: opts.tx, objectType: "water_source", objectId: input.sourceId });
+  const tx = opts.tx ?? getDb();
+  const dwell = await tx
+    .select({ e: fleetEvents, truckCode: trucks.code })
+    .from(fleetEvents)
+    .leftJoin(trucks, eq(trucks.id, fleetEvents.truckId))
+    .where(
+      and(
+        eq(fleetEvents.tenantId, ctx.tenantId),
+        eq(fleetEvents.businessDate, input.date),
+        eq(fleetEvents.kind, "geofence_without_fill"),
+        or(eq(fleetEvents.locationId, input.sourceId), sql`${fleetEvents.details} ->> 'waterSourceId' = ${input.sourceId}`),
+      ),
+    );
+  const supply = await tx
+    .select({ e: fleetEvents, truckCode: trucks.code })
+    .from(fleetEvents)
+    .leftJoin(trucks, eq(trucks.id, fleetEvents.truckId))
+    .where(
+      and(
+        eq(fleetEvents.tenantId, ctx.tenantId),
+        eq(fleetEvents.businessDate, input.date),
+        eq(fleetEvents.kind, "supply_without_geofence"),
+        or(
+          sql`${fleetEvents.details} ->> 'waterSourceId' = ${input.sourceId}`,
+          inArray(
+            fleetEvents.tripId,
+            tx.select({ id: truckFills.tripId }).from(truckFills).where(and(eq(truckFills.waterSourceId, input.sourceId), sql`${truckFills.tripId} is not null`)),
+          ),
+        ),
+      ),
+    );
+  const out: SourceDayGeofenceFlag[] = [...dwell, ...supply].map(({ e, truckCode }) => {
+    const d = (e.details ?? {}) as Record<string, unknown>;
+    const note =
+      e.kind === "geofence_without_fill"
+        ? `Di geofence sumber ±${Number(d.dwellMinutes ?? Math.round((e.durationS ?? 0) / 60)).toLocaleString("id-ID")} menit tanpa pengisian tercatat (batas ${String(d.thresholdMinutes ?? "—")} menit).`
+        : `Rit ${String(d.tripNumber ?? "—")} ke ${String(d.outletName ?? "depot")}${typeof d.volumeL === "number" ? ` (${d.volumeL.toLocaleString("id-ID")} L)` : ""} Selesai tanpa truk masuk geofence depot.`;
+    return {
+      id: e.id,
+      kind: e.kind as SourceDayGeofenceFlag["kind"],
+      kindLabel: label("fleet_event_kind", e.kind),
+      truckCode: truckCode ?? null,
+      startedAt: e.startedAt,
+      endedAt: e.endedAt,
+      durationS: e.durationS,
+      status: e.status,
+      note,
+    };
+  });
+  return out.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
 }

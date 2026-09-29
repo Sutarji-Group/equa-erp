@@ -17,6 +17,7 @@ import { ctxBusinessDate } from "@/server/core/context";
 import { NotFoundError } from "@/server/core/errors";
 import { can } from "@/server/core/rbac";
 import * as m8 from "@/server/modules/m8-production";
+import * as m12 from "@/server/modules/m12-fleet";
 
 import {
   acceptInvestigationAction,
@@ -58,6 +59,9 @@ export default async function RincianNeracaPage({ searchParams }: { searchParams
     throw error;
   }
   const schedule = can(ctx, "m8.truck_fill.correct") ? await m8.fillsVsSchedule(ctx, { date, sourceId }) : [];
+  // B-45 (US-M12-06 KP-4): penanda geofence armada selain per pengisian — pertimbangan investigasi susut.
+  const geofenceFlags = await m12.geofenceFlagsForSourceDay(ctx, { sourceId, date });
+  const canOpenFleetEvent = can(ctx, "m12.fleet_event.read");
   const canVerify = can(ctx, "m8.meter_reading.verify");
   const canCorrect = can(ctx, "m8.meter_reading.correct");
   const canFix = can(ctx, "m8.truck_fill.correct");
@@ -354,6 +358,51 @@ export default async function RincianNeracaPage({ searchParams }: { searchParams
           </div>
         </SectionCard>
       ) : null}
+
+      <SectionCard
+        title="Penanda geofence armada"
+        description="Truk di geofence sumber tanpa pengisian tercatat & pasokan depot dari sumber ini tanpa truk masuk geofence depot (M12). Penanda per pengisian tampil di tabel pengisian."
+        flush
+      >
+        {geofenceFlags.length === 0 ? (
+          <EmptyState title="Tidak ada penanda geofence" description="Tidak ada kunjungan sumber tanpa pengisian atau pasokan tanpa geofence depot pada hari ini." compact />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table data-testid="penanda-geofence">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Jam</TableHead>
+                  <TableHead>Penanda</TableHead>
+                  <TableHead>Truk</TableHead>
+                  <TableHead>Keterangan</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {geofenceFlags.map((f) => (
+                  <TableRow key={f.id}>
+                    <TableCell className="whitespace-nowrap">{formatJam(f.startedAt)}</TableCell>
+                    <TableCell>
+                      <ToneBadge tone="warning">{f.kindLabel}</ToneBadge>
+                    </TableCell>
+                    <TableCell>{f.truckCode ?? "—"}</TableCell>
+                    <TableCell className="text-sm">
+                      {f.note}
+                      {canOpenFleetEvent ? (
+                        <>
+                          {" "}
+                          <Link className="text-primary underline" href={`/armada/kejadian/${f.id}`}>
+                            Lihat kejadian
+                          </Link>
+                        </>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </SectionCard>
 
       <SectionCard title="Neraca & investigasi susut">
         {!b ? (

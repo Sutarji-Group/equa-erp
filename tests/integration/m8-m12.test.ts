@@ -10,16 +10,18 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import type { Db } from "@/db/client";
 import { fleetEvents, gpsPositions, incidents, trips, truckFills, waterSources } from "@/db/schema";
-import { truckId } from "@/db/seed";
+import { EQUA_TENANT_ID, truckId } from "@/db/seed";
 import { seedDemoM12Fleet } from "@/db/seed/demo-m12-fleet";
 import { seedDemoM8Production } from "@/db/seed/demo-m8-production";
 import { POOL_SEED } from "@/db/seed/org";
 import { haversineMeters } from "@/lib/geo";
 import { addDays, toBusinessDate } from "@/lib/time";
-import { runGeofenceProcessing, runTravelDetection } from "@/server/modules/m12-fleet";
+import { geofenceFlagsForSourceDay, runGeofenceProcessing, runTravelDetection } from "@/server/modules/m12-fleet";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
+import { seededContext } from "../helpers/context";
 import { useTestDb } from "../helpers/db";
+import { createCustomer, createOrder, createScheduledTrip, createTruck } from "../helpers/fixtures";
 import { productionWorld } from "../m8-production/helpers";
 import { attachGps, chain, drive, dwell, feed, gpsTruck, minutesAfter, NOWHERE, offsetMeters, wib } from "../m12-fleet/helpers";
 
@@ -107,5 +109,34 @@ describe("Integrasi M8 ↔ M12: pengisian truk dicocokkan dengan geofence sumber
     const detection = await runTravelDetection(NOW, t.db);
     expect(detection.filter((r) => /^T[1-7]$/.test(r.truckCode)).reduce((sum, r) => sum + r.created, 0)).toBe(0);
     expect(await crossModuleIncidents(t.db)).toEqual([]);
+  });
+});
+
+describe("B-45 rincian neraca air memuat penanda geofence armada selain per pengisian (US-M12-06 KP-4)", () => {
+  const t = useTestDb({ seed: true });
+  beforeAll(() => bootstrapForTests());
+
+  it("B-45 US-M12-06 KP-4 US-M8-04 KP-3 geofence_without_fill di sumber & supply_without_geofence rit pasokan dari sumber tampil untuk sumber-hari itu; sumber lain tidak", async () => {
+    const date = "2026-09-22";
+    const [src] = await t.db.insert(waterSources).values({ tenantId: EQUA_TENANT_ID, code: "SUB45", name: "Sumber Uji B-45", lat: -6.77, lng: 107.08, dailyCapacityL: 50_000 }).returning();
+    const [other] = await t.db.insert(waterSources).values({ tenantId: EQUA_TENANT_ID, code: "SUB45X", name: "Sumber Lain B-45", lat: -6.7, lng: 107.0, dailyCapacityL: 50_000 }).returning();
+    const truck = await createTruck(t.db, { code: "B45T1" });
+    const cust = await createCustomer(t.db);
+    const order = await createOrder(t.db, { customerId: cust.id, addressId: cust.addressId!, date });
+    const trip = await createScheduledTrip(t.db, { order, truckId: truck.id, date });
+    await t.db.insert(truckFills).values({ tenantId: EQUA_TENANT_ID, waterSourceId: src!.id, truckId: truck.id, tripId: trip.id, businessDate: date, volumeL: 5_000, filledAt: wib(date, "07:00") });
+    await t.db.insert(fleetEvents).values([
+      { tenantId: EQUA_TENANT_ID, kind: "geofence_without_fill", truckId: truck.id, businessDate: date, startedAt: wib(date, "09:00"), durationS: 1_800, locationType: "water_source", locationId: src!.id, details: { waterSourceId: src!.id, dwellMinutes: 30, thresholdMinutes: 20 } },
+      { tenantId: EQUA_TENANT_ID, kind: "supply_without_geofence", truckId: truck.id, tripId: trip.id, businessDate: date, startedAt: wib(date, "08:10"), locationType: "outlet", details: { tripNumber: trip.number, outletName: "Depot Uji", volumeL: 5_000 } },
+      { tenantId: EQUA_TENANT_ID, kind: "geofence_without_fill", truckId: truck.id, businessDate: date, startedAt: wib(date, "10:00"), locationType: "water_source", locationId: other!.id, details: { waterSourceId: other!.id, dwellMinutes: 25 } },
+    ]);
+    const flags = await geofenceFlagsForSourceDay(seededContext("keuangan1"), { sourceId: src!.id, date });
+    expect(flags.map((f) => f.kind)).toEqual(["supply_without_geofence", "geofence_without_fill"]);
+    expect(flags[0]!.note).toContain(trip.number);
+    expect(flags[1]!.note).toMatch(/30 menit/);
+    expect(flags.every((f) => f.truckCode === "B45T1")).toBe(true);
+    expect(await geofenceFlagsForSourceDay(seededContext("keuangan1"), { sourceId: other!.id, date })).toHaveLength(1);
+    // Izin: pembaca neraca air (M8) atau kejadian armada (M12).
+    await expect(geofenceFlagsForSourceDay(seededContext("dispatcher1"), { sourceId: src!.id, date })).resolves.toHaveLength(2);
   });
 });
