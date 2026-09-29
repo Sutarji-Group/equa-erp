@@ -16,6 +16,7 @@ import { createHmac } from "node:crypto";
 
 import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 
+import type { Db } from "@/db/client";
 import { waMessageCosts, waMessageLogs } from "@/db/schema";
 import { devSecretsAllowed, serverEnv } from "@/lib/env";
 import { label, type EnumValue } from "@/lib/labels";
@@ -127,6 +128,23 @@ export type WaCostSummary = {
   pricing: Record<string, number>;
 };
 
+export type WaMonthCost = { month: string; totalCost: number; billableMessages: number; byCategory: { category: string; count: number; amount: number }[] };
+
+/**
+ * Biaya pesan WA tertagih satu bulan (`wa_message_costs`) — tanpa otorisasi, untuk modul lain di dalam transaksinya
+ * (laporan biaya bulanan M11, NFR-29 / B-67).
+ */
+export async function waCostForMonth(tx: Tx | Db, tenantId: string, month: string): Promise<WaMonthCost> {
+  const costs = await tx
+    .select({ category: waMessageCosts.category, count: sql<number>`count(*)::int`, amount: sql<number>`coalesce(sum(${waMessageCosts.costAmount}), 0)::bigint` })
+    .from(waMessageCosts)
+    .where(and(eq(waMessageCosts.tenantId, tenantId), eq(waMessageCosts.month, month), eq(waMessageCosts.billable, true)))
+    .groupBy(waMessageCosts.category)
+    .orderBy(asc(waMessageCosts.category));
+  const byCategory = costs.map((c) => ({ category: c.category, count: Number(c.count), amount: Number(c.amount) }));
+  return { month, totalCost: byCategory.reduce((s, c) => s + c.amount, 0), billableMessages: byCategory.reduce((s, c) => s + c.count, 0), byCategory };
+}
+
 /** Ringkasan biaya pesan WA per bulan (NFR-29; US-P2-08 KP-3). */
 export async function waCostSummary(ctx: ActorContext, filter: { month?: string | null } = {}, opts: { tx?: Tx } = {}): Promise<WaCostSummary> {
   await authorize(ctx, "p2.wa_cost.read", { tx: opts.tx });
@@ -134,12 +152,7 @@ export async function waCostSummary(ctx: ActorContext, filter: { month?: string 
   const month = filter.month && /^\d{4}-\d{2}$/.test(filter.month) ? filter.month : monthOf(toBusinessDate(ctx.now));
   const from = `${month}-01`;
   const end = wibToUtc(addDays(lastDayOfMonth(from), 1), "00:00");
-  const costs = await tx
-    .select({ category: waMessageCosts.category, count: sql<number>`count(*)::int`, amount: sql<number>`coalesce(sum(${waMessageCosts.costAmount}), 0)::bigint` })
-    .from(waMessageCosts)
-    .where(and(eq(waMessageCosts.tenantId, ctx.tenantId), eq(waMessageCosts.month, month), eq(waMessageCosts.billable, true)))
-    .groupBy(waMessageCosts.category)
-    .orderBy(asc(waMessageCosts.category));
+  const cost = await waCostForMonth(tx, ctx.tenantId, month);
   const logs = await tx
     .select({ kind: waMessageLogs.kind, status: waMessageLogs.status, n: sql<number>`count(*)::int` })
     .from(waMessageLogs)
@@ -147,12 +160,12 @@ export async function waCostSummary(ctx: ActorContext, filter: { month?: string 
     .groupBy(waMessageLogs.kind, waMessageLogs.status);
   const kinds = [...new Set(logs.map((l) => l.kind))];
   const pricing = await params.get(tx, "p2.wa_pricing", from, { tenantId: ctx.tenantId });
-  const byCategory = costs.map((c) => ({ category: c.category, count: Number(c.count), amount: Number(c.amount) }));
+  const byCategory = cost.byCategory;
   return {
     month,
     providerActive: isAutoWaActive(),
-    totalCost: byCategory.reduce((s, c) => s + c.amount, 0),
-    billableMessages: byCategory.reduce((s, c) => s + c.count, 0),
+    totalCost: cost.totalCost,
+    billableMessages: cost.billableMessages,
     byCategory,
     byKind: kinds.map((k) => {
       const n = (st: string) => logs.filter((l) => l.kind === k && l.status === st).reduce((s, l) => s + Number(l.n), 0);

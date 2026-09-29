@@ -188,14 +188,17 @@ export async function placeOrder(cctx: CustomerContext, input: PlaceOrderInput, 
         notes: data.notes ? `Dari aplikasi pelanggan: ${data.notes}` : "Dari aplikasi pelanggan",
         duplicateDecision: "additional",
         duplicateReason: "Pesanan dari aplikasi pelanggan — periksa dobel dengan pesanan telepon (8.7)",
+        // B-64: asal & slot ikut `order.created` (bukan diperbarui setelah pesanan dibuat).
+        source: "customer_app",
+        slot: data.slot as EnumValue<"delivery_slot">,
       },
       { tx },
     );
     if (res.status === "credit_blocked") throw new DomainError("CREDIT_UNAVAILABLE", shortCreditReason(res.check.reason));
     if (res.status !== "created") throw new DomainError("ORDER_NOT_CREATED", "Pesanan tidak dapat dibuat. Coba lagi atau hubungi kantor EQUA.");
     const order = res.order;
-    // Penanda "dari aplikasi" (kolom Tahap 2 di tabel M2) + slot & akun pembuat (US-P2-02 KP-4, US-M10-05 KP-1).
-    await tx.update(orders).set({ source: "customer_app", slot: data.slot as EnumValue<"delivery_slot">, createdByCustomerAccountId: cctx.accountId, updatedAt: cctx.now }).where(eq(orders.id, order.id));
+    // Akun pembuat (US-P2-02 KP-4, US-M10-05 KP-1); asal "dari aplikasi" & slot sudah diisi M2 `createOrder` (B-64).
+    await tx.update(orders).set({ createdByCustomerAccountId: cctx.accountId, updatedAt: cctx.now }).where(eq(orders.id, order.id));
 
     const date = customerBusinessDate(cctx);
     const rules75 = await params.get(tx, "PAR-75", date);

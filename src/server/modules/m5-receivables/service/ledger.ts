@@ -28,7 +28,7 @@ import { emit } from "@/server/core/events";
 import { notify } from "@/server/core/notifications";
 import { nextNumber } from "@/server/core/numbering";
 
-import { customerCardLink, invoiceLink, loadAdvance, loadInvoice, profitCenterOfKind, type AdvanceRow, type CreditNoteRow, type InvoiceRow } from "./common";
+import { customerCardLink, invoiceLink, loadAdvance, loadInvoice, profitCenterOfKind, type AdvanceRow, type CreditNoteRow, type InvoiceRow, type ReceivableLine } from "./common";
 
 // =====================================================================================================================
 // Terbitkan faktur
@@ -62,6 +62,8 @@ export type IssueInvoiceInput = {
   description?: string | null;
   isOpeningBalance?: boolean;
   openingConfirmationAttachmentId?: string | null;
+  /** Lini asal faktur saldo awal (B-37). */
+  openingLine?: ReceivableLine | null;
   pendingTransferId?: string | null;
   outletId?: string | null;
   reclassifiedFromTripPaymentId?: string | null;
@@ -96,6 +98,7 @@ export async function issueInvoice(tx: Tx, ctx: ActorContext, input: IssueInvoic
       description: input.description ?? null,
       isOpeningBalance: input.isOpeningBalance ?? false,
       openingConfirmationAttachmentId: input.openingConfirmationAttachmentId ?? null,
+      openingLine: input.openingLine ?? null,
       pendingTransferId: input.pendingTransferId ?? null,
       createdBy: ctx.userId,
     })

@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { customers, deposits, invoices, orders, partnerPortalOrders, partnerSanctions, posSales, shifts, tenants, trips, waterSupplyReceipts } from "@/db/schema";
+import { customers, deposits, domainEvents, invoices, orders, partnerPortalOrders, partnerSanctions, posSales, shifts, tenants, trips, waterSupplyReceipts } from "@/db/schema";
 import { EQUA_TENANT_ID, outletId as seedOutlet, userIdByUsername } from "@/db/seed";
 import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
@@ -163,6 +163,9 @@ describe("US-P3-03 Memesan air dan spare part ke EQUA dengan harga mitra dan tag
     if (res.status !== "created") return;
     const [o] = await t.db.select().from(orders).where(eq(orders.id, res.orderId));
     expect(o).toMatchObject({ source: "partner_portal", customerId: p.customerId, tankCount: 2, priceSource: "zone" });
+    // B-64: asal portal mitra sudah terbawa di `order.created` (tidak diperbarui setelah pesanan dibuat).
+    const [created] = await t.db.select().from(domainEvents).where(and(eq(domainEvents.type, "order.created"), eq(domainEvents.objectId, res.orderId)));
+    expect(created!.payload).toMatchObject({ source: "partner_portal" });
     expect(o!.slaDueAt!.getTime() - o!.createdAt.getTime()).toBe(24 * 3_600_000);
     expect(res.discountBp).toBe(0);
     const zonePrice = o!.pricePerTrip;

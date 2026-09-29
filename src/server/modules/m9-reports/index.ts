@@ -74,6 +74,7 @@ export {
   getMonthlyReport,
   monthlyDrilldown,
   MONTHLY_REPORT_KEY,
+  pkpDashboard,
   shiftMonth,
 } from "./service/monthly";
 export type { MonthlyAccountRow, MonthlyExportResult, MonthlyGrossProfit, MonthlyJournalRow, MonthlyLine, WaterCostRow } from "./service/monthly";
@@ -83,7 +84,7 @@ export { getReportCatalog, missingCatalogReports, REPORT_CATALOG } from "./servi
 export type { CatalogEntry, CatalogReportView, CatalogView } from "./service/catalog";
 
 // --- Kotak masuk pemilik (US-M9-04) ------------------------------------------------------------------------------------
-export { actOnInboxItem, getInbox, inboxCount } from "./service/inbox";
+export { actOnInboxItem, clearInboxBadgeCache, getInbox, inboxBadgeCount, inboxCount } from "./service/inbox";
 export type { InboxAction, InboxGroup, InboxItem, InboxKind, OwnerInbox } from "./service/inbox";
 
 // --- Kinerja (US-M9-05) ------------------------------------------------------------------------------------------------

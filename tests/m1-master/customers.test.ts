@@ -10,6 +10,7 @@ import {
   notifications,
   orders,
   trips,
+  unbilledCharges,
 } from "@/db/schema";
 import {
   customerId as seedCustomerId,
@@ -26,6 +27,7 @@ import {
 } from "@/server/core/errors";
 import { emit } from "@/server/core/events";
 import * as m1 from "@/server/modules/m1-master";
+import * as m5 from "@/server/modules/m5-receivables";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
 import { useTestDb } from "../helpers/db";
@@ -542,6 +544,14 @@ describe("M1 Master Data", () => {
         .update(orders)
         .set({ paymentMethod: "credit" })
         .where(eq(orders.id, credit.id));
+      // Rit tempo pesanan berjalan (eksposur M5 dihitung dari rit tempo belum Selesai — B-35).
+      const creditTruck = await createTruck(t.db);
+      await createScheduledTrip(t.db, {
+        order: credit,
+        truckId: creditTruck.id,
+        date: "2026-10-06",
+        paymentMethod: "credit",
+      });
       await t.db.insert(invoices).values({
         tenantId: EQUA_TENANT_ID,
         number: `F-26-8${Math.floor(Math.random() * 99999)}`,
@@ -572,6 +582,60 @@ describe("M1 Master Data", () => {
         price: 240_000,
         reviewOverdue: true,
       });
+    });
+
+    it("B-32 US-M5-01 KP-3 kartu pelanggan M1 memakai saldo piutang M5 (faktur terbuka + rit belum ditagih) dan eksposur yang sama dengan kartu piutang", async () => {
+      const res = await newCustomer();
+      await t.db
+        .update(customers)
+        .set({ creditStatus: "credit", creditLimit: 5_000_000, monthlyBilling: true })
+        .where(eq(customers.id, res.customer.id));
+      await t.db.insert(invoices).values({
+        tenantId: EQUA_TENANT_ID,
+        number: `F-26-7${Math.floor(Math.random() * 99999)}`,
+        kind: "delivery",
+        customerId: res.customer.id,
+        issueDate: TODAY,
+        dueDate: TODAY,
+        amount: 400_000,
+        outstandingAmount: 400_000,
+      });
+      // Rit tempo pelanggan tagihan bulanan yang sudah Selesai tetapi belum difakturkan (unbilled_charges M5).
+      const done = await createOrder(t.db, {
+        customerId: res.customer.id,
+        addressId: res.addresses[0]!.id,
+        date: TODAY,
+        pricePerTrip: 250_000,
+      });
+      const truck = await createTruck(t.db);
+      const trip = await createScheduledTrip(t.db, {
+        order: done,
+        truckId: truck.id,
+        date: TODAY,
+        paymentMethod: "credit",
+      });
+      await t.db.update(trips).set({ status: "completed" }).where(eq(trips.id, trip.id));
+      await t.db.insert(unbilledCharges).values({
+        tenantId: EQUA_TENANT_ID,
+        customerId: res.customer.id,
+        tripId: trip.id,
+        serviceDate: TODAY,
+        description: "Rit tempo belum ditagih",
+        amount: 250_000,
+      });
+      const summary = await m1.getCustomerSummary(dispatcher(), res.customer.id);
+      const m5Balance = await withTx((tx) =>
+        m5.getReceivableBalance(tx, res.customer.id),
+      );
+      const m5Exposure = await m5.getCreditExposure(finance(), res.customer.id);
+      expect(m5Balance.balance).toBe(650_000);
+      expect(summary.openReceivable).toBe(m5Balance.balance);
+      expect(summary.remainingLimit).toBe(m5Exposure.remaining);
+      expect(summary.remainingLimit).toBe(5_000_000 - 650_000);
+      // Nonaktifkan memakai saldo yang sama (faktur + belum ditagih).
+      await expect(
+        m1.deactivateCustomer(dispatcher(), res.customer.id, "Pelanggan pindah"),
+      ).rejects.toThrow(/650\.000/);
     });
 
     it("US-M1-01 KP-10 semua perubahan pelanggan & alamat berjejak audit (nilai lama/baru, pelaku)", async () => {

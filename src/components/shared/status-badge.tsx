@@ -67,7 +67,7 @@ export const STATUS_TONES: Partial<Record<EnumName, Record<string, StatusTone>>>
     wipe_pending: "warning",
     wiped: "muted",
   },
-  incoming_transfer_status: { unmatched: "warning", matched: "success", not_found: "danger" },
+  incoming_transfer_status: { unmatched: "warning", matched: "success", not_found: "danger", cancelled: "muted" },
   notification_status: { new: "info", read: "neutral", actioned: "success", done: "muted" },
   credit_status: { cash: "neutral", credit: "info", credit_migrated: "info", on_hold: "danger" },
 };

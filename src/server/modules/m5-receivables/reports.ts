@@ -302,6 +302,7 @@ export function registerReports(): void {
     columns: [
       { key: "number", header: "Nomor" },
       { key: "customerName", header: "Pelanggan", width: 24 },
+      { key: "lineLabel", header: "Lini" },
       { key: "issueDate", header: "Tanggal", type: "date" },
       { key: "dueDate", header: "Jatuh tempo", type: "date" },
       { key: "description", header: "Keterangan", width: 26 },
@@ -312,7 +313,7 @@ export function registerReports(): void {
     fetch: async (ctx, _f, { tx }) => {
       const b = await openingBoard(ctx, { tx });
       return {
-        rows: b.summary.invoices,
+        rows: b.summary.invoices.map((i) => ({ ...i, lineLabel: label("receivable_line", i.openingLine ?? "truck") })),
         status: b.signoff ? label("signoff_status", b.signoff.status) : "Belum ada",
         summary: [{ label: "Total saldo awal", value: b.summary.total, type: "rupiah" as const }],
       };

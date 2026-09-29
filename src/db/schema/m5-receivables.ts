@@ -45,6 +45,8 @@ export const advanceStatusEnum = pgEnum("advance_status", enumValues("advance_st
 export const creditNoteStatusEnum = pgEnum("credit_note_status", enumValues("credit_note_status"));
 export const invoiceLineComponentEnum = pgEnum("invoice_line_component", enumValues("invoice_line_component"));
 export const reminderKindEnum = pgEnum("reminder_kind", enumValues("reminder_kind"));
+/** Lini piutang (umur per lini, US-M5-04 KP-1) — dipakai faktur saldo awal (B-37). */
+export const receivableLineEnum = pgEnum("receivable_line", enumValues("receivable_line"));
 export const reminderStatusEnum = pgEnum("reminder_status", enumValues("reminder_status"));
 
 /**
@@ -81,6 +83,8 @@ export const invoices = pgTable(
     /** US-M5-07: saldo awal cut-over — tidak menghasilkan jurnal penjualan (masuk neraca awal M11). */
     isOpeningBalance: boolean("is_opening_balance").notNull().default(false),
     openingConfirmationAttachmentId: attachmentRef("opening_confirmation_attachment_id"),
+    /** Lini asal faktur saldo awal (kertas) untuk umur piutang per lini (B-37); kosong = air truk. */
+    openingLine: receivableLineEnum("opening_line"),
     // --- sengketa (7.5.6; PAR-45) ---
     disputeStatus: disputeStatusEnum("dispute_status").notNull().default("none"),
     disputedAt: tstz("disputed_at"),

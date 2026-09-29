@@ -1037,6 +1037,8 @@ export interface OrderCreatedPayload {
   internalOutletId?: string | null;
   recurringOrderId?: string | null;
   status: EnumValue<"order_status">;
+  /** B-64 (tambahan S5): slot pengiriman pesanan aplikasi pelanggan (PAR-73). */
+  slot?: EnumValue<"delivery_slot"> | null;
 }
 /** Transisi status pesanan dari alur kantor (Menunggu persetujuan, Dibatalkan, keputusan persetujuan) — US-M2-02 KP-2. */
 export interface OrderStatusChangedPayload {

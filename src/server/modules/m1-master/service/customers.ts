@@ -42,6 +42,7 @@ import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, can, runService } from "@/server/core/rbac";
 import { normalizeWaNumber } from "@/server/core/wa";
+import { computeExposure, getReceivableBalance } from "@/server/modules/m5-receivables";
 
 import { ACTIVE_ORDER_STATUSES, loadAddress, loadCustomer, masterRules, normalizeText, textSimilarity, type AddressRow, type CustomerRow } from "./common";
 import { getActiveSpecialPrice } from "./pricing";
@@ -477,13 +478,12 @@ export async function reactivateCustomer(ctx: ActorContext, customerId: string, 
   });
 }
 
-/** Piutang terbuka pelanggan (read-only dari M5; kosong di awal). */
+/**
+ * Saldo piutang pelanggan — SATU definisi M5 (`getReceivableBalance(tx, id).balance`: faktur terbuka semua lini +
+ * rit belum ditagih pelanggan tagihan bulanan; US-M5-01 KP-3, B-32).
+ */
 export async function openReceivable(tx: Tx, customerId: string): Promise<number> {
-  const [row] = await tx
-    .select({ total: sum(invoices.outstandingAmount) })
-    .from(invoices)
-    .where(and(eq(invoices.customerId, customerId), gt(invoices.outstandingAmount, 0)));
-  return Number(row?.total ?? 0);
+  return (await getReceivableBalance(tx, customerId)).balance;
 }
 
 // =====================================================================================================================
@@ -930,11 +930,13 @@ export type CustomerSummary = {
   creditStatus: CustomerRow["creditStatus"];
   creditLimit: number;
   paymentTermDays: number;
-  /** Piutang belum lunas (read-only M5; 0 bila belum ada faktur). */
+  /** Saldo piutang M5 (faktur terbuka + rit belum ditagih; US-M5-01 KP-3, B-32). */
   openReceivable: number;
-  /** Nilai pesanan tempo berjalan (Baru/Menunggu persetujuan/Terjadwal/Dalam pengiriman) — BR-06. */
+  /** Nilai rit tempo pesanan berjalan (Baru/Menunggu persetujuan/Terjadwal/Dalam pengiriman) — BR-06. */
   openCreditOrders: number;
-  /** Batas tersisa = batas − (piutang terbuka + pesanan tempo berjalan) (BR-06). */
+  /** Penjualan tempo toko belum difakturkan (bagian eksposur lintas lini, B-35). */
+  uninvoicedStoreCredit: number;
+  /** Batas tersisa = batas − eksposur M5 `computeExposure` (BR-06, PTB-25). */
   remainingLimit: number;
   lastOrders: { id: string; number: string; requestedDate: string; tankCount: number; status: string; trucks: string[]; totalAmount: number }[];
   /** Rata-rata jarak (hari) antar pesanan; null bila < 2 pesanan. */
@@ -954,12 +956,8 @@ export async function getCustomerSummary(ctx: ActorContext, customerId: string, 
   const tx = opts.tx ?? getDb();
   const customer = await loadCustomer(tx, ctx, customerId);
   const date = opts.date ?? ctxBusinessDate(ctx);
-  const receivable = await openReceivable(tx, customerId);
-  const [creditOrders] = await tx
-    .select({ total: sum(orders.totalAmount) })
-    .from(orders)
-    .where(and(eq(orders.customerId, customerId), eq(orders.paymentMethod, "credit"), inArray(orders.status, [...ACTIVE_ORDER_STATUSES])));
-  const openCreditOrders = Number(creditOrders?.total ?? 0);
+  // Saldo & eksposur dari M5 — satu definisi dengan kartu piutang, kontrol kredit M2 & tempo toko M7 (B-32, B-35).
+  const exposure = await computeExposure(tx, customerId, { asOf: date });
   const last = await tx
     .select({ id: orders.id, number: orders.number, requestedDate: orders.requestedDate, tankCount: orders.tankCount, status: orders.status, totalAmount: orders.totalAmount })
     .from(orders)
@@ -1000,7 +998,6 @@ export async function getCustomerSummary(ctx: ActorContext, customerId: string, 
     seen.add(r.s.productId);
     activeSpecial.push({ id: current.id, productId: current.productId, productName: r.productName, price: current.price, validFrom: current.validFrom, reviewDate: current.reviewDate, reviewOverdue: current.reviewDate <= date });
   }
-  const exposure = receivable + openCreditOrders;
   return {
     customerId,
     name: customer.name,
@@ -1008,9 +1005,10 @@ export async function getCustomerSummary(ctx: ActorContext, customerId: string, 
     creditStatus: customer.creditStatus,
     creditLimit: customer.creditLimit,
     paymentTermDays: customer.paymentTermDays,
-    openReceivable: receivable,
-    openCreditOrders,
-    remainingLimit: customer.creditLimit - exposure,
+    openReceivable: exposure.balance,
+    openCreditOrders: exposure.openCreditOrders,
+    uninvoicedStoreCredit: exposure.uninvoicedStoreCredit,
+    remainingLimit: exposure.remaining,
     lastOrders: last.map((o) => ({ ...o, trucks: truckRows.filter((t) => t.orderId === o.id).map((t) => t.code) })),
     averageDaysBetweenOrders,
     notes: customer.notes,

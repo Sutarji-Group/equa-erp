@@ -37,7 +37,7 @@ import * as params from "@/server/core/params";
 import { authorize, authorizeAny, runService } from "@/server/core/rbac";
 import { buildWaLink, recordWaOpened, renderTemplate } from "@/server/core/wa";
 
-import { agingBucket, customerCardLink, invoiceLink, lineOfKind, loadCustomer, loadInvoice, receivableRules, type InvoiceRow } from "./common";
+import { agingBucket, customerCardLink, invoiceLink, lineOfInvoice, loadCustomer, loadInvoice, receivableRules, type InvoiceRow } from "./common";
 import { changeCreditStatus, afterReceivablesChanged } from "./credit-hold";
 import { computeExposure } from "./balance";
 import { applyWriteOff, issueCreditNote, issueInvoice, recomputeInvoice } from "./ledger";
@@ -150,7 +150,7 @@ export async function getInvoiceDetail(ctx: ActorContext, invoiceId: string, opt
     approvals: pending,
     fieldCredit,
     bucket: agingBucket(inv.dueDate, today, rules),
-    line: lineOfKind(inv.kind),
+    line: lineOfInvoice(inv),
   };
 }
 

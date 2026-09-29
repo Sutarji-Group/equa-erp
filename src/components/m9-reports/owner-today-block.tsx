@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Inbox, LayoutDashboard, Wallet } from "lucide-react";
+import { Inbox, Landmark, LayoutDashboard, Wallet } from "lucide-react";
 
 import { KpiTile } from "@/components/shared/kpi-tile";
 import { MoneyText } from "@/components/shared/money-text";
@@ -16,9 +16,12 @@ export async function OwnerTodayBlock({ ctx }: { ctx: ActorContext }) {
   if (!can(ctx, "m9.daily_summary.read")) return null;
   let dash: m9.DailyDashboard;
   let inbox: { count: number; overdue: number } | null = null;
+  let pkp: Awaited<ReturnType<typeof m9.pkpDashboard>> = null;
   try {
     dash = await m9.getDailyDashboard(ctx, {});
-    if (can(ctx, "m9.inbox.read")) inbox = await m9.inboxCount(ctx);
+    if (can(ctx, "m9.inbox.read")) inbox = await m9.inboxBadgeCount(ctx);
+    // Status batas PKP (US-M11-08 KP-4, B-54) — angka M11 `pkpStatus`, sama dengan Akuntansi › Pajak.
+    if (can(ctx, "m9.monthly_report.read")) pkp = await m9.pkpDashboard(ctx);
   } catch {
     return null;
   }
@@ -33,6 +36,17 @@ export async function OwnerTodayBlock({ ctx }: { ctx: ActorContext }) {
         hint={dash.pendingDiscrepancies.length ? `${dash.pendingDiscrepancies.length} menunggu keputusan pemilik` : undefined}
         icon={Wallet}
       />
+      {pkp ? (
+        <KpiTile
+          label="Batas PKP (12 bulan berjalan)"
+          value={`${pkp.percent.toLocaleString("id-ID")}%`}
+          tone={pkp.level !== null ? (pkp.level >= Math.max(...pkp.warnPercents) ? "danger" : "warning") : "success"}
+          hint={pkp.projectedPeriod ? `Proyeksi tercapai ${pkp.projectedPeriod}` : "Belum diproyeksikan tercapai"}
+          href="/laporan/bulanan#pkp"
+          hrefLabel="Buka pemantauan PKP"
+          icon={Landmark}
+        />
+      ) : null}
       {inbox ? (
         <KpiTile label="Kotak masuk — perlu tindakan" value={inbox.count} tone={inbox.overdue ? "danger" : inbox.count ? "warning" : "success"} hint={inbox.overdue ? `${inbox.overdue} lewat tenggat` : undefined} href="/kotak-masuk" hrefLabel="Buka kotak masuk" icon={Inbox} />
       ) : null}

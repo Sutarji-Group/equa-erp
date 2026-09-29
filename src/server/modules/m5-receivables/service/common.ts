@@ -75,6 +75,12 @@ export function lineOfKind(kind: InvoiceKind): ReceivableLine {
   return "truck";
 }
 
+/** Lini piutang suatu faktur: saldo awal memakai lini asal yang dipilih saat input (B-37), selain itu dari jenisnya. */
+export function lineOfInvoice(inv: { kind: InvoiceKind; openingLine?: ReceivableLine | null }): ReceivableLine {
+  if (inv.kind === "opening_balance" && inv.openingLine) return inv.openingLine;
+  return lineOfKind(inv.kind);
+}
+
 /** Pusat laba faktur (payload event mandiri). */
 export function profitCenterOfKind(kind: InvoiceKind): "L2" | "L4" | "L5" | null {
   const line = lineOfKind(kind);

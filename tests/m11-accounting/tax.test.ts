@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { exportLogs, journals, notifications } from "@/db/schema";
+import { exportLogs, journals, notifications, waMessageCosts } from "@/db/schema";
 import { EQUA_TENANT_ID, outletId } from "@/db/seed";
 import { isHardeningViolation } from "@/db/hardening";
 import { newId } from "@/lib/ids";
@@ -13,7 +13,7 @@ import * as m11 from "@/server/modules/m11-accounting";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
 import { useTestDb } from "../helpers/db";
-import { THIS_PERIOD, TODAY, accountant, at, emitEvent, finance, journalsOfSource, linesOf, owner, setPeriod, shiftMonth, tripPayload } from "./helpers";
+import { THIS_PERIOD, TODAY, accountant, at, dispatcher, emitEvent, finance, journalsOfSource, linesOf, manualJournal, owner, pair, setPeriod, shiftMonth, tripPayload } from "./helpers";
 
 describe("M11 pajak PT non-PKP & pemantauan batas PKP (US-M11-08)", () => {
   const t = useTestDb({ seed: true });
@@ -128,5 +128,39 @@ describe("M11 pajak PT non-PKP & pemantauan batas PKP (US-M11-08)", () => {
       .where(eq(journals.id, j!.id))
       .catch((e: unknown) => e);
     expect(isHardeningViolation(err)).toBe(true);
+  });
+});
+
+describe("B-67 laporan biaya komunikasi, cloud & WhatsApp bulanan (NFR-29)", () => {
+  const t = useTestDb({ seed: true });
+  beforeAll(() => bootstrapForTests());
+
+  it("B-67 US-P2-08 KP-3 laporan biaya bulanan M11 membaca wa_message_costs (per kategori) + beban cloud/aplikasi terjurnal, dibandingkan anggaran parameter", async () => {
+    await setPeriod(t.db, THIS_PERIOD, "open");
+    // Biaya pesan WA tertagih (dicatat P2 dari webhook status) — dua utility & satu authentication bulan ini; satu bulan lalu.
+    await t.db.insert(waMessageCosts).values([
+      { tenantId: EQUA_TENANT_ID, providerMessageId: `wamid.b67.${newId()}`, category: "utility", costAmount: 320, month: THIS_PERIOD },
+      { tenantId: EQUA_TENANT_ID, providerMessageId: `wamid.b67.${newId()}`, category: "utility", costAmount: 320, month: THIS_PERIOD },
+      { tenantId: EQUA_TENANT_ID, providerMessageId: `wamid.b67.${newId()}`, category: "authentication", costAmount: 480, month: THIS_PERIOD },
+      { tenantId: EQUA_TENANT_ID, providerMessageId: `wamid.b67.${newId()}`, category: "utility", costAmount: 320, month: shiftMonth(THIS_PERIOD, -1) },
+      { tenantId: EQUA_TENANT_ID, providerMessageId: `wamid.b67.${newId()}`, category: "service", costAmount: 0, billable: false, month: THIS_PERIOD },
+    ]);
+    // Langganan cloud & peta dijurnal manual ke akun beban komunikasi/cloud (6-2001).
+    await manualJournal(finance(), { date: TODAY, description: "Langganan cloud & peta bulan ini", lines: pair("6-2001", "1-1201", 450_000) });
+    const r = await m11.itCostReport(accountant(), { period: THIS_PERIOD });
+    expect(r.whatsapp).toMatchObject({ totalCost: 1_120, billableMessages: 3 });
+    expect(r.whatsapp.byCategory).toEqual([
+      { category: "authentication", count: 1, amount: 480 },
+      { category: "utility", count: 2, amount: 640 },
+    ]);
+    expect(r.journaled).toEqual([expect.objectContaining({ code: "6-2001", amount: 450_000 })]);
+    expect(r).toMatchObject({ journaledTotal: 450_000, budget: 0, budgetUsedPct: null, overBudget: false });
+    // Anggaran dari parameter (bukan angka tertanam): terlampaui → ditandai.
+    await params.set(owner(), "m11.it_cost_report", { account_codes: ["6-2001"], monthly_budget: 400_000 }, TODAY, "Anggaran biaya cloud (NFR-29)");
+    const over = await m11.itCostReport(owner(), { period: THIS_PERIOD });
+    expect(over).toMatchObject({ budget: 400_000, overBudget: true, budgetUsedPct: 112.5 });
+    const x = await exportReport(accountant(), "m11.it_costs", "xlsx", { period: THIS_PERIOD });
+    expect(x.rowCount).toBe(3);
+    await expect(m11.itCostReport(dispatcher(), { period: THIS_PERIOD })).rejects.toBeInstanceOf(ForbiddenError);
   });
 });

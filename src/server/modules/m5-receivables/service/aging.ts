@@ -25,7 +25,7 @@ import { notify } from "@/server/core/notifications";
 import { authorize, runService } from "@/server/core/rbac";
 import { buildWaLink, recordWaOpened, renderTemplate } from "@/server/core/wa";
 
-import { AGING_BUCKETS, agingBucket, lineOfKind, loadCustomer, receivableRules, type AgingBucket, type ReceivableLine } from "./common";
+import { AGING_BUCKETS, agingBucket, lineOfInvoice, loadCustomer, receivableRules, type AgingBucket, type ReceivableLine } from "./common";
 import { creditStatusBoard, inTransition } from "./credit-hold";
 import { listReminders } from "./reminders";
 import { activeTemplate, companyName } from "./templates";
@@ -103,7 +103,7 @@ export async function computeAging(tx: Tx, tenantId: string, asOf: BusinessDate,
     return g;
   };
   for (const { inv, c } of rows) {
-    const line = lineOfKind(inv.kind);
+    const line = lineOfInvoice(inv);
     if (filter.segment && c.segment !== filter.segment) continue;
     if (filter.line && line !== filter.line) continue;
     const b = agingBucket(inv.dueDate, asOf, rules);

@@ -142,7 +142,7 @@ async function TransferView({ ctx, sp }: { ctx: ActorContext; sp: Search }) {
                         )}
                       </TableCell>
                       <TableCell>
-                        {t.status === "cancelled" ? <ToneBadge tone="muted">Dibatalkan</ToneBadge> : <StatusBadge enumName="incoming_transfer_status" value={t.status} />}
+                        <StatusBadge enumName="incoming_transfer_status" value={t.status} />
                         {t.status === "matched" ? (
                           <span className="block text-xs text-muted-foreground">
                             {t.matchRefDate ? formatTanggal(t.matchRefDate, { weekday: false }) : ""} · {t.matchRefNote}

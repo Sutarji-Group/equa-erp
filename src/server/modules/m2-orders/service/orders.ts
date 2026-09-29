@@ -337,7 +337,9 @@ type InsertOrderData = {
   paymentMethod: PaymentMethod;
   price: OrderPrice;
   notes: string | null;
-  source: "office" | "recurring";
+  source: OrderRow["source"];
+  /** Slot pengiriman (aplikasi pelanggan, B-64). */
+  slot?: OrderRow["slot"];
   recurringOrderId?: string | null;
   status?: OrderStatus;
   afterCutoffForced?: boolean;
@@ -367,6 +369,7 @@ export async function insertOrder(tx: Tx, ctx: ActorContext, data: InsertOrderDa
       productId: data.price.productId,
       status: cancelled ? "cancelled" : (data.status ?? "new"),
       source: data.source,
+      slot: data.slot ?? null,
       tankCount: data.tankCount,
       requestedDate: data.requestedDate,
       requestedTime: data.requestedTime,
@@ -446,6 +449,7 @@ export async function insertOrder(tx: Tx, ctx: ActorContext, data: InsertOrderDa
       internalOutletId: data.customer.internalOutletId,
       recurringOrderId: data.recurringOrderId ?? null,
       status: order!.status,
+      slot: order!.slot ?? null,
     },
     { ctx, objectType: "order", objectId: order!.id },
   );
@@ -459,6 +463,10 @@ export async function insertOrder(tx: Tx, ctx: ActorContext, data: InsertOrderDa
 export async function createOrder(ctx: ActorContext, input: CreateOrderInput, opts: { tx?: Tx } = {}): Promise<CreateOrderResult> {
   await authorize(ctx, "m2.order.create", { tx: opts.tx });
   const data = parseInput(createOrderSchema, input, LABELS);
+  // B-64: asal aplikasi pelanggan / portal mitra hanya dari pelaku sistem (layanan P2/P3), bukan dari layar kantor.
+  if (data.source !== "office" && ctx.userId !== null) {
+    throw ValidationError.field("source", "Pesanan dari kantor selalu berasal \"Kantor\". Pesanan aplikasi pelanggan/portal mitra dibuat oleh sistem.");
+  }
   return runService(ctx, opts, async (tx) => {
     sod.assertNotFinanceAdminOnOrders(ctx);
     const { customer, address } = await loadCustomerAddress(tx, ctx, data.customerId, data.addressId);
@@ -507,7 +515,8 @@ export async function createOrder(ctx: ActorContext, input: CreateOrderInput, op
         paymentMethod,
         price,
         notes: data.notes,
-        source: "office",
+        source: data.source,
+        slot: data.slot ?? null,
         duplicateOfOrderId: dups[0]!.id,
         cancel: { reason: "duplicate", note: `Dibatalkan saat input: dobel dengan ${dups.map((x) => x.number).join(", ")}` },
       });
@@ -541,7 +550,8 @@ export async function createOrder(ctx: ActorContext, input: CreateOrderInput, op
       paymentMethod,
       price,
       notes: data.notes,
-      source: "office",
+      source: data.source,
+      slot: data.slot ?? null,
       afterCutoffForced: afterCutoff,
       afterCutoffReason: afterCutoff ? data.forceSameDayReason : null,
       possibleDuplicate: dups.length > 0,

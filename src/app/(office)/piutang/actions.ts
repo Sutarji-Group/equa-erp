@@ -383,6 +383,7 @@ export async function createOpeningAction(_prev: M5ActionState, fd: FormData): P
     const confirmationAttachmentId = await uploadFile(fd, "confirmation", "customer_confirmation");
     const inv = await m5.createOpeningInvoice(ctx, {
       customerId: str(fd, "customerId") ?? "",
+      line: str(fd, "line") ?? undefined,
       issueDate: str(fd, "issueDate") ?? "",
       dueDate: str(fd, "dueDate") ?? "",
       description: str(fd, "description") ?? "",
@@ -413,6 +414,7 @@ export async function requestOpeningAdjustmentAction(_prev: M5ActionState, fd: F
       req = await m5.requestOpeningAdjustment(ctx, {
         action,
         customerId: str(fd, "customerId") ?? "",
+        line: str(fd, "line") ?? undefined,
         issueDate: str(fd, "issueDate") ?? "",
         dueDate: str(fd, "dueDate") ?? "",
         description: str(fd, "description") ?? "",

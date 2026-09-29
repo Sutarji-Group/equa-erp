@@ -5,6 +5,7 @@ import { ExportButtons } from "@/components/shared/export-buttons";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { formatTanggal } from "@/lib/time";
 import { requirePermission } from "@/server/core/auth/office";
@@ -13,6 +14,12 @@ import { can } from "@/server/core/rbac";
 import * as m9 from "@/server/modules/m9-reports";
 
 export const metadata: Metadata = { title: "Kinerja sopir & depot" };
+
+/** Rata-rata penilaian pelanggan (1–5) + jumlah; "—" bila belum ada penilaian (B-66). */
+function ratingText(average: number | null, count: number, low: number): string {
+  if (!count || average === null) return "—";
+  return `${average.toLocaleString("id-ID", { maximumFractionDigits: 2 })} ★ (${count}${low ? `, ${low} rendah` : ""})`;
+}
 
 const isMonth = (v: string | undefined): v is string => !!v && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
 const pct = (v: number | null) => (v === null ? "—" : `${v.toLocaleString("id-ID")}%`);
@@ -54,6 +61,14 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
       {view === "sopir" ? (
         <>
+          <SectionCard title="Umpan balik pelanggan aplikasi" description="Penilaian & keluhan dari aplikasi pelanggan (Tahap 2) bulan ini — per sopir/truk di tabel di bawah.">
+            <p className="text-sm" data-testid="perf-customer-feedback">
+              Penilaian: <strong>{ratingText(r.customerFeedback.ratingAverage, r.customerFeedback.ratingCount, 0)}</strong> · Keluhan: <strong>{r.customerFeedback.complaints}</strong>
+              {r.customerFeedback.openComplaints ? ` (${r.customerFeedback.openComplaints} belum selesai)` : ""}
+              {r.customerFeedback.byKind.length ? ` — ${r.customerFeedback.byKind.map((k) => `${k.label} ${k.count}`).join(", ")}` : ""}
+              {r.customerFeedback.complaintsWithoutTruck ? ` · ${r.customerFeedback.complaintsWithoutTruck} keluhan tanpa truk` : ""}
+            </p>
+          </SectionCard>
           <SectionCard title="Sopir (peringkat sesama sopir)" description="Urutan: % selesai, % tepat waktu, selisih setoran, setoran terlambat." flush>
             <ScrollTable testId="perf-drivers">
               <Table>
@@ -74,6 +89,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                     <TableHead className="text-right">Jarak</TableHead>
                     <TableHead className="text-right">Pengeluaran rit</TableHead>
                     <TableHead className="text-right">Hari tanpa selisih</TableHead>
+                    <TableHead className="text-right">Penilaian pelanggan</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -121,11 +137,12 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                         <TableCell className="text-right">{d.distanceKm.toLocaleString("id-ID")} km</TableCell>
                         <TableCell className="text-right">{formatRupiah(d.tripExpenses)}</TableCell>
                         <TableCell className="text-right">{d.daysWithoutDiscrepancy ?? "—"}</TableCell>
+                        <TableCell className="text-right">{ratingText(d.ratingAverage, d.ratingCount, d.lowRatings)}</TableCell>
                       </TableRow>
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={15} className="text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={16} className="text-center text-sm text-muted-foreground">
                         Belum ada rit bersopir pada bulan ini.
                       </TableCell>
                     </TableRow>
@@ -147,6 +164,8 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                     <TableHead className="text-right">% selesai</TableHead>
                     <TableHead className="text-right">Jarak</TableHead>
                     <TableHead className="text-right">Pengeluaran rit</TableHead>
+                    <TableHead className="text-right">Penilaian pelanggan</TableHead>
+                    <TableHead>Keluhan pelanggan</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -160,6 +179,15 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                       <TableCell className="text-right">{pct(t.completionPct)}</TableCell>
                       <TableCell className="text-right">{t.distanceKm.toLocaleString("id-ID")} km</TableCell>
                       <TableCell className="text-right">{formatRupiah(t.tripExpenses)}</TableCell>
+                      <TableCell className="text-right">{ratingText(t.ratingAverage, t.ratingCount, t.lowRatings)}</TableCell>
+                      <TableCell className="text-xs">
+                        {t.complaintCount ? `${t.complaintCount}×` : "—"}
+                        {Object.entries(t.complaintKinds).map(([k, v]) => (
+                          <span key={k} className="block text-muted-foreground">
+                            {label("complaint_kind", k)}: {v}
+                          </span>
+                        ))}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { customerAppOrders, notifications, orders, trips } from "@/db/schema";
+import { customerAppOrders, domainEvents, notifications, orders, trips } from "@/db/schema";
 import { EQUA_TENANT_ID, userIdByUsername } from "@/db/seed";
 import { addDays } from "@/lib/time";
 import { withTx } from "@/server/core/db";
@@ -131,6 +131,22 @@ describe("P2 Pesanan mandiri (US-P2-02)", () => {
     const night = new Date("2026-10-05T14:30:00Z"); // 21.30 WIB
     const late = await p2.placeOrder({ ...a.cctx, now: night }, { addressId: addr.id, tankCount: 1, date: addDays(TODAY, 4), slot: "morning", paymentMethod: "cash" });
     expect(late.confirmDueAt!.toISOString()).toBe("2026-10-05T23:30:00.000Z");
+  });
+
+  it("B-64 US-P2-02 KP-4 order.created dari aplikasi membawa asal customer_app & slot (M2 createOrder menerima source/slot); layar kantor tidak dapat mengaku asal aplikasi", async () => {
+    const a = await linkedCustomer(t.db);
+    const addr = await firstAddress(a.cctx);
+    const placed = await p2.placeOrder(a.cctx, { addressId: addr.id, tankCount: 1, date: addDays(TODAY, 3), slot: "afternoon", paymentMethod: "cash" });
+    const [ev] = await t.db.select().from(domainEvents).where(and(eq(domainEvents.type, "order.created"), eq(domainEvents.objectId, placed.orderId)));
+    expect(ev!.payload).toMatchObject({ source: "customer_app", slot: "afternoon" });
+    const [o] = await t.db.select().from(orders).where(eq(orders.id, placed.orderId));
+    expect(o).toMatchObject({ source: "customer_app", slot: "afternoon" });
+    // Pengguna kantor tidak boleh menandai pesanan sebagai asal aplikasi/portal.
+    await expect(m2.createOrder(dispatcher(), { customerId: a.customer.id, addressId: addr.id, requestedDate: addDays(TODAY, 5), source: "customer_app" })).rejects.toThrow(/sistem/);
+    const office = await m2.createOrder(dispatcher(), { customerId: a.customer.id, addressId: addr.id, requestedDate: addDays(TODAY, 6) });
+    if (office.status !== "created") throw new Error(office.status);
+    const [oev] = await t.db.select().from(domainEvents).where(and(eq(domainEvents.type, "order.created"), eq(domainEvents.objectId, office.order.id)));
+    expect(oev!.payload).toMatchObject({ source: "office", slot: null });
   });
 
   it("US-P2-02 KP-4 Dispatcher mengonfirmasi (pelanggan diberi tahu) atau menolak beralasan; lewat PAR-75 → notifikasi; Admin Keuangan ditolak", async () => {

@@ -177,4 +177,20 @@ describe("M9 — kotak masuk pengecualian & notifikasi pemilik (US-M9-04)", () =
     expect(kpi.overdue).toBe(box.kpi03.overdue);
     expect(await m9.inboxCount(owner(now))).toMatchObject({ count: box.actionCount, overdue: box.overdueCount });
   });
+
+  it("B-58 US-M9-04 KP-2 lencana menu Kotak masuk = hitungan COUNT murah (angka sama dengan kotak masuk penuh) + cache singkat per pengguna", async () => {
+    const now = new Date();
+    m9.clearInboxBadgeCache();
+    const box = await m9.getInbox(owner(now));
+    const badge = await m9.inboxBadgeCount(owner(now));
+    expect(badge).toEqual({ count: box.actionCount, overdue: box.overdueCount });
+    // Butir baru dalam jendela cache → lencana belum berubah (tanpa kueri ulang); setelah kedaluwarsa / segar → naik.
+    await t.db.insert(discrepancies).values({ tenantId: EQUA_TENANT_ID, source: "driver", businessDate: today, amount: -60_000, requiresOwnerDecision: true, status: "formed", createdAt: now });
+    expect(await m9.inboxBadgeCount(owner(new Date(now.getTime() + 5_000)))).toEqual(badge);
+    const later = await m9.inboxBadgeCount(owner(new Date(now.getTime() + 60_000)));
+    expect(later.count).toBe(badge.count + 1);
+    expect(await m9.inboxBadgeCount(owner(now), { fresh: true })).toEqual({ count: (await m9.getInbox(owner(now))).actionCount, overdue: (await m9.getInbox(owner(now))).overdueCount });
+    // Pengguna tanpa izin kotak masuk ditolak (lencana tidak tampil).
+    await expect(m9.inboxBadgeCount(dispatcher(now))).rejects.toThrow();
+  });
 });
