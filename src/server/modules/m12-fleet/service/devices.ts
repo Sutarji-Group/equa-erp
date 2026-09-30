@@ -412,27 +412,64 @@ export async function gpsDeviceHealthRows(tx: Tx, tenantId: string, now: Date, d
 
 /** Menit perangkat mati/dicabut truk pada tanggal (irisan interval kejadian dengan hari WIB) — US-M12-08 KP-2 (H+0). */
 export async function deviceOutageMinutesOn(tx: Tx, truckIds: readonly string[], date: BusinessDate, now: Date): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  if (truckIds.length === 0) return out;
+  if (truckIds.length === 0) return new Map();
   const range = businessDateToUtcRange(date);
-  const start = range.start.getTime();
-  const end = range.end.getTime();
-  const rows = await tx
-    .select()
+  const rows = await outageRowsOverlapping(tx, truckIds, range.start, range.end);
+  return outageMinutesForDay(rows, date, now);
+}
+
+type OutageInterval = Pick<FleetEventRow, "truckId" | "startedAt" | "endedAt">;
+
+/** Kejadian perangkat mati/dicabut truk yang beririsan dengan [start, end). */
+async function outageRowsOverlapping(tx: Tx, truckIds: readonly string[], start: Date, end: Date): Promise<OutageInterval[]> {
+  return tx
+    .select({ truckId: fleetEvents.truckId, startedAt: fleetEvents.startedAt, endedAt: fleetEvents.endedAt })
     .from(fleetEvents)
     .where(
       and(
         inArray(fleetEvents.truckId, [...truckIds]),
         inArray(fleetEvents.kind, [...OUTAGE_KINDS]),
-        lt(fleetEvents.startedAt, new Date(end)),
-        or(isNull(fleetEvents.endedAt), gte(fleetEvents.endedAt, new Date(start))),
+        lt(fleetEvents.startedAt, end),
+        or(isNull(fleetEvents.endedAt), gte(fleetEvents.endedAt, start)),
       ),
     );
+}
+
+/** Menit mati per truk pada satu tanggal dari interval kejadian (irisan dengan hari WIB; kejadian terbuka s.d. `now`). */
+function outageMinutesForDay(rows: readonly OutageInterval[], date: BusinessDate, now: Date): Map<string, number> {
+  const out = new Map<string, number>();
+  const range = businessDateToUtcRange(date);
+  const start = range.start.getTime();
+  const end = range.end.getTime();
   for (const r of rows) {
+    // Sama dengan saringan kueri per hari: mulai < akhir hari DAN (belum selesai ATAU selesai ≥ awal hari).
+    if (!(r.startedAt.getTime() < end && (r.endedAt === null || r.endedAt.getTime() >= start))) continue;
     const s = Math.max(start, r.startedAt.getTime());
     const e = Math.min(end, (r.endedAt ?? now).getTime());
     if (e > s) out.set(r.truckId!, (out.get(r.truckId!) ?? 0) + Math.round((e - s) / 60_000));
   }
+  return out;
+}
+
+/**
+ * Versi RENTANG `deviceOutageMinutesOn` (v1.0.1, D-14 butir 4): SATU kueri untuk semua tanggal, lalu menit per tanggal
+ * dihitung dengan aturan yang sama (hasil per tanggal identik dengan `deviceOutageMinutesOn(tx, truckIds, d, now)`).
+ */
+export async function deviceOutageMinutesForRange(
+  tx: Tx,
+  truckIds: readonly string[],
+  dates: readonly BusinessDate[],
+  now: Date,
+): Promise<Map<BusinessDate, Map<string, number>>> {
+  const out = new Map<BusinessDate, Map<string, number>>();
+  if (dates.length === 0) return out;
+  if (truckIds.length === 0) {
+    for (const d of dates) out.set(d, new Map());
+    return out;
+  }
+  const sorted = [...dates].sort();
+  const rows = await outageRowsOverlapping(tx, truckIds, businessDateToUtcRange(sorted[0]!).start, businessDateToUtcRange(sorted[sorted.length - 1]!).end);
+  for (const d of dates) out.set(d, outageMinutesForDay(rows, d, now));
   return out;
 }
 

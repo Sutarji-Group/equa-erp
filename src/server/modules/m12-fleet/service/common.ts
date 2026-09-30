@@ -45,22 +45,25 @@ export type M12Rules = {
 };
 
 /** Aturan armada yang berlaku pada tanggal bisnis (semua angka dari parameter — tidak ada angka aturan di kode). */
-export async function m12Rules(tx: Tx, date: BusinessDate, tenantId: string): Promise<M12Rules> {
+export async function m12Rules(tx: Tx, date: BusinessDate, tenantId: string, opts: { cache?: params.ParamCache } = {}): Promise<M12Rules> {
   const scope = { tenantId };
+  // v1.0.1 (D-14 butir 4): `opts.cache` (params.cached) → laporan rentang membaca tiap parameter sekali, bukan per hari.
+  const cache = opts.cache;
+  const get = <K extends params.ParamKey>(key: K) => (cache ? cache.get(key, date, scope) : params.get(tx, key, date, scope));
   const [fleet, p07, p16, p25, p26, p42, p48, p49, p50, p51, p52, p53, p54] = await Promise.all([
-    params.get(tx, "m12.fleet_rules", date, scope),
-    params.get(tx, "PAR-07", date, scope),
-    params.get(tx, "PAR-16", date, scope),
-    params.get(tx, "PAR-25", date, scope),
-    params.get(tx, "PAR-26", date, scope),
-    params.get(tx, "PAR-42", date, scope),
-    params.get(tx, "PAR-48", date, scope),
-    params.get(tx, "PAR-49", date, scope),
-    params.get(tx, "PAR-50", date, scope),
-    params.get(tx, "PAR-51", date, scope),
-    params.get(tx, "PAR-52", date, scope),
-    params.get(tx, "PAR-53", date, scope),
-    params.get(tx, "PAR-54", date, scope),
+    get("m12.fleet_rules"),
+    get("PAR-07"),
+    get("PAR-16"),
+    get("PAR-25"),
+    get("PAR-26"),
+    get("PAR-42"),
+    get("PAR-48"),
+    get("PAR-49"),
+    get("PAR-50"),
+    get("PAR-51"),
+    get("PAR-52"),
+    get("PAR-53"),
+    get("PAR-54"),
   ]);
   return {
     fleet,

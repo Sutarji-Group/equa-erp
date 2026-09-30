@@ -26,7 +26,7 @@ import { ctxBusinessDate, type ActorContext } from "./context";
 import { runInTx, type Tx } from "./db";
 import { parseInput, ValidationError } from "./errors";
 import { notify } from "./notifications/service";
-import { resolve, schemaOf, type ParamScopeRef } from "./params-read";
+import { invalidateParamCaches, resolve, schemaOf, type ParamScopeRef } from "./params-read";
 import { isParamKey, paramMeta, type ParamKey, type ParamScopeLevel, type ParamValue } from "./params-registry";
 import { authorize } from "./rbac/authorize";
 
@@ -107,6 +107,8 @@ export async function set<K extends ParamKey>(
             createdBy: ctx.userId,
           })
           .returning();
+    // Tambahan v1.0.1: cache pembacaan (`cached(tx)`) di lingkup yang sama tidak boleh memakai nilai lama.
+    invalidateParamCaches();
 
     await auditRecord(tx, {
       ctx,
