@@ -8,7 +8,7 @@
  */
 import "server-only";
 
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { devices, onboardingChecklists, orders, outlets, partnerContracts, partnerProspects, posSales, qualityTests } from "@/db/schema";
@@ -22,7 +22,7 @@ import { DomainError, NotFoundError, parseInput, ValidationError } from "@/serve
 import { notify } from "@/server/core/notifications";
 import { authorizeAny, runService } from "@/server/core/rbac";
 
-import { assertOwnerTenant, assertPartnerActor, assertPortalEnabled, authorizePortalAction, denyCrossTenant, loadContract, ownerTenantId, partnerCustomerForOutlet, type ContractRow } from "./common";
+import { assertOwnerTenant, assertPartnerActor, assertPortalEnabled, authorizePortalAction, contractOutlets, denyCrossTenant, loadContract, ownerTenantId, partnerCustomerForOutlet, type ContractRow } from "./common";
 
 export type OnboardingItem = EnumValue<"onboarding_item">;
 export type OnboardingRow = typeof onboardingChecklists.$inferSelect;
@@ -46,10 +46,8 @@ export async function ensureOnboardingChecklist(tx: Tx, contract: ContractRow, o
 
 /** Saat kontrak Aktif: daftar periksa untuk setiap outlet depot yang belum Aktif (dipanggil aktivasi kontrak). */
 export async function createOnboardingForContract(tx: Tx, contract: ContractRow): Promise<number> {
-  const rows = await tx
-    .select({ id: outlets.id })
-    .from(outlets)
-    .where(and(eq(outlets.tenantId, contract.tenantId), eq(outlets.kind, "depot"), isNull(outlets.activatedOn)));
+  // D-13 butir 1: hanya outlet yang dicakup kontrak ini (satu kontrak per outlet) yang belum Aktif.
+  const rows = (await contractOutlets(tx, contract, { from: contract.startDate, to: contract.endDate })).filter((o) => !o.activatedOn);
   let n = 0;
   for (const o of rows) n += await ensureOnboardingChecklist(tx, contract, o.id);
   return n;

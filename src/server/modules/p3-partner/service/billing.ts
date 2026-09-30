@@ -41,6 +41,7 @@ import {
   assertPartnerActor,
   authorizePortalAction,
   bpToPercent,
+  contractOutlets,
   contractsLiveOn,
   isValidMonth,
   loadPartnerTenant,
@@ -48,7 +49,6 @@ import {
   ownerTenantId,
   partnerRules,
   portalEnabled,
-  tenantOutlets,
   type ContractRow,
   type CustomerRow,
   type OutletRow,
@@ -140,7 +140,8 @@ export async function computePartnerBill(tx: Tx, contract: ContractRow, serviceM
   const dueDate = dates.dueDate >= issueDate ? dates.dueDate : issueDate;
   const inContract = contract.startDate <= to && contract.endDate >= from;
 
-  const outletRows = await tenantOutlets(tx, tenant.id, { depotOnly: true });
+  // D-13 butir 1 (PRD 9.7): langganan PER OUTLET — hanya outlet yang dicakup kontrak ini (satu kontrak per outlet).
+  const outletRows = await contractOutlets(tx, contract, { from, to });
   const billOutlets = outletRows.map((o) => (inContract ? outletBillable(o, contract, from, to) : { outletId: o.id, code: o.code, name: o.name, activatedOn: o.activatedOn, billingStart: o.billingStartDate, billable: false, note: "Di luar masa kontrak" }));
   const outletCount = billOutlets.filter((o) => o.billable).length;
   const subscriptionAmount = outletCount * terms.subscriptionFeePerOutlet;

@@ -172,13 +172,18 @@ const OFFICE_ROLES: RoleCode[] = ["owner", "finance_admin", "dispatcher", "syste
 
 export type OrgSeedResult = { usersInserted: number; employeesInserted: number };
 
-export async function seedOrganization(tx: DbOrTx): Promise<OrgSeedResult> {
-  const now = new Date();
-
+/** Tenant pemilik EQUA (ID deterministik `EQUA_TENANT_ID`, dipakai `src/server/core/context.ts`). Idempoten. */
+export async function seedEquaTenant(tx: DbOrTx): Promise<void> {
   await tx
     .insert(tenants)
     .values({ id: EQUA_TENANT_ID, code: EQUA_TENANT_CODE, name: "EQUA", kind: "owner", settings: {} })
     .onConflictDoNothing();
+}
+
+export async function seedOrganization(tx: DbOrTx): Promise<OrgSeedResult> {
+  const now = new Date();
+
+  await seedEquaTenant(tx);
 
   await tx
     .insert(outlets)

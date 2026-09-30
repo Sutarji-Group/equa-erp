@@ -1,5 +1,7 @@
 # Panduan Produksi & Stok Air (M8)
 
+> **Kartu 1 halaman untuk dicetak (operator produksi, NFR-16):** [`lapangan/operator-produksi.md`](lapangan/operator-produksi.md). Indeks semua panduan: [`README.md`](README.md).
+
 Aplikasi operator produksi dibuka dari **ponsel sumber air** (alamat **/produksi**, terpasang seperti aplikasi). Web
 kantor memakai menu **Produksi air → Neraca air / Utilisasi kapasitas / Mutu air / Pengisian & pasokan / Meter sumber
 air**. Operator hanya memasukkan kenyataan (angka meter, volume, alasan); produksi, susut, dan utilisasi dihitung sistem.

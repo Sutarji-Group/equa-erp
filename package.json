@@ -1,6 +1,6 @@
 {
   "name": "equa-erp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Program Digitalisasi Terpadu EQUA — ERP usaha air truk, depot isi ulang, toko, dan sumber air (Cianjur)",
   "scripts": {
@@ -14,11 +14,14 @@
     "test:e2e": "playwright test",
     "db:push": "tsx scripts/db-push.ts",
     "db:seed": "tsx scripts/db-seed.ts",
+    "db:seed:prod": "tsx scripts/db-seed-prod.ts",
     "db:generate": "tsx scripts/db-generate.ts",
     "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:verify": "tsx scripts/db-verify.ts",
     "db:mask": "tsx scripts/db-mask.ts",
     "e2e:prepare": "tsx scripts/e2e-prepare.ts",
     "trace": "tsx tools/trace-check.ts",
+    "uat:gen": "tsx tools/gen-uat.ts",
     "perf:generate": "tsx --require ./scripts/perf/server-only-hook.cjs scripts/perf/generate.ts",
     "perf:measure": "tsx --require ./scripts/perf/server-only-hook.cjs scripts/perf/measure.ts",
     "perf:explain": "tsx --require ./scripts/perf/server-only-hook.cjs scripts/perf/explain.ts",

@@ -11,3 +11,17 @@ export async function generateSchemaDdl(): Promise<string[]> {
   const current = generateDrizzleJson(schema as unknown as Record<string, unknown>);
   return generateMigration(empty, current);
 }
+
+/**
+ * Tambahan S5-C (migrasi produksi): pernyataan DDL yang BELUM tercakup migrasi `drizzle/` — selisih potret skema
+ * migrasi terakhir (`drizzle/meta/NNNN_snapshot.json`) terhadap skema Drizzle saat ini. Kosong = migrasi mutakhir.
+ * Tidak kosong → jalankan `pnpm db:generate --name <perubahan>` dan commit berkas `drizzle/` yang baru.
+ */
+export async function pendingMigrationStatements(rootDir: string = process.cwd()): Promise<string[]> {
+  const { readLatestMigrationSnapshot } = await import("./migrations");
+  const { generateDrizzleJson, generateMigration } = await import("drizzle-kit/api");
+  const latest = readLatestMigrationSnapshot(rootDir);
+  const current = generateDrizzleJson(schema as unknown as Record<string, unknown>);
+  const base = (latest ?? generateDrizzleJson({})) as unknown as Parameters<typeof generateMigration>[0];
+  return generateMigration(base, current);
+}

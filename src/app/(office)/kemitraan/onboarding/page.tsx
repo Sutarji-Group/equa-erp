@@ -27,7 +27,7 @@ export const metadata: Metadata = { title: "Onboarding mitra" };
  */
 export default async function OnboardingPage() {
   const { ctx } = await requirePermission(["p3.onboarding.update", "p3.partner_contract.read"]);
-  if (!(await phase3Enabled())) {
+  if (!(await phase3Enabled(ctx.tenantId))) {
     return (
       <div className="grid gap-6">
         <PageHeader title="Onboarding mitra" />

@@ -1,37 +1,26 @@
 /**
- * `pnpm db:migrate` — terapkan migrasi SQL `drizzle/` (hasil `pnpm db:generate`) ke DB terkonfigurasi (produksi Neon:
- * DB_DRIVER=neon + DATABASE_URL), lalu trigger pengerasan (`src/db/sql/hardening.sql`, idempoten).
+ * `pnpm db:migrate` — terapkan migrasi SQL `drizzle/` (baseline `0000_baseline_v1` + migrasi berikutnya hasil
+ * `pnpm db:generate`) ke DB terkonfigurasi (produksi Neon: DB_DRIVER=neon + DATABASE_URL), lalu pengerasan
+ * (`src/db/sql/hardening.sql`). Keduanya idempoten — menjalankan ulang tidak mengubah apa pun.
+ *
+ * Urutan produksi dari DB kosong (docs/deploy/README.md): `db:migrate` → `db:verify` → `db:seed:prod`.
+ * `src/db/sql/pre-push.sql` hanya untuk DB dev lama (`pnpm db:push`), tidak dipakai di sini.
  */
 import { closeDb, getDb, getDbDriver } from "@/db/client";
-import { applyDbHardening } from "@/db/hardening";
-
-const MIGRATIONS_FOLDER = "./drizzle";
+import { MIGRATIONS_FOLDER, migrateDatabase, readMigrationJournal } from "@/db/migrations";
 
 async function main(): Promise<void> {
   const db = getDb();
   const driver = getDbDriver();
-  console.log(`db:migrate → driver ${driver}, folder ${MIGRATIONS_FOLDER}`);
-  switch (driver) {
-    case "pglite": {
-      const { migrate } = await import("drizzle-orm/pglite/migrator");
-      await migrate(db as unknown as Parameters<typeof migrate>[0], { migrationsFolder: MIGRATIONS_FOLDER });
-      break;
-    }
-    case "neon": {
-      const { migrate } = await import("drizzle-orm/neon-serverless/migrator");
-      await migrate(db as unknown as Parameters<typeof migrate>[0], { migrationsFolder: MIGRATIONS_FOLDER });
-      break;
-    }
-    case "pg": {
-      const { migrate } = await import("drizzle-orm/node-postgres/migrator");
-      await migrate(db as unknown as Parameters<typeof migrate>[0], { migrationsFolder: MIGRATIONS_FOLDER });
-      break;
-    }
-    default:
-      throw new Error(`Driver ${driver} tidak didukung untuk migrasi.`);
-  }
-  await applyDbHardening(db);
-  console.log("Migrasi & trigger pengerasan diterapkan.");
+  const journal = readMigrationJournal();
+  console.log(`db:migrate → driver ${driver}, folder ${MIGRATIONS_FOLDER}/ (${journal.length} migrasi: ${journal.map((j) => j.tag).join(", ")})`);
+  const result = await migrateDatabase(db, driver);
+  console.log(
+    result.newlyApplied === 0
+      ? `Skema sudah mutakhir (${result.appliedAfter} migrasi tercatat, 0 baru).`
+      : `${result.newlyApplied} migrasi baru diterapkan (total ${result.appliedAfter}).`,
+  );
+  console.log("Pengerasan diterapkan (tanpa DELETE, append-only, kolom imutabel, penjaga jurnal, FK komposit tenant).");
 }
 
 main()

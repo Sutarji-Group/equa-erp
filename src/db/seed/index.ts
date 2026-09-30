@@ -67,40 +67,49 @@ export type SeedSummary = {
   counts: Record<string, number>;
 };
 
+/**
+ * Parameter Lampiran B + pengaturan non-PAR + feature flag bawaan (idempoten). Dipakai seed demo (`runSeed`) dan seed
+ * produksi (`runProductionSeed`, `src/db/seed/production.ts`). Mengembalikan jumlah parameter BARU.
+ */
+export async function seedBaseSettings(tx: DbOrTx): Promise<number> {
+  const paramRows = await tx
+    .insert(parameters)
+    .values(
+      [...LAMPIRAN_B_PARAMETERS, ...EXTRA_SETTINGS].map((p) => ({
+        id: seedId(`parameter:${p.key}:global:${PARAMETER_EFFECTIVE_FROM}`),
+        key: p.key,
+        name: p.name,
+        value: p.value,
+        unit: p.unit,
+        reference: p.reference,
+        description: p.description ?? null,
+        effectiveFrom: PARAMETER_EFFECTIVE_FROM,
+        reason: "Nilai bawaan Lampiran B PRD v1.1 (seed).",
+      })),
+    )
+    .onConflictDoNothing()
+    .returning({ id: parameters.id });
+
+  await tx
+    .insert(featureFlags)
+    .values(
+      DEFAULT_FEATURE_FLAGS.map((f) => ({
+        id: seedId(`feature_flag:${f.key}:global`),
+        key: f.key,
+        scopeType: "global" as const,
+        enabled: f.enabled,
+        description: f.description,
+        reason: "Bawaan (seed).",
+      })),
+    )
+    .onConflictDoNothing();
+  return paramRows.length;
+}
+
 /** Jalankan seed lengkap dalam satu transaksi. */
 export async function runSeed(db: Db): Promise<SeedSummary> {
   return db.transaction(async (tx) => {
-    const paramRows = await tx
-      .insert(parameters)
-      .values(
-        [...LAMPIRAN_B_PARAMETERS, ...EXTRA_SETTINGS].map((p) => ({
-          id: seedId(`parameter:${p.key}:global:${PARAMETER_EFFECTIVE_FROM}`),
-          key: p.key,
-          name: p.name,
-          value: p.value,
-          unit: p.unit,
-          reference: p.reference,
-          description: p.description ?? null,
-          effectiveFrom: PARAMETER_EFFECTIVE_FROM,
-          reason: "Nilai bawaan Lampiran B PRD v1.1 (seed).",
-        })),
-      )
-      .onConflictDoNothing()
-      .returning({ id: parameters.id });
-
-    await tx
-      .insert(featureFlags)
-      .values(
-        DEFAULT_FEATURE_FLAGS.map((f) => ({
-          id: seedId(`feature_flag:${f.key}:global`),
-          key: f.key,
-          scopeType: "global" as const,
-          enabled: f.enabled,
-          description: f.description,
-          reason: "Bawaan (seed).",
-        })),
-      )
-      .onConflictDoNothing();
+    const parameterCount = await seedBaseSettings(tx);
 
     const org = await seedOrganization(tx);
     await seedCatalog(tx);
@@ -133,7 +142,7 @@ export async function runSeed(db: Db): Promise<SeedSummary> {
     await seedDemoP2Customer(tx);
 
     const counts = await countRows(tx);
-    return { parameters: paramRows.length, users: org.usersInserted, customers: cust.customers, counts };
+    return { parameters: parameterCount, users: org.usersInserted, customers: cust.customers, counts };
   });
 }
 

@@ -190,7 +190,12 @@ export const EVENT_MAPPING_SEEDS: MappingSeed[] = [
   { event: "digital_payment.succeeded", entry: "gateway_fee", description: "Biaya gerbang pembayaran dibukukan sebagai beban (PTB-50)", debit: "6-1901", credit: "1-1301", debitPc: "SHARED", creditPc: "SHARED" },
 ];
 
-export async function seedAccounting(tx: DbOrTx): Promise<void> {
+/**
+ * Pusat laba, bagan akun template, pemetaan peristiwa → akun, pengaturan pajak, template ekspor jurnal (idempoten).
+ * `demoBankAccount` (bawaan true) menambah rekening "Bank Demo" — seed produksi mematikannya: rekening bank nyata
+ * dimasukkan saat cut-over dengan akun buku sendiri per rekening (D-12 butir 4, B-79).
+ */
+export async function seedAccounting(tx: DbOrTx, options: { demoBankAccount?: boolean } = {}): Promise<void> {
   await tx
     .insert(profitCenters)
     .values(PROFIT_CENTER_SEEDS.map((p) => ({ id: seedId(`profit_center:${p.code}`), tenantId: EQUA_TENANT_ID, ...p })))
@@ -246,19 +251,21 @@ export async function seedAccounting(tx: DbOrTx): Promise<void> {
     })
     .onConflictDoNothing();
 
-  await tx
-    .insert(bankAccounts)
-    .values({
-      id: seedId("bank_account:operasional"),
-      tenantId: EQUA_TENANT_ID,
-      bankName: "Bank Demo",
-      accountNumber: "0012345678",
-      accountName: "EQUA",
-      branch: "Cianjur",
-      isCustomerFacing: true,
-      glAccountId: accountId("1-1201"),
-    })
-    .onConflictDoNothing();
+  if (options.demoBankAccount !== false) {
+    await tx
+      .insert(bankAccounts)
+      .values({
+        id: seedId("bank_account:operasional"),
+        tenantId: EQUA_TENANT_ID,
+        bankName: "Bank Demo",
+        accountNumber: "0012345678",
+        accountName: "EQUA",
+        branch: "Cianjur",
+        isCustomerFacing: true,
+        glAccountId: accountId("1-1201"),
+      })
+      .onConflictDoNothing();
+  }
 
   await tx
     .insert(exportTemplates)
