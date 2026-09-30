@@ -108,6 +108,19 @@ describe("Penjadwal sinkron latar adaptif (B-88, D-14 butir 2, PAR-30)", () => {
     h.scheduler.stop();
   });
 
+  it("B-88 login PIN / ganti pengguna (permintaan eksplisit) → segera dengan pull walau pull terakhir baru saja (data pengguna baru)", async () => {
+    const h = harness();
+    h.scheduler.start();
+    await advance(0);
+    await advance(5_000);
+    h.scheduler.trigger("outbox");
+    h.scheduler.trigger("request");
+    await advance(500);
+    expect(h.calls).toHaveLength(2);
+    expect(h.calls[1]).toMatchObject({ trigger: "request", pull: true });
+    h.scheduler.stop();
+  });
+
   it("B-88 kembali online → segera dengan pull; kembali terlihat → segera, pull bila pull terakhir > 60 dtk (berpindah aplikasi berkali-kali tidak menarik ulang)", async () => {
     const h = harness();
     h.scheduler.start();

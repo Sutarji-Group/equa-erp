@@ -214,7 +214,8 @@ Kode memakai bahasa Inggris; UI memakai istilah PRD lewat `src/lib/labels.ts`.
   `rejected` (alasan Indonesia) / `conflict`. Tabel `sync_commands` menjamin idempotensi (PK = id klien).
 - Pemicu (penjadwal adaptif v1.0.1, D-14 butir 2 — `src/client/offline/scheduler.ts`): antrean berubah → push segera,
   lalu pull bila ada yang terkirim; ada antrean → putaran tiap 60 detik (coba ulang); antrean kosong → pull latar tiap
-  5 menit (≤ PAR-30) selama aplikasi terlihat; kembali online / terlihat → segera; tombol "Kirim sekarang" (manual).
+  5 menit (≤ PAR-30) selama aplikasi terlihat; login PIN/ganti pengguna, kembali online / terlihat → segera; tombol
+  "Kirim sekarang" (manual).
   Target ≤ 5 menit (PAR-30).
 - `GET /api/sync/pull` → data referensi sesuai lingkup (rit hari ini + catatan pelanggan + faktur terbuka pelanggan hari
   itu + harga + katalog + resep + stok + template struk) dan status objek (mis. setoran Ditutup → buka kunci rit).

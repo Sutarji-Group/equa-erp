@@ -314,7 +314,8 @@ Perubahan (rincian teknis: `docs/dev/sprint0-notes.md` bagian "v1.0.1 tim Y"):
    sudah di-seed v1.0.0 dimutakhirkan `pnpm db:seed:prod` (versi baru berlaku hari itu bila nilai masih bawaan 300 KB).
 2. **Penjadwal sinkron adaptif** (`src/client/offline/scheduler.ts`): antrean kosong → pull latar tiap 5 menit (≤ PAR-30)
    hanya selama aplikasi terlihat; ada antrean → push tiap 60 dtk; perubahan antrean → push segera lalu pull bila ada yang
-   terkirim; kembali online/terlihat → segera (pull bila pull terakhir > 60 dtk); "Kirim sekarang" tetap manual.
+   terkirim; login PIN/ganti pengguna & kembali online → segera; terlihat lagi → segera (pull bila pull terakhir > 60 dtk);
+   "Kirim sekarang" tetap manual.
 3. **Pull bersyarat v2** (`?v=2&c.<kunci>=<kursor>`, `src/lib/pull-delta.ts`): kursor = sidik ISI per penyedia (SHA-256,
    bukan waktu) → penyedia tak berubah dijawab "tidak berubah" tanpa isi; koleksi yang tumbuh (penjualan shift POS &
    toko, rit/pembayaran sopir, saldo bahan, stok air) dikirim sebagai delta per ember berbatas isi. Karena kursor adalah

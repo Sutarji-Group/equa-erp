@@ -344,6 +344,7 @@ export function startSyncWorker(opts: { intervalMs?: number } = {}): () => void 
   });
   const onOnline = () => scheduler.trigger("online");
   const onChange = () => scheduler.trigger("outbox");
+  const onRequest = () => scheduler.trigger("request");
   const onVisible = () => {
     if (document.visibilityState === "visible") scheduler.trigger("visible");
   };
@@ -351,7 +352,7 @@ export function startSyncWorker(opts: { intervalMs?: number } = {}): () => void 
   window.addEventListener("online", onOnline);
   window.addEventListener("offline", onOffline);
   window.addEventListener(OUTBOX_CHANGED_EVENT, onChange);
-  window.addEventListener(SYNC_REQUEST_EVENT, onChange);
+  window.addEventListener(SYNC_REQUEST_EVENT, onRequest);
   document.addEventListener("visibilitychange", onVisible);
   // Item "sending" yang tertinggal (tab ditutup saat mengirim) kembali ke antrean, lalu mulai (push + pull).
   void fieldDb()
@@ -364,7 +365,7 @@ export function startSyncWorker(opts: { intervalMs?: number } = {}): () => void 
     window.removeEventListener("online", onOnline);
     window.removeEventListener("offline", onOffline);
     window.removeEventListener(OUTBOX_CHANGED_EVENT, onChange);
-    window.removeEventListener(SYNC_REQUEST_EVENT, onChange);
+    window.removeEventListener(SYNC_REQUEST_EVENT, onRequest);
     document.removeEventListener("visibilitychange", onVisible);
     scheduler.stop();
   };

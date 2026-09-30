@@ -279,7 +279,8 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
 `pull.ts` baru (`pullQueryString`, `applyPullResponse` — satu transaksi; delta tidak cocok → `PullPatchError` → kunci itu
 ditarik penuh sekali lagi); kursor waktu lama `meta pullCursor:<userId>` dihapus. `scheduler.ts` baru
 (`createSyncScheduler`, `idleIntervalFor(PAR-30)`, `IDLE_PULL_INTERVAL_MS` 5 menit, `BUSY_SYNC_INTERVAL_MS` 60 dtk,
-`VISIBLE_PULL_MIN_GAP_MS` 60 dtk) dipakai `startSyncWorker` (tanda tangan sama). `syncNow({ force?, pull? })` — `pull`
+`VISIBLE_PULL_MIN_GAP_MS` 60 dtk; pemicu `outbox` → pull "auto", `request` (login PIN/ganti pengguna, `SYNC_REQUEST_EVENT`)
+& `online` → pull pasti) dipakai `startSyncWorker` (tanda tangan sama). `syncNow({ force?, pull? })` — `pull`
 bawaan `true` (perilaku lama); `"auto"` = pull bila ada yang terkirim/diunggah atau jeda idle terlewati. `SyncState.lastPullAt`
 baru. `params.ts` baru: `fieldOfflineParams()`, `fieldPhotoMaxKb()/fieldPhotoMaxBytes()` (PAR-38 dari pull),
 `syncMaxMinutesOf()`. `SYNC_INTERVAL_MS` tetap 60 dtk (= jeda sibuk).

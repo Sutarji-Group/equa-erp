@@ -7,7 +7,9 @@
  *   jaringan; begitu aplikasi terlihat lagi, pull segera.
  * - **Ada antrean** (termasuk menunggu coba ulang) → putaran berikutnya `busyIntervalMs` (60 dtk) untuk push; pull
  *   mengikuti push yang berhasil (keputusan `pull: "auto"` di `syncNow`).
- * - **Perubahan antrean** (`enqueue`, login) → push segera (debounce 500 ms), lalu pull bila push berhasil.
+ * - **Perubahan antrean** (`enqueue`) → push segera (debounce 500 ms), lalu pull bila push berhasil.
+ * - **Permintaan eksplisit** (login PIN / ganti pengguna — data referensi pengguna itu harus diunduh) → segera
+ *   (debounce 500 ms) dengan pull.
  * - **Kembali online** → segera (push + pull).
  * - **Kembali terlihat** → segera, dengan pull bila pull terakhir lebih lama dari `visiblePullMinGapMs` (60 dtk) —
  *   berpindah aplikasi berkali-kali (mis. kirim WA) tidak menarik data berulang.
@@ -26,7 +28,7 @@ export const VISIBLE_PULL_MIN_GAP_MS = 60_000;
 /** Debounce pemicu perubahan antrean. */
 export const OUTBOX_DEBOUNCE_MS = 500;
 
-export type SyncTrigger = "start" | "timer" | "outbox" | "online" | "visible";
+export type SyncTrigger = "start" | "timer" | "outbox" | "request" | "online" | "visible";
 
 /** Keputusan pull untuk satu putaran: `true` selalu; `"auto"` = bila push berhasil atau pull sudah jatuh tempo. */
 export type PullMode = boolean | "auto";
@@ -80,6 +82,8 @@ export function createSyncScheduler(deps: SyncSchedulerDeps): SyncScheduler {
   let running = false;
   /** Pemicu yang datang saat putaran berjalan → satu putaran lagi segera setelahnya (tidak hilang). */
   let rerun: { trigger: SyncTrigger; pull: PullMode } | null = null;
+  /** Pemicu antrean/permintaan yang sedang ditunda debounce (digabung). */
+  let pendingDebounce: { trigger: SyncTrigger; pull: PullMode } | null = null;
 
   const clear = () => {
     if (timer !== null) clearTimer(timer);
@@ -151,14 +155,22 @@ export function createSyncScheduler(deps: SyncSchedulerDeps): SyncScheduler {
       clear();
       if (debounce !== null) clearTimer(debounce);
       debounce = null;
+      pendingDebounce = null;
     },
     trigger(reason) {
       if (stopped) return;
-      if (reason === "outbox") {
+      if (reason === "outbox" || reason === "request") {
+        // Beberapa pemicu beruntun → satu putaran; permintaan eksplisit (login) selalu menarik data.
+        const incoming: { trigger: SyncTrigger; pull: PullMode } = reason === "request" ? { trigger: "request", pull: true } : { trigger: "outbox", pull: "auto" };
+        pendingDebounce = pendingDebounce
+          ? { trigger: pendingDebounce.trigger === "request" ? "request" : incoming.trigger, pull: strongerPull(pendingDebounce.pull, incoming.pull) }
+          : incoming;
         if (debounce !== null) clearTimer(debounce);
         debounce = setTimer(() => {
           debounce = null;
-          void execute("outbox", "auto");
+          const next = pendingDebounce ?? { trigger: reason, pull: "auto" as PullMode };
+          pendingDebounce = null;
+          void execute(next.trigger, next.pull);
         }, OUTBOX_DEBOUNCE_MS);
         return;
       }
