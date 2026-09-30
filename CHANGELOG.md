@@ -92,6 +92,22 @@ di balik *feature flag* yang mati secara bawaan (D-02).
   dibangkitkan dari PRD (`pnpm uat:gen`) + pilot, paralel, cut-over, gerbang tahap, register risiko (`docs/uat/`),
   indeks panduan per peran & kartu lapangan 1 halaman (`docs/guides/`), status implementasi (`docs/prd/status.md`).
 
+### Kinerja — uji beban 3× volume (S5-C, NFR-03/05/17)
+
+- Data sintetis 3× volume selama 60 hari (`pnpm perf:generate`) dan pengukuran 27 kasus layanan kunci & sinkron
+  perangkat (`pnpm perf:measure`, `perf:explain`, `perf:pwa`); hasil & rekomendasi kapasitas di
+  [`docs/qa/uji-beban.md`](docs/qa/uji-beban.md). Semua kasus lolos setelah perbaikan; keluaran identik byte demi byte
+  dengan sebelum perbaikan.
+- Indeks baru (masuk baseline migrasi): `journals_source_event_idx`, `pos_sales_tenant_date_idx`,
+  `pos_sale_lines_tenant_date_idx`.
+- Laporan keuangan M11 ±3,5× lebih cepat (agregat per segmen, arus kas di SQL); papan jadwal & peta armada (posisi GPS
+  terakhir) ±16× lebih cepat; posisi kas & batas kas POS memakai satu agregat SQL per shift; rentang H+0 hanya
+  menghitung langsung hari yang belum terbit.
+- **Diperbaiki:** buku besar M11 kini berhalaman di server (`?hal=`) dengan mutasi & saldo akhir dihitung atas seluruh
+  rentang — sebelumnya baris terpotong diam-diam pada 5.000 dan totalnya dihitung dari baris yang terpotong.
+- PWA lapangan (NFR-17): service worker hanya mem-*precache* aset halaman lapangan (145 → 38 entri, ±1,45 → 0,55 MB
+  gzip), dengan cadangan precache penuh bila tata letak build tidak dikenali.
+
 ### Keamanan
 
 - 2FA TOTP wajib untuk pemilik, Admin Keuangan, dan admin sistem (PTB-35); rahasia dev ditolak di produksi

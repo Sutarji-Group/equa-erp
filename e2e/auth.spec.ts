@@ -45,7 +45,9 @@ test.describe("Masuk web kantor (US-M10-02 KP-4)", () => {
     // Riwayat & formulir ubah parameter (hanya pemilik).
     await page.goto("/pengaturan/parameter?kunci=PAR-46");
     await expect(page.getByRole("heading", { level: 3, name: "Riwayat" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Simpan perubahan" })).toBeVisible();
+    // exact: tombol "Simpan perubahan fitur" (bagian Fitur bertahap, S5-C) juga ada di halaman yang sama.
+    await expect(page.getByRole("button", { name: "Simpan perubahan", exact: true })).toBeVisible();
+    await expect(page.getByText("Fitur bertahap (feature flag)")).toBeVisible();
     // Jejak audit memuat catatan (mis. aktivasi/penyetelan data awal) dan rantai dapat diverifikasi.
     await page.goto("/audit");
     await page.getByRole("button", { name: "Verifikasi keutuhan" }).click();

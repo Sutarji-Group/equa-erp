@@ -252,8 +252,8 @@ satu region + koneksi pooled, dan perbaikan §4.6 dikerjakan sebelum pilot bila 
   bulan PAR-52 ±2 GB tetap; `domain_events` 285 MB, `audit_logs` 261 MB, `pos_sales` 161 MB, `sync_commands` 149 MB —
   append-only/permanen). Pilih paket dengan kuota ≥ 20 GB untuk tahun pertama; pantau pertumbuhan (NFR-29). Rencana
   jangka menengah: partisi bulanan untuk `gps_positions`, `audit_logs`, `domain_events`, `sync_commands`.
-- Migrasi produksi: baseline migrasi SQL harus memuat 3 indeks baru (§4.5) — jalankan `pnpm db:generate` setelah
-  cabang ini digabung.
+- Migrasi produksi: baseline migrasi SQL memuat 3 indeks baru (§4.5) — SELESAI pada integrasi rilis v1.0:
+  `drizzle/0000_baseline_v1` dibangkitkan ulang dan ditegaskan `tests/db/migrations.test.ts` (backlog B-86).
 
 **Vercel**
 - Fungsi region `sin1`. `maxDuration` ≥ 60 dtk untuk `/api/sync/push` (push 50 perintah ±7–13 dtk di Neon) dan

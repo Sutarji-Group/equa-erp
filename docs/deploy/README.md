@@ -47,6 +47,10 @@ rahasia, perangkat hilang) ada di [`docs/ops/runbook.md`](../ops/runbook.md); cu
    memakai `DATABASE_URL`. Tambahkan sendiri **`DB_DRIVER=neon`** (Production & Preview).
 3. Paket Neon: pilih paket dengan **riwayat pemulihan titik-waktu (PITR) ≥ 7 hari** untuk go-live — ini dasar RPO 1 jam
    (NFR-14). Paket gratis hanya menyimpan riwayat singkat; cukup untuk pilot, tidak untuk produksi.
+   Kapasitas hasil uji beban 3× volume ([`docs/qa/uji-beban.md`](../qa/uji-beban.md)): ±25 MB/hari (±9 GB/tahun) →
+   paket dengan penyimpanan **≥ 20 GB**; komputasi **tanpa scale-to-zero pada jam operasi 05.00–22.00 WIB**; aplikasi
+   selalu memakai koneksi *pooled*. Sebelum pilot, ukur latensi di branch Neon terpisah (`DB_DRIVER=neon
+   DATABASE_URL=… pnpm perf:generate` lalu `pnpm perf:measure`; RP-25).
 4. **Migrasi dari laptop admin** (urutan resmi, idempoten — aman diulang):
 
    ```bash
@@ -215,6 +219,7 @@ agar perangkat yang belum memperbarui tidak tertahan.
 - [ ] Semua env §4 terisi; `ALLOW_DEV_SECRETS` & `E2E_CLOCK_OVERRIDE` **kosong**; rahasia produksi ≠ preview ≠ dev.
 - [ ] `pnpm db:migrate` → `pnpm db:verify` "IDENTIK" → `pnpm db:seed:prod` (akun pemilik & admin sistem dibuat).
 - [ ] Paket Neon dengan PITR ≥ 7 hari; uji pemulihan pertama dilakukan & dicatat (runbook §4, NFR-13).
+- [ ] Neon: penyimpanan ≥ 20 GB, tanpa scale-to-zero pada jam operasi; latensi diukur dengan `pnpm perf:measure` di branch Neon terpisah (`docs/qa/uji-beban.md`, RP-25).
 - [ ] Resend: domain **Verified**, `EMAIL_FROM` di domain itu, uji kirim faktur & pernyataan (B-77).
 - [ ] VAPID terisi; uji notifikasi push ke ponsel pemilik.
 - [ ] GitHub secrets `APP_URL`, `CRON_SECRET`, `ALERT_WEBHOOK_URL` atau `RESEND_API_KEY`+`ALERT_EMAIL_TO` (B-85);

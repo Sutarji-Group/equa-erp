@@ -156,5 +156,10 @@ Run penuh 30 Sep 2026 (WIB) di DB segar, build produksi (`next start`):
 `mobile`, lalu 7 skenario P-01..P-07; ±19 menit, skenario 30 dtk – 1,3 menit masing-masing). P-01..P-06 juga diverifikasi
 berjalan sendiri di DB segar selama pengembangan. Vitest 191 berkas / 1.271 uji lulus; `pnpm trace`: KP prioritas M 490/490.
 
+Run integrasi rilis v1.0 (30 Sep 2026, 12.58–13.16 WIB, DB segar, build produksi): perintah yang sama → **65 lulus**
+(49 `chromium` + 9 `mobile`, lalu 7 skenario: P-01 45 dtk, P-02 1,3 mnt, P-03 1,0 mnt, P-04 29 dtk, P-05 32 dtk,
+P-06 47 dtk, P-07 45 dtk; total 17,6 menit). Vitest 212 berkas / 1.389 uji lulus; `pnpm trace`: KP prioritas M 490/490,
+semua prioritas 552/554 (2 KP US-P2-07 tidak dibangun, D-02).
+
 Catatan UX (bukan pelanggaran PRD): daftar "Selisih hari ini" di layar tutup kas hanya menampilkan jenis sumber
 (mis. "Shift depot") tanpa nama outlet/karyawan — rinciannya lewat tautan ke `/kas/selisih`.

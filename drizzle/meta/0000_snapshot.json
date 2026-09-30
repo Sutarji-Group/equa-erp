@@ -1,5 +1,5 @@
 {
-  "id": "c795e763-83bb-4673-a5ab-86f596b41c3c",
+  "id": "51424265-e37b-46a8-b7cc-98e8d3f5ee96",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -21838,6 +21838,27 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "pos_sale_lines_tenant_date_idx": {
+          "name": "pos_sale_lines_tenant_date_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "business_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -22276,6 +22297,27 @@
           "columns": [
             {
               "expression": "outlet_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "business_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "pos_sales_tenant_date_idx": {
+          "name": "pos_sales_tenant_date_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -32707,6 +32749,21 @@
             },
             {
               "expression": "source_object_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "journals_source_event_idx": {
+          "name": "journals_source_event_idx",
+          "columns": [
+            {
+              "expression": "source_event_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

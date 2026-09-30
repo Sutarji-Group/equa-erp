@@ -102,6 +102,10 @@ describe("migrasi produksi drizzle/ (B-79, B-83)", () => {
     expect(Object.keys(migratedSnapshot.indexes).some((k) => k.startsWith("customer_advances.") && /order_id/.test(migratedSnapshot.indexes[k]!))).toBe(true);
     expect(Object.keys(cols).filter((k) => k.startsWith("service_outages.")).length).toBeGreaterThan(3);
     expect(migratedSnapshot.triggers["service_outages.equa_no_delete"]).toBeDefined();
+    // S5-C uji beban (NFR-05): indeks bernama hasil perbaikan kinerja ikut baseline v1.0.
+    expect(migratedSnapshot.indexes["journals.journals_source_event_idx"]).toMatch(/\(source_event_id\)/);
+    expect(migratedSnapshot.indexes["pos_sales.pos_sales_tenant_date_idx"]).toMatch(/\(tenant_id, business_date\)/);
+    expect(migratedSnapshot.indexes["pos_sale_lines.pos_sale_lines_tenant_date_idx"]).toMatch(/\(tenant_id, business_date\)/);
     // Pengerasan (bukan drizzle-kit): FK komposit tenant & penjaga jurnal.
     expect(migratedSnapshot.constraints["pos_sales.pos_sales_outlet_tenant_fk"]).toMatch(/FOREIGN KEY \(outlet_id, tenant_id\)/);
     expect(Object.keys(migratedSnapshot.functions).some((f) => f.startsWith("equa_guard_journal_posting"))).toBe(true);

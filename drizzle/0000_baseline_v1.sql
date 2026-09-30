@@ -4998,9 +4998,11 @@ CREATE UNIQUE INDEX "outlet_water_ledger_source_uq" ON "outlet_water_ledger" USI
 CREATE UNIQUE INDEX "pos_sale_lines_sale_line_uq" ON "pos_sale_lines" USING btree ("pos_sale_id","line_no");--> statement-breakpoint
 CREATE INDEX "pos_sale_lines_product_idx" ON "pos_sale_lines" USING btree ("product_id");--> statement-breakpoint
 CREATE INDEX "pos_sale_lines_outlet_date_idx" ON "pos_sale_lines" USING btree ("outlet_id","business_date","product_id");--> statement-breakpoint
+CREATE INDEX "pos_sale_lines_tenant_date_idx" ON "pos_sale_lines" USING btree ("tenant_id","business_date");--> statement-breakpoint
 CREATE UNIQUE INDEX "pos_sales_outlet_number_uq" ON "pos_sales" USING btree ("outlet_id","number") WHERE "pos_sales"."number" is not null;--> statement-breakpoint
 CREATE UNIQUE INDEX "pos_sales_device_local_number_uq" ON "pos_sales" USING btree ("device_id","local_number");--> statement-breakpoint
 CREATE INDEX "pos_sales_outlet_date_idx" ON "pos_sales" USING btree ("outlet_id","business_date");--> statement-breakpoint
+CREATE INDEX "pos_sales_tenant_date_idx" ON "pos_sales" USING btree ("tenant_id","business_date");--> statement-breakpoint
 CREATE INDEX "pos_sales_shift_idx" ON "pos_sales" USING btree ("shift_id");--> statement-breakpoint
 CREATE INDEX "pos_sales_customer_idx" ON "pos_sales" USING btree ("customer_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "pos_sales_reversal_uq" ON "pos_sales" USING btree ("reversal_of_id") WHERE "pos_sales"."reversal_of_id" is not null;--> statement-breakpoint
@@ -5085,6 +5087,7 @@ CREATE INDEX "journal_queue_status_idx" ON "journal_queue" USING btree ("status"
 CREATE INDEX "journals_period_idx" ON "journals" USING btree ("period_id");--> statement-breakpoint
 CREATE INDEX "journals_date_idx" ON "journals" USING btree ("tenant_id","journal_date");--> statement-breakpoint
 CREATE INDEX "journals_source_idx" ON "journals" USING btree ("source_object_type","source_object_id");--> statement-breakpoint
+CREATE INDEX "journals_source_event_idx" ON "journals" USING btree ("source_event_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "journals_auto_event_uq" ON "journals" USING btree ("source_event_id") WHERE "journals"."kind" = 'auto' and "journals"."source_event_id" is not null and "journals"."reversal_of_id" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX "journals_tenant_number_uq" ON "journals" USING btree ("tenant_id","number");--> statement-breakpoint
 CREATE UNIQUE INDEX "manual_journal_details_journal_uq" ON "manual_journal_details" USING btree ("journal_id");--> statement-breakpoint

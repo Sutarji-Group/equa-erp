@@ -165,6 +165,7 @@ docs/             lihat peta dokumen di bawah
 | UAT per modul, pilot, periode paralel, cut-over, gerbang Tahap 2/3, risiko | [`docs/uat/README.md`](docs/uat/README.md) |
 | Status implementasi per user story, PTB, CR | [`docs/prd/status.md`](docs/prd/status.md) |
 | Skenario uji P-01..P-07 & audit keamanan S5 | [`docs/qa/skenario-uji.md`](docs/qa/skenario-uji.md), [`docs/qa/audit-s5.md`](docs/qa/audit-s5.md) |
+| Uji beban 3× volume, kapasitas Neon/Vercel, data seluler lapangan (NFR-03/05/17) | [`docs/qa/uji-beban.md`](docs/qa/uji-beban.md) |
 | Catatan pengembang per modul & backlog lintas modul | `docs/dev/modules/*.md`, [`docs/dev/backlog.md`](docs/dev/backlog.md) |
 | Matriks menu & izin | [`docs/nav-permissions.md`](docs/nav-permissions.md) |
 
