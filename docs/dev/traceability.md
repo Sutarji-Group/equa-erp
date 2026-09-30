@@ -8,7 +8,7 @@
 
 - **Prioritas M:** 490/490 KP (100.0%) · story: 94 lengkap, 0 sebagian, 0 belum
 - **Semua prioritas:** 552/554 KP (99.6%) · story: 113 lengkap, 0 sebagian, 1 belum
-- Uji dipindai: 1454 judul di 242 berkas; 1189 judul merujuk user story.
+- Uji dipindai: 1504 judul di 250 berkas; 1200 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
@@ -69,13 +69,13 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 |---|---|:-:|---:|---|---|---:|
 | US-M3-01 | Melihat daftar rit hari ini dan menuju lokasi | M | 7/7 | lengkap | — | 25 |
 | US-M3-02 | Mencatat Berangkat dan Tiba dengan waktu dan lokasi otomatis | M | 6/6 | lengkap | — | 14 |
-| US-M3-03 | Menyelesaikan rit dengan bukti kirim | M | 7/7 | lengkap | — | 33 |
+| US-M3-03 | Menyelesaikan rit dengan bukti kirim | M | 7/7 | lengkap | — | 37 |
 | US-M3-04 | Mencatat pembayaran per rit | M | 6/6 | lengkap | — | 21 |
 | US-M3-05 | Menerima pelunasan piutang saat pengiriman | M | 5/5 | lengkap | — | 9 |
 | US-M3-06 | Menandai rit gagal, melaporkan kendala, dan memberi keterangan perjalanan | M | 4/4 | lengkap | — | 9 |
 | US-M3-07 | Melihat kas di tangan dan menyetor akhir hari | M | 6/6 | lengkap | — | 17 |
 | US-M3-08 | Mencatat pengeluaran rit | S | 3/3 | lengkap | — | 12 |
-| US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 5/5 | lengkap | — | 29 |
+| US-M3-09 | Bekerja tanpa sinyal dan menyinkronkan otomatis | M | 5/5 | lengkap | — | 30 |
 | US-M3-10 | Keamanan perangkat dan kesiapan lapangan | M | 6/6 | lengkap | — | 27 |
 
 ## M4 — Kas & Setoran
@@ -155,7 +155,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M9-01 | Dashboard H+0 | M | 7/7 | lengkap | — | 16 |
+| US-M9-01 | Dashboard H+0 | M | 7/7 | lengkap | — | 17 |
 | US-M9-02 | Laporan bulanan laba kotor per lini dan konsolidasi | M | 6/6 | lengkap | — | 15 |
 | US-M9-03 | Ekspor Excel/PDF | M | 4/4 | lengkap | — | 22 |
 | US-M9-04 | Kotak masuk pengecualian dan pengaturan notifikasi pemilik | S | 4/4 | lengkap | — | 15 |
@@ -172,7 +172,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M10-01 | Peran, pengguna, dan lingkup akses | M | 8/8 | lengkap | — | 41 |
 | US-M10-02 | Login, PIN, perangkat terdaftar, dan sesi | M | 7/7 | lengkap | — | 46 |
 | US-M10-03 | Pemisahan tugas dipaksakan | M | 4/4 | lengkap | — | 26 |
-| US-M10-04 | Alur persetujuan | M | 6/6 | lengkap | — | 24 |
+| US-M10-04 | Alur persetujuan | M | 6/6 | lengkap | — | 26 |
 | US-M10-05 | Jejak audit | M | 6/6 | lengkap | — | 22 |
 | US-M10-06 | Data pribadi, retensi, dan pencadangan | M | 6/6 | lengkap | — | 16 |
 | US-M10-07 | Kesehatan perangkat, sinkron, dan pemantauan | M | 4/4 | lengkap | — | 18 |
@@ -184,9 +184,9 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
 | US-M11-01 | Bagan akun dan pusat laba | M | 5/5 | lengkap | — | 13 |
-| US-M11-02 | Jurnal otomatis dari seluruh transaksi operasional | M | 5/5 | lengkap | — | 38 |
+| US-M11-02 | Jurnal otomatis dari seluruh transaksi operasional | M | 5/5 | lengkap | — | 39 |
 | US-M11-03 | Jurnal manual dengan lampiran dan persetujuan | M | 6/6 | lengkap | — | 13 |
-| US-M11-04 | Buku besar dan laporan keuangan | M | 5/5 | lengkap | — | 19 |
+| US-M11-04 | Buku besar dan laporan keuangan | M | 5/5 | lengkap | — | 20 |
 | US-M11-05 | Aset tetap dan penyusutan otomatis | M | 5/5 | lengkap | — | 8 |
 | US-M11-06 | Rekonsiliasi bank dan kas | M | 4/4 | lengkap | — | 7 |
 | US-M11-07 | Utang usaha kepada pemasok | S | 3/3 | lengkap | — | 3 |
@@ -204,10 +204,10 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M12-02 | Peta posisi truk real-time | M | 5/5 | lengkap | — | 10 |
 | US-M12-03 | Riwayat perjalanan per rit dan per hari | M | 4/4 | lengkap | — | 9 |
 | US-M12-04 | Pencocokan lokasi Selesai dengan alamat pelanggan | M | 5/5 | lengkap | — | 10 |
-| US-M12-05 | Perjalanan di luar jadwal atau jam operasional | M | 5/5 | lengkap | — | 15 |
+| US-M12-05 | Perjalanan di luar jadwal atau jam operasional | M | 5/5 | lengkap | — | 16 |
 | US-M12-06 | Geofence sumber air dan depot | S | 4/4 | lengkap | — | 8 |
 | US-M12-07 | Jarak per rit untuk biaya BBM dan pemeriksaan zona | S | 3/3 | lengkap | — | 3 |
-| US-M12-08 | Peringatan perangkat mati atau dicabut | M | 4/4 | lengkap | — | 7 |
+| US-M12-08 | Peringatan perangkat mati atau dicabut | M | 4/4 | lengkap | — | 8 |
 
 ## P2 — Tahap 2: Aplikasi Pelanggan
 
