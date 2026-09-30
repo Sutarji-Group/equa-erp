@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { generate } from "otplib";
 
+import { allNavItems } from "../src/components/shared/nav/registry";
+
 /** M9 — H+0 & kotak masuk terbaca di ponsel pemilik tanpa gulir mendatar (US-M9-01 KP-5, NFR-19). */
 
 const PASSWORD = "equa-demo-2026";
@@ -55,45 +57,24 @@ test("US-M9-01 KP-5 H+0, laporan bulanan & kotak masuk terbaca di ponsel pemilik
   await expectNoHorizontalScroll(page);
 });
 
-/** Rute kantor yang dibuka pemilik di ponsel (temuan audit S5-B: halaman melebar karena tabel di dalam kartu). */
-const OWNER_MOBILE_ROUTES = [
-  "/beranda",
-  "/piutang",
-  "/piutang/faktur",
-  "/piutang/pelunasan",
-  "/piutang/pengingat",
-  "/piutang/status-kredit",
-  "/piutang/umur",
-  "/kas/tutup",
-  "/jadwal/kru",
-  "/armada/riwayat",
-  "/armada/bbm",
-  "/armada/perangkat",
-  "/produksi/neraca-air",
-  "/produksi/pengisian",
-  "/produksi/utilisasi",
-  "/produksi/mutu",
-  "/outlet",
-  "/toko/barang",
-  "/toko/laporan",
-  "/master/pelanggan",
-  "/akuntansi/laporan",
-  "/kemitraan",
-  "/keluhan",
-  "/akses/sinkron",
-  "/persetujuan",
-];
+/**
+ * Semua rute menu web kantor (registri navigasi, tanpa halaman rincian/dinamis) — dibuka pemilik di ponsel. Temuan audit
+ * S5-B: halaman melebar karena tabel di dalam kartu yang menjadi anak grid (`min-width: auto`).
+ */
+const OWNER_MOBILE_ROUTES = allNavItems()
+  .filter((item) => !item.hidden && !item.href.includes("["))
+  .map((item) => item.href);
 
-test("NFR-19 US-M9-01 KP-5 halaman kantor pemilik di ponsel tidak melebar melewati layar (tabel menggulir di dalam kartu)", async ({ page }) => {
-  test.setTimeout(360_000);
+test("NFR-19 US-M9-01 KP-5 semua halaman menu kantor di ponsel pemilik tidak melebar melewati layar (tabel menggulir di dalam kartu)", async ({ page }) => {
+  test.setTimeout(600_000);
   await loginOwner(page);
+  const viewport = page.viewportSize()!.width;
   const failures: string[] = [];
   for (const route of OWNER_MOBILE_ROUTES) {
-    await page.goto(route);
-    await page.waitForLoadState("networkidle").catch(() => undefined);
-    const viewport = page.viewportSize()!.width;
+    await page.goto(route, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load", { timeout: 15_000 }).catch(() => undefined);
     const width = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
     if (width > viewport + 1) failures.push(`${route}: ${width}px`);
   }
-  expect(failures, `Halaman melebar melewati ${page.viewportSize()!.width}px`).toEqual([]);
+  expect(failures, `Halaman melebar melewati ${viewport}px`).toEqual([]);
 });
