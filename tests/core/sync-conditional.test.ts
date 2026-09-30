@@ -208,7 +208,7 @@ describe("Pull bersyarat v2 (B-89, D-14 butir 3)", () => {
     asB.apply(res);
     const fullB = (await b.hp.pull(b.op, { keys: "m6.pos" })).data["m6.pos"] as PosReference;
     expect(strip(asB.data.get("m6.pos"))).toEqual(strip(fullB));
-    expect((asB.data.get("m6.pos") as PosReference).outlet.code).toBe("D04");
+    expect((asB.data.get("m6.pos") as PosReference).outlet!.code).toBe("D04");
     expect(JSON.stringify(asB.data.get("m6.pos"))).not.toContain(salesA[0]!);
     expect(JSON.stringify(res)).not.toContain(salesA[0]!);
 
@@ -226,7 +226,7 @@ describe("Pull bersyarat v2 (B-89, D-14 butir 3)", () => {
     const fullMitra = await mp.hp.pull(mp.op, { keys: "m6.pos,m1.catalog" });
     expect(strip(asMitra.data.get("m6.pos"))).toEqual(strip(fullMitra.data["m6.pos"]));
     expect(strip(asMitra.data.get("m1.catalog"))).toEqual(strip(fullMitra.data["m1.catalog"]));
-    expect((asMitra.data.get("m6.pos") as PosReference).outlet.tenantId).toBe(mitra.tenantId);
+    expect((asMitra.data.get("m6.pos") as PosReference).outlet!.tenantId).toBe(mitra.tenantId);
     expect(JSON.stringify(mr)).not.toContain(salesA[0]!);
 
     // Pengguna lain di perangkat yang sama (kernet memakai kursor sopir) → data kernet sendiri.

@@ -30,7 +30,8 @@ const MAX_BUCKETS = 48;
 const ABSENT = "!";
 
 type Bucket = { hash: string; start: number; count: number };
-type CollectionVersion = { path: string; record: boolean; items: unknown[]; buckets: Bucket[] } | { path: string; absent: true };
+type PresentCollection = { path: string; record: boolean; items: unknown[]; buckets: Bucket[]; itemHashes: Buffer[] };
+type CollectionVersion = PresentCollection | { path: string; absent: true };
 
 export type ProviderVersion = {
   cursor: string;
@@ -66,25 +67,29 @@ function effectiveBucket(target: number, n: number): number {
   return b;
 }
 
+/** Sidik rentang butir [start, start+count) — rumus sama dengan sidik ember. */
+function rangeHash(itemHashes: Buffer[], start: number, count: number): string {
+  return b64(digest(Buffer.concat(itemHashes.slice(start, start + count)).toString("hex")), BUCKET_HASH_LEN);
+}
+
 /** Potong butir menjadi ember berbatas isi. */
-function chunk(items: unknown[], target: number): Bucket[] {
+function chunk(items: unknown[], target: number): { buckets: Bucket[]; itemHashes: Buffer[] } {
   const b = effectiveBucket(target, items.length);
   const buckets: Bucket[] = [];
+  const itemHashes: Buffer[] = [];
   let start = 0;
-  let parts: Buffer[] = [];
   const close = (end: number) => {
-    buckets.push({ hash: b64(digest(Buffer.concat(parts).toString("hex")), BUCKET_HASH_LEN), start, count: end - start });
+    buckets.push({ hash: rangeHash(itemHashes, start, end - start), start, count: end - start });
     start = end;
-    parts = [];
   };
   for (let i = 0; i < items.length; i++) {
     const h = digest(JSON.stringify(items[i]) ?? "null");
-    parts.push(h.subarray(0, 16));
+    itemHashes.push(h.subarray(0, 16));
     const boundary = b === 1 || h.readUInt32BE(16) % b === 0 || i + 1 - start >= 4 * b;
     if (boundary) close(i + 1);
   }
   if (start < items.length) close(items.length);
-  return buckets;
+  return { buckets, itemHashes };
 }
 
 function encodeBuckets(buckets: Bucket[]): string {
@@ -103,7 +108,7 @@ export function versionOf(payload: unknown, collections: PullCollections = {}): 
       cols.push({ path, absent: true });
       continue;
     }
-    cols.push({ path, record: c.record, items: c.items, buckets: chunk(c.items, collections[path]!) });
+    cols.push({ path, record: c.record, items: c.items, ...chunk(c.items, collections[path]!) });
     base = setPath(base, path, c.record ? {} : []);
   }
   const baseHash = b64(digest(baseJson(base)), BASE_HASH_LEN);
@@ -143,22 +148,44 @@ function sameBuckets(a: Bucket[], b: Bucket[]): boolean {
   return a.length === b.length && a.every((x, i) => x.hash === b[i]!.hash && x.count === b[i]!.count);
 }
 
-/** Segmen koleksi baru terhadap ember lama klien (salin ember yang sama, kirim sisanya). */
-function collectionPatch(current: Extract<CollectionVersion, { buckets: Bucket[] }>, old: Bucket[] | "absent"): PullCollectionPatch {
+/**
+ * Segmen koleksi baru terhadap ember lama klien: ember yang sama disalin; ember yang BERTAMBAH di ujung (butir baru di
+ * akhir daftar urut-lama, atau di awal daftar terbaru-dulu) disalin bagian lamanya + dikirim butir barunya saja;
+ * sisanya dikirim utuh.
+ */
+function collectionPatch(current: PresentCollection, old: Bucket[] | "absent"): PullCollectionPatch {
   const oldBuckets = old === "absent" ? [] : old;
   const byHash = new Map<string, Bucket>();
   for (const bk of oldBuckets) if (!byHash.has(`${bk.hash}:${bk.count}`)) byHash.set(`${bk.hash}:${bk.count}`, bk);
+  const oldFirst = oldBuckets[0];
+  const oldLast = oldBuckets[oldBuckets.length - 1];
   const segs: PullSegment[] = [];
+  const copy = (start: number, count: number) => {
+    const last = segs[segs.length - 1];
+    if (last && "copy" in last && last.copy[0] + last.copy[1] === start) last.copy[1] += count;
+    else segs.push({ copy: [start, count] });
+  };
+  const send = (start: number, count: number) => {
+    if (count <= 0) return;
+    const items = current.items.slice(start, start + count);
+    const last = segs[segs.length - 1];
+    if (last && "items" in last) last.items.push(...items);
+    else segs.push({ items });
+  };
   for (const bk of current.buckets) {
     const hit = byHash.get(`${bk.hash}:${bk.count}`);
-    const last = segs[segs.length - 1];
     if (hit) {
-      if (last && "copy" in last && last.copy[0] + last.copy[1] === hit.start) last.copy[1] += hit.count;
-      else segs.push({ copy: [hit.start, hit.count] });
+      copy(hit.start, hit.count);
+    } else if (oldLast && bk.count > oldLast.count && rangeHash(current.itemHashes, bk.start, oldLast.count) === oldLast.hash) {
+      // Ember terakhir klien + butir baru di belakangnya (mis. penjualan baru di shift terbuka).
+      copy(oldLast.start, oldLast.count);
+      send(bk.start + oldLast.count, bk.count - oldLast.count);
+    } else if (oldFirst && bk.count > oldFirst.count && rangeHash(current.itemHashes, bk.start + bk.count - oldFirst.count, oldFirst.count) === oldFirst.hash) {
+      // Butir baru di depan ember pertama klien (mis. daftar penjualan terbaru-dulu).
+      send(bk.start, bk.count - oldFirst.count);
+      copy(oldFirst.start, oldFirst.count);
     } else {
-      const items = current.items.slice(bk.start, bk.start + bk.count);
-      if (last && "items" in last) last.items.push(...items);
-      else segs.push({ items });
+      send(bk.start, bk.count);
     }
   }
   return { from: oldBuckets.reduce((n, bk) => n + bk.count, 0), segs, ...(current.record ? { record: true as const } : {}) };

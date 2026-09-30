@@ -70,6 +70,8 @@ export const POS_PULL_COLLECTIONS = {
   recipes: 8,
   transfers: 2,
   history: 4,
+  // Stok air berubah tiap penjualan isi ulang → entri objek per butir (bagian luar tetap "tidak berubah").
+  water: 1,
 } as const;
 
 export function registerSync(): void {

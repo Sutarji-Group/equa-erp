@@ -104,6 +104,32 @@ describe("Pull bersyarat — sidik isi & delta koleksi (B-89, D-14 butir 3)", ()
     }
   });
 
+  it("B-89 NFR-17 penjualan baru di akhir (urut lama) / di depan (terbaru-dulu) → HANYA butir baru dikirim, sisanya disalin", () => {
+    const sentItems = (patch: PullPatch, path: string) => patch.cols[path]!.segs.flatMap((x) => ("items" in x ? x.items : []));
+    // Urut lama (shift POS): tambah 1..3 penjualan di akhir berulang kali.
+    let sales = Array.from({ length: 200 }, (_, i) => sale(i));
+    let client = roundTrip({ data: undefined, cursor: undefined }, posRef(sales), POS);
+    for (let k = 0; k < 30; k++) {
+      const add = (k % 3) + 1;
+      sales = [...sales, ...Array.from({ length: add }, (_, i) => sale(10_000 + k * 10 + i))];
+      const step = roundTrip({ data: client.data, cursor: client.cursor }, posRef(sales), POS);
+      expect(sentItems((step.result as { patch: PullPatch }).patch, "openShift.sales")).toHaveLength(add);
+      expect(strip(step.data)).toEqual(strip(posRef(sales)));
+      client = step;
+    }
+    // Terbaru-dulu (penjualan toko): butir baru di depan.
+    const cols: PullCollections = { recentSales: 16 };
+    let list = Array.from({ length: 150 }, (_, i) => sale(150 - i));
+    let c2 = roundTrip({ data: undefined, cursor: undefined }, { recentSales: list }, cols);
+    for (let k = 0; k < 20; k++) {
+      list = [sale(20_000 + k), ...list];
+      const step = roundTrip({ data: c2.data, cursor: c2.cursor }, { recentSales: list }, cols);
+      expect(sentItems((step.result as { patch: PullPatch }).patch, "recentSales")).toHaveLength(1);
+      expect(strip(step.data)).toEqual(strip({ recentSales: list }));
+      c2 = step;
+    }
+  });
+
   it("B-89 koreksi atas data LAMA (void/koreksi kantor pada penjualan pertama, pembalik di tengah) ikut terkirim — tidak ada yang terlewat", () => {
     const sales = Array.from({ length: 120 }, (_, i) => sale(i));
     let client = roundTrip({ data: undefined, cursor: undefined }, posRef(sales), POS);
