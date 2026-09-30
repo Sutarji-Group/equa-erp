@@ -190,12 +190,12 @@ html:has([data-theme="field"]) {
     font-family: var(--font-sans);
   }
   /*
-   * NFR-19 (S5-B): anak grid/flex di area konten boleh menyusut di bawah lebar isinya — tabel lebar menggulir di dalam
-   * pembungkus `overflow-x-auto`-nya sendiri, bukan melebarkan seluruh halaman di ponsel. Utilitas `min-w-*` tetap menang
-   * (lapisan utilities di atas base).
+   * NFR-19 (S5-B): anak grid di area konten (pembungkus halaman `grid gap-6` berkolom implisit `auto`) boleh menyusut di
+   * bawah lebar isinya — tabel lebar menggulir di dalam pembungkus `overflow-x-auto`-nya sendiri, bukan melebarkan
+   * seluruh halaman di ponsel. Utilitas `min-w-*` tetap menang (lapisan utilities di atas base). Anak flex tidak perlu
+   * (diukur atas semua rute menu: e2e/m9-reports.mobile.spec.ts).
    */
-  main .grid > *,
-  main .flex > * {
+  main .grid > * {
     min-width: 0;
   }
   /* Angka rupiah & liter rata kanan & lebar tetap. */
