@@ -61,6 +61,19 @@ function withConflict<T extends Record<string, unknown>>(base: T, conflict: stri
   return conflict ? { ...base, status: "conflict" as const, message: conflict } : base;
 }
 
+/** Koleksi delta pull `m6.pos` (jalur → ukuran ember sasaran). */
+export const POS_PULL_COLLECTIONS = {
+  "openShift.sales": 16,
+  "openShift.openingStock": 8,
+  conflictShifts: 1,
+  materials: 1,
+  recipes: 8,
+  transfers: 2,
+  history: 4,
+  // Stok air berubah tiap penjualan isi ulang → entri objek per butir (bagian luar tetap "tidak berubah").
+  water: 1,
+} as const;
+
 export function registerSync(): void {
   registerSyncHandler("m6.shift.open", {
     permission: ["m6.shift.open", "m7.shift.open"],
@@ -210,5 +223,8 @@ export function registerSync(): void {
   registerPullProvider("m6.pos", {
     roles: ["depot_operator", "store_cashier"],
     fetch: async ({ ctx, device, now, tx }) => buildPosReference(tx, ctx, device, now),
+    // Pull bersyarat v1.0.1 (D-14 butir 3, B-89): penjualan shift terbuka tumbuh sepanjang hari → delta per ember;
+    // saldo bahan berubah tiap penjualan → per butir; sisanya jarang berubah.
+    collections: POS_PULL_COLLECTIONS,
   });
 }

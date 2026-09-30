@@ -28,7 +28,9 @@ Jangan mencabut GPS truk; biarkan lokasi ponsel menyala.
 tampil di kartu **Setoran & ganti rugi saya**. Tombol **Berangkat** terkunci besok bila setoran belum ditutup kantor.
 
 **Status data.** *Tersimpan di ponsel: N* = belum terkirim (tidak apa-apa, lanjut kerja). Jangan hapus aplikasi/data
-peramban sebelum **Semua terkirim**. Muncul **Perbarui aplikasi** → muat ulang dulu.
+peramban sebelum **Semua terkirim**. Muncul **Perbarui aplikasi** → muat ulang dulu. **Data dari kantor** (rit baru, faktur, keputusan) masuk sendiri: segera setelah data Anda terkirim, saat aplikasi dibuka lagi, dan tiap
+±5 menit selama aplikasi terbuka. Perlu segera → ketuk pil status (**kirim sekarang**).
+Foto diperkecil otomatis (±150 KB) agar hemat kuota.
 
 **Kernet:** hanya melihat rit, kecuali ditetapkan Dispatcher sebagai pengemudi pengganti hari itu.
 

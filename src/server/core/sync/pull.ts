@@ -6,13 +6,19 @@
  *   penyedia yang gagal dilaporkan di `errors[key]` tanpa menggagalkan pull;
  * - status perangkat & versi minimal aplikasi (`app.min_supported_version`, NFR-32);
  * - parameter yang dibutuhkan offline (PAR-30, PAR-36, PAR-37, PAR-38, PAR-42);
- * - `cursor` (= waktu server) untuk pull berikutnya.
+ * - `cursor` (= waktu server) untuk pull berikutnya (klien v1).
+ *
+ * Pull bersyarat (v1.0.1, D-14 butir 3 — `?v=2&c.<kunci>=<kursor>`, format `src/lib/pull-delta.ts`): setiap penyedia
+ * dihitung penuh lalu dibandingkan dengan kursor sidik-isi klien → `unchanged` (tanpa isi), `patches` (delta koleksi
+ * yang tumbuh, mis. penjualan shift terbuka POS), atau `data` penuh; kursor baru di `cursors`. Klien lama (tanpa
+ * `v=2`) mendapat respons v1 persis seperti sebelumnya.
  */
 import "server-only";
 
 import { eq } from "drizzle-orm";
 
 import { devices } from "@/db/schema";
+import type { PullPatch } from "@/lib/pull-delta";
 import { toBusinessDate } from "@/lib/time";
 
 import { ensureBootstrapped } from "../bootstrap";
@@ -23,6 +29,7 @@ import type { DeviceAuth } from "../auth/device-auth";
 import { publicDevice, type PublicDevice } from "../auth/devices";
 import { AuthError } from "../auth/errors";
 import { buildFieldActorContext } from "../auth/field-login";
+import { compareWithCursor, versionOf } from "./conditional";
 import { deviceSeqFloors, listPullProviders } from "./registry";
 
 export type OfflineParams = {
@@ -50,6 +57,22 @@ export type PullResponse = {
   errors: Record<string, string>;
   /** Urutan nomor lokal terbesar yang sudah tercatat server per lingkup (batas bawah `nextDeviceSeq`). */
   deviceSeq: Record<string, number>;
+  /** Pull bersyarat (hanya bila klien meminta `v=2`): versi protokol. */
+  protocol?: 2;
+  /** Kursor sidik-isi baru per penyedia yang dikirim penuh (`data`) atau delta (`patches`). */
+  cursors?: Record<string, string>;
+  /** Penyedia yang isinya sama dengan kursor klien — tanpa isi. */
+  unchanged?: string[];
+  /** Delta per penyedia (bagian luar bila berubah + segmen koleksi). */
+  patches?: Record<string, PullPatch>;
+};
+
+export type PullQuery = {
+  /** Kursor waktu v1 (diabaikan untuk klien v2). */
+  since?: string | null;
+  keys?: string | null;
+  /** Kursor sidik-isi per penyedia (`readPullCursors`); `null`/tidak ada = klien v1. */
+  cursors?: Record<string, string> | null;
 };
 
 /** Bandingkan versi X.Y.Z (a < b → negatif). Bagian non-angka dianggap 0. */
@@ -87,14 +110,16 @@ export async function minSupportedVersion(now: Date): Promise<string> {
   return v.version;
 }
 
-export async function processPull(auth: DeviceAuth, query: { since?: string | null; keys?: string | null }): Promise<PullResponse> {
+export async function processPull(auth: DeviceAuth, query: PullQuery): Promise<PullResponse> {
   ensureBootstrapped(); // penyedia modul terdaftar lewat registerSync()
   if (!auth.user || !auth.session) {
     throw new AuthError("SESSION_EXPIRED", "Sesi Anda di perangkat ini berakhir. Masukkan PIN saat ada sinyal untuk melanjutkan.");
   }
   const now = auth.now;
+  const cursors = query.cursors ?? null;
+  const conditional = cursors !== null;
   let since: Date | null = null;
-  if (query.since) {
+  if (query.since && !conditional) {
     const d = new Date(query.since);
     if (Number.isNaN(d.getTime())) throw ValidationError.field("since", "Kursor sinkron tidak valid.");
     since = d;
@@ -105,12 +130,30 @@ export async function processPull(auth: DeviceAuth, query: { since?: string | nu
 
   const data: Record<string, unknown> = {};
   const errors: Record<string, string> = {};
+  const nextCursors: Record<string, string> = {};
+  const unchanged: string[] = [];
+  const patches: Record<string, PullPatch> = {};
   for (const [key, def] of listPullProviders()) {
     if (wanted && !wanted.has(key)) continue;
     if (def.roles?.length && !def.roles.some((r) => ctx.roles.includes(r))) continue;
     try {
       const value = await def.fetch({ ctx, device: auth.device, since, now, tx: db });
-      if (value !== undefined) data[key] = value;
+      if (value === undefined) continue;
+      if (!conditional) {
+        data[key] = value;
+        continue;
+      }
+      const version = versionOf(value, def.collections);
+      const result = compareWithCursor(version, cursors[key]);
+      if (result.kind === "unchanged") {
+        unchanged.push(key);
+      } else if (result.kind === "patch") {
+        patches[key] = result.patch;
+        nextCursors[key] = version.cursor;
+      } else {
+        data[key] = value;
+        nextCursors[key] = version.cursor;
+      }
     } catch (error) {
       console.error(`[equa] penyedia pull ${key} gagal:`, error);
       errors[key] = toUserMessage(error);
@@ -130,5 +173,6 @@ export async function processPull(auth: DeviceAuth, query: { since?: string | nu
     data,
     errors,
     deviceSeq: await deviceSeqFloors(db, auth.device.id),
+    ...(conditional ? { protocol: 2 as const, cursors: nextCursors, unchanged, patches } : {}),
   };
 }

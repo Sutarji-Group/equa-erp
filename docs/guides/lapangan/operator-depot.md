@@ -28,7 +28,8 @@ mingguan** paling lambat Minggu: hitung fisik → alasan bila beda → **Kirim o
 disetor**. Hasil (Diterima, selisih) tampil di kartu **Setoran & ganti rugi saya**.
 
 **Status data.** *Tersimpan di ponsel: N* = belum terkirim — lanjut kerja. Jangan hapus data peramban sebelum
-**Semua terkirim**. Data ditolak server tampil di **Antrean data** beserta alasannya.
+**Semua terkirim**. Data ditolak server tampil di **Antrean data** beserta alasannya. **Data dari kantor** (harga, pasokan air, persetujuan void) masuk sendiri: segera setelah data Anda terkirim, saat aplikasi dibuka lagi, dan tiap
+±5 menit selama aplikasi terbuka. Perlu segera → ketuk pil status (**kirim sekarang**).
 
 **PIN:** salah 5× = terkunci 15 menit; lupa → minta admin sistem mereset. **Kendala aplikasi:** menu **Bantuan**.
 

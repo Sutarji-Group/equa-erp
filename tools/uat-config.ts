@@ -263,7 +263,7 @@ export const MODULES: ModuleUat[] = [
     },
     manual: [
       { ref: "B-19 / NFR-18", text: "Ukuran teks ≥ 16 pt & kontras terbaca di bawah sinar matahari langsung oleh sopir (tanpa kacamata baca)." },
-      { ref: "B-19", text: "Kamera nyata ponsel truk: foto bukti kirim & nota ≤ 300 KB setelah kompresi (PAR-38), tetap terbaca." },
+      { ref: "B-19", text: "Kamera nyata ponsel truk: foto bukti kirim & nota ≤ PAR-38 (bawaan 150 KB, sisi 1.280 px) setelah kompresi, tetap terbaca." },
       { ref: "B-19 / NFR-06", text: "Rute Cianjur tanpa sinyal: satu hari penuh rit (≥ 24 jam mode pesawat untuk uji UI) → semua transaksi terkirim, jumlah & nilai = server." },
       { ref: "NFR-07", text: "Uji putus-sambung 50× (matikan/nyalakan data) → 0 transaksi hilang/dobel (cocokkan jumlah & nilai)." },
       { ref: "NFR-08", text: "Sopir baru dapat menyebutkan status item (tersimpan vs terkirim) tanpa dibantu." },

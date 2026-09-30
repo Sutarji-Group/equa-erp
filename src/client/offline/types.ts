@@ -2,6 +2,7 @@
  * Tipe kontrak API lapangan di sisi peramban (cermin dari `src/server/core/auth` & `src/server/core/sync` — kode klien
  * tidak boleh mengimpor modul server).
  */
+import type { PullPatch } from "@/lib/pull-delta";
 
 export type FieldHome = "/sopir" | "/pos" | "/produksi";
 
@@ -84,6 +85,11 @@ export type PullResponse = {
   data: Record<string, unknown>;
   errors: Record<string, string>;
   deviceSeq?: Record<string, number>;
+  /** Pull bersyarat (D-14 butir 3, `src/lib/pull-delta.ts`) — hanya bila klien meminta `v=2`. */
+  protocol?: 2;
+  cursors?: Record<string, string>;
+  unchanged?: string[];
+  patches?: Record<string, PullPatch>;
 };
 
 export type ApiErrorBody = { ok: false; code: string; message: string; wipe?: boolean; lockedUntil?: string; attemptsLeft?: number; issues?: { path: string; message: string }[] };

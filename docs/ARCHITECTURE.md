@@ -212,13 +212,22 @@ Kode memakai bahasa Inggris; UI memakai istilah PRD lewat `src/lib/labels.ts`.
 - Worker sinkron: saat daring, kirim batch ≤ 50 ke `POST /api/sync/push`; lampiran diunggah dulu lewat `POST /api/sync/upload`
   (idempoten per `attachmentId`). Server memproses berurutan; hasil per perintah: `applied` / `duplicate` (sudah pernah) /
   `rejected` (alasan Indonesia) / `conflict`. Tabel `sync_commands` menjamin idempotensi (PK = id klien).
-- Pemicu: setiap perubahan status jaringan (`online`), interval 60 detik, tombol "Kirim sekarang". Target ≤ 5 menit (PAR-30).
-- `GET /api/sync/pull?since=cursor` → data referensi sesuai lingkup (rit hari ini + catatan pelanggan + faktur terbuka
-  pelanggan hari itu + harga + katalog + resep + stok + template struk) dan status objek (mis. setoran Ditutup → buka kunci rit).
+- Pemicu (penjadwal adaptif v1.0.1, D-14 butir 2 — `src/client/offline/scheduler.ts`): antrean berubah → push segera,
+  lalu pull bila ada yang terkirim; ada antrean → putaran tiap 60 detik (coba ulang); antrean kosong → pull latar tiap
+  5 menit (≤ PAR-30) selama aplikasi terlihat; login PIN/ganti pengguna, kembali online / terlihat → segera; tombol
+  "Kirim sekarang" (manual).
+  Target ≤ 5 menit (PAR-30).
+- `GET /api/sync/pull` → data referensi sesuai lingkup (rit hari ini + catatan pelanggan + faktur terbuka pelanggan hari
+  itu + harga + katalog + resep + stok + template struk) dan status objek (mis. setoran Ditutup → buka kunci rit).
+  **Pull bersyarat** (v1.0.1, D-14 butir 3 — `src/lib/pull-delta.ts`): `?v=2&c.<kunci>=<kursor>`; kursor = sidik ISI
+  per penyedia (bukan waktu), sehingga koreksi kantor/void/pembalik atas data lama selalu terkirim. Penyedia tak berubah
+  → `unchanged` tanpa isi; koleksi yang tumbuh (penjualan shift POS, rit/pembayaran sopir) → `patches` (delta per ember
+  berbatas isi, deklarasi `collections` di `registerPullProvider`). Klien lama (`?since=`) tetap menerima respons v1.
 - **Lapangan tidak pernah ditimpa kantor**: perintah lapangan yang bertabrakan dengan perubahan kantor (mis. rit ditarik
   tetapi sudah dikerjakan offline) tetap sah, ditandai `conflict`, dan tampil ke Dispatcher/Admin Keuangan.
 - Waktu perangkat dipakai sebagai waktu transaksi; selisih jam > 10 menit (PAR-42) ditandai.
-- Foto dikompresi di perangkat ≤ 300 KB (PAR-38) dengan canvas sebelum masuk antrean.
+- Foto dikompresi di perangkat ≤ PAR-38 (bawaan 150 KB, sisi panjang 1.280 px — D-14 butir 2) dengan canvas sebelum
+  masuk antrean; batas dibaca dari parameter hasil pull (`fieldPhotoMaxBytes`), bukan konstanta.
 - Laporan kesehatan perangkat (jumlah antrean, versi, baterai) dikirim bersama push → halaman "Perangkat & sinkron" (US-M10-07).
 
 ## 8. Event domain (katalog awal — nama WAJIB sama)

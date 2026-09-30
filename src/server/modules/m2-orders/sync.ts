@@ -19,5 +19,7 @@ export function registerSync(): void {
   registerPullProvider("m2.schedule", {
     roles: ["driver", "helper"],
     fetch: ({ ctx, tx, since }) => driverSchedule(tx, ctx, ctxBusinessDate(ctx), since),
+    // Pull bersyarat v1.0.1 (D-14 butir 3): rit berubah per butir → hanya rit yang berubah dikirim ulang.
+    collections: { trips: 1, revision: 4 },
   });
 }

@@ -63,6 +63,8 @@ export function registerSync(): void {
       }
       return { outletId, businessDate: date, products: list };
     },
+    // Pull bersyarat v1.0.1 (D-14 butir 3): perubahan harga satu produk hanya mengirim ulang embernya.
+    collections: { products: 8 },
   });
 
   registerPullProvider("m1.store_partners", {

@@ -4,12 +4,13 @@ import { Camera, LoaderCircle, RotateCcw } from "lucide-react";
 import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
 
 import { type CompressOptions, compressImage, formatBytes } from "@/client/media/compress-image";
+import { fieldPhotoMaxBytes } from "@/client/offline/params";
 import { cn } from "@/lib/utils";
 
 import { BigButton } from "./big-button";
 
 export type CapturedPhoto = {
-  /** JPEG terkompresi (≤ 300 KB bawaan). */
+  /** JPEG terkompresi (≤ PAR-38; bawaan 150 KB, sisi panjang 1.280 px). */
   blob: Blob;
   /** URL objek untuk pratinjau (dicabut otomatis saat diganti/dilepas komponen). */
   previewUrl: string;
@@ -27,15 +28,19 @@ export type PhotoCaptureProps = {
   onClear?: () => void;
   /** Label tombol, mis. "Foto bukti kirim". */
   label?: string;
-  /** Opsi kompresi (mis. `maxBytes` dari PAR-38). */
+  /**
+   * Opsi kompresi. Tanpa `maxBytes` → PAR-38 dari data pull perangkat (`fieldPhotoMaxBytes`, D-14 butir 2); modul yang
+   * membawa aturan sendiri (mis. `rules.maxPhotoKb` M3/M8) boleh mengisinya.
+   */
   compress?: CompressOptions;
   disabled?: boolean;
   className?: string;
 };
 
 /**
- * Ambil foto dari KAMERA (bukan galeri; `capture="environment"`), kompres di perangkat ke ≤ 300 KB JPEG
- * (PRD US-M3-03 KP-1 & KP-6), tampilkan pratinjau. Blob dikembalikan untuk dimasukkan ke outbox.
+ * Ambil foto dari KAMERA (bukan galeri; `capture="environment"`), kompres di perangkat ke ≤ PAR-38 JPEG (bawaan
+ * 150 KB, sisi panjang 1.280 px; PRD US-M3-03 KP-1 & KP-6, NFR-17), tampilkan pratinjau. Blob dikembalikan untuk
+ * dimasukkan ke outbox.
  */
 export function PhotoCapture({ onCapture, onClear, label = "Ambil foto", compress, disabled, className }: PhotoCaptureProps) {
   const inputId = useId();
@@ -61,7 +66,9 @@ export function PhotoCapture({ onCapture, onClear, label = "Ambil foto", compres
     setProcessing(true);
     setError(null);
     try {
-      const result = await compressImage(file, compress);
+      // PAR-38 dari server (data pull) bila pemanggil tidak memberi batas sendiri — bukan konstanta.
+      const maxBytes = compress?.maxBytes ?? (await fieldPhotoMaxBytes());
+      const result = await compressImage(file, { ...compress, maxBytes });
       const captured: CapturedPhoto = {
         blob: result.blob,
         previewUrl: URL.createObjectURL(result.blob),

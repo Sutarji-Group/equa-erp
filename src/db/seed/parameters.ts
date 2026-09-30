@@ -132,7 +132,14 @@ export const LAMPIRAN_B_PARAMETERS: ParameterSeed[] = [
   },
   { key: "PAR-36", name: "PIN salah berturut → kunci sementara", value: { max_attempts: 5, lock_minutes: 15 }, unit: null, reference: "US-M3-10" },
   { key: "PAR-37", name: "Kunci layar aplikasi lapangan saat tidak aktif", value: { idle_minutes: 10 }, unit: "menit", reference: "US-M3-10" },
-  { key: "PAR-38", name: "Ukuran foto setelah kompresi di perangkat", value: { max_kb: 300 }, unit: "KB per foto", reference: "US-M3-03" },
+  {
+    key: "PAR-38",
+    name: "Ukuran foto setelah kompresi di perangkat",
+    value: { max_kb: 150 },
+    unit: "KB per foto",
+    reference: "US-M3-03, NFR-17",
+    description: "Bawaan 150 KB dengan sisi panjang foto 1.280 px (D-14 butir 2; batas PRD ≤ 300 KB). Aplikasi lapangan & formulir kas membaca nilai ini dari server.",
+  },
   { key: "PAR-39", name: "Transfer tanpa mutasi → \"Tidak ditemukan\"", value: { days_gt: 2 }, unit: "hari", reference: "US-M4-04" },
   { key: "PAR-40", name: "Ringkasan umur piutang mingguan ke pemilik", value: { iso_weekday: 1, time: "07:00" }, unit: "Senin pagi", reference: "US-M5-04" },
   {
@@ -305,3 +312,18 @@ export const DEFAULT_FEATURE_FLAGS: { key: string; enabled: boolean; description
 ];
 
 export const PARAMETER_EFFECTIVE_FROM = SEED_EFFECTIVE_FROM;
+
+/**
+ * Bawaan Lampiran B yang BERUBAH setelah rilis (hanya tambah). DB yang sudah di-seed versi sebelumnya dimutakhirkan
+ * `upgradeChangedDefaults` (dipanggil `seedBaseSettings`, jadi juga `pnpm db:seed:prod`): bila nilai global yang berlaku
+ * masih baris seed dengan nilai lama (`previous`) — artinya pemilik belum pernah mengubahnya — ditambahkan versi baru
+ * berlaku hari itu (riwayat tidak diubah, tidak berlaku surut). Nilai yang sudah ditetapkan pemilik tidak disentuh.
+ */
+export const CHANGED_DEFAULTS: readonly { key: string; previous: Record<string, unknown>; release: string; reason: string }[] = [
+  {
+    key: "PAR-38",
+    previous: { max_kb: 300 },
+    release: "v1.0.1",
+    reason: "Bawaan baru v1.0.1: PAR-38 150 KB, sisi panjang foto 1.280 px (D-14 butir 2, kuota sopir NFR-17).",
+  },
+];

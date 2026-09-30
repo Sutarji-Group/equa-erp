@@ -4,11 +4,12 @@
  * Tabel:
  * - `outbox`       — perintah menunggu kirim, PER `userId` (pergantian pengguna tidak menghapus antrean pengguna lain).
  * - `attachments`  — lampiran (Blob foto/tanda tangan) yang diunggah sebelum perintahnya dikirim.
- * - `refs`         — data referensi offline per `[userId+key]` (hasil pull penyedia server).
+ * - `refs`         — data referensi offline per `[userId+key]` (hasil pull penyedia server) + kursor sidik-isi per
+ *                    penyedia (`cursor`, pull bersyarat v1.0.1).
  * - `credentials`  — per pengguna: verifier PIN offline (PBKDF2, bukan PIN), sesi lapangan, hitungan salah/kunci.
  * - `device`       — satu baris `key = "device"`: ID perangkat + kunci HMAC non-extractable (WebCrypto) atau, bila
  *                    peramban tidak dapat menyimpan CryptoKey, secret mentah (ditandai `secretRaw`).
- * - `meta`         — pengguna aktif, status kunci layar, status sinkron, kursor pull, urutan nomor perangkat
+ * - `meta`         — pengguna aktif, status kunci layar, status sinkron, urutan nomor perangkat
  *                    (`deviceSeq:<scope>`), kunci perintah pengguna aktif (`commandKey`), dll.
  * - `moduleStore`  — (v2) penyimpanan lokal GENERIK untuk modul (keranjang POS, shift, stok, status rit optimistis…):
  *                    `[module+key]`. Modul TIDAK menambah tabel/versi Dexie sendiri — hanya core yang menaikkan versi
@@ -85,7 +86,17 @@ export type AttachmentItem = {
   message?: string | null;
 };
 
-export type RefItem = { userId: string; key: string; data: unknown; updatedAt: number };
+export type RefItem = {
+  userId: string;
+  key: string;
+  data: unknown;
+  updatedAt: number;
+  /**
+   * Kursor sidik-isi pull bersyarat (D-14 butir 3) untuk `data` ini — disimpan bersama datanya (satu transaksi) agar
+   * delta server selalu diterapkan ke data yang sama dengan yang dijelaskan kursor. Tidak diindeks (tanpa versi Dexie).
+   */
+  cursor?: string | null;
+};
 
 export type CredentialItem = {
   userId: string;

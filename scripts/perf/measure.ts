@@ -30,14 +30,16 @@ import ws from "ws";
 
 import { setDbForTests, type Db } from "@/db/client";
 import * as schema from "@/db/schema";
-import { accounts, posSales, shifts } from "@/db/schema";
+import { accounts, posSales, shifts, trips } from "@/db/schema";
 import { EQUA_TENANT_ID, outletId, truckId } from "@/db/seed/org";
 import { productId } from "@/db/seed/catalog";
 import { newId } from "@/lib/ids";
 import { addDays, monthOf, toBusinessDate } from "@/lib/time";
 import { queryForActor } from "@/server/core/audit";
 import { ensureBootstrapped } from "@/server/core/bootstrap";
+import type { PullResponse } from "@/server/core/sync";
 import * as m2 from "@/server/modules/m2-orders";
+import * as m3 from "@/server/modules/m3-driver";
 import * as m4 from "@/server/modules/m4-cash";
 import * as m5 from "@/server/modules/m5-receivables";
 import * as m9 from "@/server/modules/m9-reports";
@@ -165,7 +167,7 @@ async function main(): Promise<void> {
   // POS-D06: shift terbuka ukuran wajar (±70 transaksi). POS-D05 menerima push uji sehingga shift-nya terus membesar
   // (+50 transaksi per putaran push) — pull D05 memperlihatkan pertumbuhan muatan per transaksi shift (lihat uji-beban.md).
   let pos6: FieldDevice | null = null;
-  let pos6Session: { sessionId: string } | null = null;
+  let pos6Session: { sessionId: string; user: { id: string } } | null = null;
   const field = async () => {
     if (hp && pos && driverSession && posSession && pos6 && pos6Session) return;
     hp = await fieldDevice("HP-T3", { admin: seededContext("admin1", { now }) });
@@ -173,10 +175,30 @@ async function main(): Promise<void> {
     pos = await fieldDevice("POS-D05", { admin: seededContext("admin1", { now }) });
     posSession = (await pos.login("depot05", { now })) as unknown as { sessionId: string; user: { id: string } };
     pos6 = await fieldDevice("POS-D06", { admin: seededContext("admin1", { now }) });
-    pos6Session = await pos6.login("depot06", { now });
+    pos6Session = (await pos6.login("depot06", { now })) as unknown as { sessionId: string; user: { id: string } };
   };
 
   type Def = { key: string; label: string; kind: CaseResult["kind"]; targetMs: number; run: () => Promise<unknown>; setup?: () => Promise<void> };
+  // Pull bersyarat v2: kursor per perangkat (diperbarui dari respons, seperti klien).
+  const v2: { sopir: Record<string, string>; pos6: Record<string, string>; pos5: Record<string, string> } = { sopir: {}, pos6: {}, pos5: {} };
+  const cursorsOf = (res: PullResponse, prev: Record<string, string>): Record<string, string> => ({ ...prev, ...(res.cursors ?? {}) });
+  let correctionRound = 0;
+  /** Push `n` transaksi tunai ke shift terbuka outlet (nomor lokal lanjut dari urutan perangkat). */
+  const pushSales = async (fd: FieldDevice, session: { sessionId: string; user: { id: string } }, code: string, n: number) => {
+    const [open] = await db.select().from(shifts).where(and(eq(shifts.outletId, outletId(code)), eq(shifts.status, "open"))).limit(1);
+    if (!open) throw new Error(`Shift ${code} hari jangkar tidak terbuka — bangkitkan ulang data.`);
+    const [last] = await db.select({ seq: posSales.deviceSeq }).from(posSales).where(eq(posSales.deviceId, open.deviceId!)).orderBy(desc(posSales.deviceSeq)).limit(1);
+    let seq = last?.seq ?? 0;
+    const yymmdd = today.slice(2).replace(/-/g, "");
+    const commands = Array.from({ length: n }, (_, i) => {
+      seq++;
+      const deviceTime = new Date(now.getTime() - (n - i) * 1_000);
+      return fd.command(session, "m6.pos_sale.create", { saleId: newId(), shiftId: open.id, localNumber: `${code}-${yymmdd}-POS-${code}-${String(seq).padStart(4, "0")}`, deviceSeq: seq, lines: [{ productId: productId("ISI-ULANG"), quantity: 1, unitPrice: 5_000 }], paymentMethod: "cash", cashReceived: 5_000 }, { deviceTime, businessDate: toBusinessDate(deviceTime) });
+    });
+    const res = await fd.push(commands, { now });
+    const bad = res.results.filter((r) => r.status !== "applied");
+    if (bad.length) throw new Error(`Push ${code}: ${bad.length} perintah tidak diterapkan — ${JSON.stringify(bad[0])}`);
+  };
   let pushRound = 0;
   let kasLastOffset = 0;
   const ledgerPage = (accountId: string, offset: number) => m11.getLedger(accountant, { accountId, fromPeriod: month, offset, limit: m11.LEDGER_PAGE_SIZE });
@@ -252,6 +274,84 @@ async function main(): Promise<void> {
       targetMs: 2_000,
       setup: field,
       run: () => pos6!.pull(pos6Session!, { since: now.toISOString() }, { now }),
+    },
+    // --- Pull bersyarat v1.0.1 (D-14 butir 3, B-89): kursor sidik-isi per penyedia (`?v=2&c.<kunci>=…`) -------------
+    {
+      key: "sync.pull_sopir_v2_sama",
+      label: "Pull sopir v2 — kursor terbaru, tanpa perubahan (semua penyedia 'tidak berubah')",
+      kind: "pull",
+      targetMs: 2_000,
+      setup: async () => {
+        await field();
+        v2.sopir = cursorsOf(await hp!.pull(driverSession!, { cursors: {} }, { now }), {});
+      },
+      run: () => hp!.pull(driverSession!, { cursors: v2.sopir }, { now }),
+    },
+    {
+      key: "sync.pull_sopir_v2_koreksi",
+      label: "Pull sopir v2 setelah koreksi kantor 1 rit Selesai (koreksi harga + pull delta)",
+      kind: "pull",
+      targetMs: 2_000,
+      setup: async () => {
+        await field();
+        v2.sopir = cursorsOf(await hp!.pull(driverSession!, { cursors: {} }, { now }), {});
+      },
+      run: async () => {
+        const [trip] = await db
+          .select({ id: trips.id, price: trips.price })
+          .from(trips)
+          .where(and(eq(trips.truckId, t3), eq(trips.scheduledDate, today), eq(trips.status, "completed"), eq(trips.isInternal, false)))
+          .limit(1);
+        if (!trip) throw new Error("Tidak ada rit Selesai T3 pada hari jangkar.");
+        correctionRound++;
+        await m3.correctTrip(finance, { tripId: trip.id, price: trip.price + (correctionRound % 2 ? 1_000 : -1_000), reason: `Uji beban v1.0.1 — koreksi harga ke-${correctionRound}` });
+        const res = await hp!.pull(driverSession!, { cursors: v2.sopir }, { now });
+        v2.sopir = cursorsOf(res, v2.sopir);
+        return res;
+      },
+    },
+    {
+      key: "sync.pull_pos_d06_v2_sama",
+      label: "Pull POS-D06 v2 — kursor terbaru, tanpa perubahan",
+      kind: "pull",
+      targetMs: 2_000,
+      setup: async () => {
+        await field();
+        v2.pos6 = cursorsOf(await pos6!.pull(pos6Session!, { cursors: {} }, { now }), {});
+      },
+      run: () => pos6!.pull(pos6Session!, { cursors: v2.pos6 }, { now }),
+    },
+    {
+      key: "sync.pull_pos_d06_v2_1trx",
+      label: "Pull POS-D06 v2 setelah 1 transaksi baru (push 1 + pull delta)",
+      kind: "pull",
+      targetMs: 2_000,
+      setup: async () => {
+        await field();
+        v2.pos6 = cursorsOf(await pos6!.pull(pos6Session!, { cursors: {} }, { now }), {});
+      },
+      run: async () => {
+        await pushSales(pos6!, pos6Session!, "D06", 1);
+        const res = await pos6!.pull(pos6Session!, { cursors: v2.pos6 }, { now });
+        v2.pos6 = cursorsOf(res, v2.pos6);
+        return res;
+      },
+    },
+    {
+      key: "sync.pull_pos_d05_v2_1trx",
+      label: "Pull POS-D05 v2 (shift besar) setelah 1 transaksi baru (push 1 + pull delta)",
+      kind: "pull",
+      targetMs: 2_000,
+      setup: async () => {
+        await field();
+        v2.pos5 = cursorsOf(await pos!.pull(posSession!, { cursors: {} }, { now }), {});
+      },
+      run: async () => {
+        await pushSales(pos!, posSession!, "D05", 1);
+        const res = await pos!.pull(posSession!, { cursors: v2.pos5 }, { now });
+        v2.pos5 = cursorsOf(res, v2.pos5);
+        return res;
+      },
     },
     {
       key: "sync.push_50",

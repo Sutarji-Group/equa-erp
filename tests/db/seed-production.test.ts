@@ -8,8 +8,12 @@ import { and, eq, sql } from "drizzle-orm";
 import { generate } from "otplib";
 import { describe, expect, it } from "vitest";
 
-import { eventAccountMappings, featureFlags, userRoles, users, userScopes } from "@/db/schema";
-import { DEFAULT_FEATURE_FLAGS, EQUA_TENANT_ID, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS } from "@/db/seed";
+import { eventAccountMappings, featureFlags, parameters, userRoles, users, userScopes } from "@/db/schema";
+import { CHANGED_DEFAULTS, DEFAULT_FEATURE_FLAGS, EQUA_TENANT_ID, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS, seedId, upgradeChangedDefaults } from "@/db/seed";
+import { PARAMETER_EFFECTIVE_FROM } from "@/db/seed/parameters";
+import { addDays, toBusinessDate } from "@/lib/time";
+import * as params from "@/server/core/params";
+import { paramMeta } from "@/server/core/params";
 import {
   hasDemoData,
   type InitialAccountInput,
@@ -139,6 +143,46 @@ describe("seed produksi db:seed:prod (tanpa data demo)", () => {
     expect(() => validateInitialAccounts([{ ...ACCOUNTS[0]!, username: "Pak Haji!" }])).toThrow(/tidak sah/);
     expect(() => validateInitialAccounts([ACCOUNTS[0]!, { ...ACCOUNTS[1]!, username: "PAK.HAJI" }])).toThrow(/PTB-31/);
     expect(() => validateInitialAccounts([{ ...ACCOUNTS[0]!, role: "finance_admin" as never }])).toThrow(/Akses > Pengguna/);
+  });
+
+  it("B-88 D-14 butir 2 bawaan PAR-38 = 150 KB; DB yang di-seed v1.0.0 (300 KB, belum diubah pemilik) dimutakhirkan db:seed:prod mulai hari itu tanpa mengubah riwayat; nilai pemilik tidak disentuh", async () => {
+    expect(CHANGED_DEFAULTS.find((c) => c.key === "PAR-38")).toMatchObject({ previous: { max_kb: 300 } });
+    expect(LAMPIRAN_B_PARAMETERS.find((p) => p.key === "PAR-38")!.value).toEqual({ max_kb: 150 });
+    expect(paramMeta("PAR-38").defaultValue).toEqual({ max_kb: 150 });
+    const today = toBusinessDate(NOW);
+    const seedRow = seedId(`parameter:PAR-38:global:${PARAMETER_EFFECTIVE_FROM}`);
+
+    const old = await createTestDb();
+    try {
+      await runProductionSeed(old.db, { now: NOW });
+      expect(await params.get(old.db, "PAR-38", today)).toEqual({ max_kb: 150 });
+      // Tiru DB hasil seed v1.0.0: baris seed PAR-38 masih 300 KB.
+      await old.db.update(parameters).set({ value: { max_kb: 300 } }).where(eq(parameters.id, seedRow));
+      const again = await runProductionSeed(old.db, { now: NOW });
+      expect(again.parameters).toBe(0);
+      expect(await params.get(old.db, "PAR-38", today)).toEqual({ max_kb: 150 });
+      expect(await params.get(old.db, "PAR-38", addDays(today, -1))).toEqual({ max_kb: 300 }); // tidak berlaku surut
+      const rows = await old.db.select().from(parameters).where(eq(parameters.key, "PAR-38"));
+      expect(rows).toHaveLength(2);
+      expect(rows.find((r) => r.effectiveFrom === today)!.reason).toContain("D-14 butir 2");
+      // Idempoten: dijalankan lagi (hari berikutnya pun) tidak menambah versi.
+      expect(await upgradeChangedDefaults(old.db, addDays(today, 3))).toEqual([]);
+      expect(await old.db.select().from(parameters).where(eq(parameters.key, "PAR-38"))).toHaveLength(2);
+    } finally {
+      await old.close();
+    }
+
+    const owned = await createTestDb();
+    try {
+      await runProductionSeed(owned.db, { now: NOW });
+      await owned.db.update(parameters).set({ value: { max_kb: 300 } }).where(eq(parameters.id, seedRow));
+      // Pemilik sudah menetapkan nilainya sendiri (200 KB) → tidak disentuh.
+      await owned.db.insert(parameters).values({ key: "PAR-38", name: "Ukuran foto", value: { max_kb: 200 }, effectiveFrom: addDays(today, -10), reason: "Ditetapkan pemilik" });
+      expect(await upgradeChangedDefaults(owned.db, today)).toEqual([]);
+      expect(await params.get(owned.db, "PAR-38", today)).toEqual({ max_kb: 200 });
+    } finally {
+      await owned.close();
+    }
   });
 
   it("NFR-34 menolak basis data berisi data demo (pnpm db:seed)", async () => {

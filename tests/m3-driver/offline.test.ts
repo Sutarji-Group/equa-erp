@@ -180,8 +180,14 @@ describe("M3 — bekerja tanpa sinyal, sinkron & dicatat kantor (US-M3-09), keam
     expect(first.data["m3.today"]).toBeTruthy();
     const second = await w.hp.pull(w.sopir, { keys: "m3.today", since: first.cursor });
     expect(second.data["m3.today"]).toBeUndefined();
+    // Pull bersyarat v1.0.1 (D-14 butir 3): klien v2 dengan kursor sidik-isi → "tidak berubah" tanpa isi.
+    const v2 = await w.hp.pull(w.sopir, { keys: "m3.today", cursors: {} });
+    const v2again = await w.hp.pull(w.sopir, { keys: "m3.today", cursors: { "m3.today": v2.cursors!["m3.today"]! } });
+    expect(v2again.data["m3.today"]).toBeUndefined();
+    expect(v2again.unchanged).toEqual(["m3.today"]);
     const today = await w.today();
-    expect(today.settings.maxPhotoKb).toBe(300);
+    // PAR-38 bawaan 150 KB (D-14 butir 2) — aplikasi sopir membaca nilai parameter, bukan konstanta.
+    expect(today.settings.maxPhotoKb).toBe(150);
     expect(today.gpsTracking.enabled).toBe(false);
   });
 

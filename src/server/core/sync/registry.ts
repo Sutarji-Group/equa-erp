@@ -44,6 +44,7 @@ import type { Tx } from "../db";
 import type { FieldLabels } from "../errors";
 import type { AuthorizeConditions } from "../rbac/authorize";
 import type { DeviceRow } from "../auth/devices";
+import type { PullCollections } from "./conditional";
 
 /** Perintah outbox dari klien (sudah divalidasi bentuknya). */
 export type SyncCommandInput = {
@@ -161,7 +162,10 @@ export type PullContext = {
   /** Pelaku lapangan (lingkup truk harian untuk sopir/kernet sudah diterapkan). */
   ctx: ActorContext;
   device: DeviceRow;
-  /** Kursor pull sebelumnya (null = unduh penuh). */
+  /**
+   * Kursor waktu pull sebelumnya dari klien protokol v1 (null = unduh penuh). Klien pull bersyarat (v2, D-14 butir 3)
+   * SELALU menerima `null` — server menghitung data penuh lalu membandingkan sidik isinya dengan kursor klien.
+   */
   since: Date | null;
   now: Date;
   tx: Tx;
@@ -171,6 +175,14 @@ export type PullProviderDef = {
   /** Hanya untuk pelaku dengan salah satu peran ini (kosong = semua pengguna lapangan). */
   roles?: readonly RoleCode[];
   fetch: (pc: PullContext) => Promise<unknown> | unknown;
+  /**
+   * Tambahan v1.0.1 (D-14 butir 3, pull bersyarat): koleksi yang dikirim sebagai DELTA bila berubah — jalur bertitik ke
+   * larik/objek dalam hasil `fetch` → ukuran ember sasaran (1 = per butir, cocok untuk daftar kecil yang butirnya
+   * berubah, mis. rit; 8–16 untuk daftar yang tumbuh, mis. penjualan shift). Jalur tidak boleh bertumpuk (mis.
+   * `"openShift"` dan `"openShift.sales"` sekaligus). Tanpa ini penyedia tetap mendapat "tidak berubah" (tanpa isi)
+   * bila datanya sama, dan dikirim penuh bila berubah. Kunci tingkat atas `generatedAt` tidak ikut sidik.
+   */
+  collections?: PullCollections;
 };
 
 const providers = new Map<string, PullProviderDef>();
@@ -178,7 +190,9 @@ const providers = new Map<string, PullProviderDef>();
 /**
  * Daftarkan penyedia data referensi offline (rit hari ini, harga, katalog, resep, stok, template struk…). Hasil
  * disajikan di `GET /api/sync/pull` sebagai `data[key]` dan disimpan klien per pengguna (`useReference(key)`).
- * Kembalikan `undefined` bila tidak ada perubahan sejak `since`.
+ * Klien v1: boleh mengembalikan `undefined` bila tidak ada perubahan sejak `since`. Klien v2 (pull bersyarat): inti
+ * menentukan sendiri "tidak berubah"/delta dari sidik isi — penyedia cukup mengembalikan data penuh dan, bila datanya
+ * tumbuh sepanjang hari, mendeklarasikan `collections`.
  */
 export function registerPullProvider(key: string, fn: PullProviderDef["fetch"] | PullProviderDef): () => void {
   if (!/^[a-z0-9_]+(\.[a-z0-9_]+)+$/.test(key)) throw new Error(`Kunci pull tidak valid: "${key}" (pakai <modul>.<nama>).`);

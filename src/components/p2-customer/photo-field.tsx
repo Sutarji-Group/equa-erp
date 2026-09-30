@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Isian foto keluhan: foto dikompres di perangkat (≤ 300 KB, PAR-38) sebelum dikirim lewat Server Action, lalu
+ * Isian foto keluhan: foto dikompres di perangkat (≤ bawaan PAR-38 150 KB, sisi 1.280 px) sebelum dikirim lewat Server Action, lalu
  * dipasang ke input berkas bernama `name` (DataTransfer). Gagal kompres → berkas asli dipakai.
  */
 import { useRef, useState } from "react";

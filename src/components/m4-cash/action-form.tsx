@@ -9,11 +9,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { CashActionState } from "./action-state";
+import { useCashPhotoMaxBytes } from "./photo-limit";
 import { prepareCashFormData } from "./prepare-form-data";
 
 /**
  * Formulir Server Action layar kas (/kas/*): galat layanan berbahasa Indonesia tampil apa adanya; toast saat berhasil.
- * Foto dikompresi di perangkat sebelum dikirim (≤ 300 KB, PAR-38).
+ * Foto dikompresi di perangkat sebelum dikirim (≤ PAR-38 dari server, `CashPhotoLimitProvider` di layout /kas).
  */
 export function CashActionForm({
   action,
@@ -38,6 +39,7 @@ export function CashActionForm({
 }) {
   const [state, formAction, pending] = useFlashActionState(action, {} as CashActionState);
   const [preparing, startPreparing] = useTransition();
+  const photoMaxBytes = useCashPhotoMaxBytes();
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (state.ok) {
@@ -47,7 +49,7 @@ export function CashActionForm({
   const busy = pending || preparing;
   const submit = (fd: FormData) => {
     startPreparing(async () => {
-      const prepared = await prepareCashFormData(fd);
+      const prepared = await prepareCashFormData(fd, photoMaxBytes);
       startPreparing(() => formAction(prepared));
     });
   };

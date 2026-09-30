@@ -77,6 +77,20 @@ function tripResult(res: TripActionResult): SyncHandlerResult {
   return res.conflict ? { ...base, status: "conflict", message: res.conflict } : base;
 }
 
+/** Koleksi delta pull `m3.today` (jalur → ukuran ember sasaran). */
+export const DRIVER_TODAY_PULL_COLLECTIONS = {
+  trips: 1,
+  payments: 2,
+  collections: 2,
+  expenses: 2,
+  invoicesByCustomer: 1,
+  explanationTasks: 2,
+  notices: 2,
+  withdrawn: 2,
+  bankAccounts: 4,
+  receiptTemplates: 1,
+} as const;
+
 export function registerSync(): void {
   const labels = { tripId: "Rit", location: "Lokasi" };
 
@@ -237,6 +251,9 @@ export function registerSync(): void {
   registerPullProvider("m3.today", {
     roles: ["driver", "helper"],
     fetch: ({ ctx, tx, since, now }) => buildToday(tx, ctx, since, { now }),
+    // Pull bersyarat v1.0.1 (D-14 butir 3): rit berubah per butir (Berangkat/Tiba/Selesai), pembayaran/pelunasan/
+    // pengeluaran tumbuh sepanjang hari → hanya butir yang berubah dikirim ulang setelah push.
+    collections: DRIVER_TODAY_PULL_COLLECTIONS,
   });
   registerPullProvider("m3.deposits", {
     roles: ["driver", "helper"],

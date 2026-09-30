@@ -418,7 +418,7 @@ describe("Sinkron upload, pull, kesehatan", () => {
     expect(Array.isArray(res.data["core.device_users"])).toBe(true);
     expect(res.data["test.office_only"]).toBeUndefined();
     expect(res.errors["test.broken"]).toBe("Penyedia uji gagal.");
-    expect(res.params).toMatchObject({ pinLock: { maxAttempts: 5, lockMinutes: 15 }, screenLockMinutes: 10, photoMaxKb: 300, clockSkewMinutes: 10 });
+    expect(res.params).toMatchObject({ pinLock: { maxAttempts: 5, lockMinutes: 15 }, screenLockMinutes: 10, photoMaxKb: 150, clockSkewMinutes: 10 }); // PAR-38 bawaan v1.0.1 (D-14 butir 2)
     expect(res.minVersion).toBe("0.1.0");
     expect(res.device.home).toBe("/sopir");
     // Batas bawah urutan nomor lokal perangkat (US-M6-06 KP-2).

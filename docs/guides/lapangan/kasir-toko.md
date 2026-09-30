@@ -27,6 +27,7 @@ alasan → **Tutup shift** → **Riwayat → Setoran shift terakhir → Tandai s
 sebelum shift toko ditutup.
 
 **Status data.** *Tersimpan di ponsel: N* = belum terkirim — lanjut kerja; jangan hapus data peramban sebelum
-**Semua terkirim**. **Kendala aplikasi:** menu **Bantuan**.
+**Semua terkirim**. **Data dari kantor** (harga, persetujuan, pesanan mitra) masuk sendiri: segera setelah data Anda terkirim, saat aplikasi dibuka lagi, dan tiap
+±5 menit selama aplikasi terbuka. Perlu segera → ketuk pil status (**kirim sekarang**). **Kendala aplikasi:** menu **Bantuan**.
 
 Rincian lengkap: [`m7-store.md`](../m7-store.md).

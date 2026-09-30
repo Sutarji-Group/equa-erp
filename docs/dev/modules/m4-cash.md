@@ -138,8 +138,9 @@ saldo ganti rugi. Komponen siap pasang: `<MyCashCard userId={…} />` (`src/comp
 | `/kas/tutup` | `m4.cash_day.read` | `penghalang-tutup-kas`, `form-tutup-kas` (`isian-tutup-kas[data-system-amount]`), `riwayat-hari-kas` |
 | `/kas/ganti-rugi` | `m4.restitution.read` | `form-ganti-rugi-aktif` (pemilik), `saldo-ganti-rugi`, `daftar-ganti-rugi`, `rekap-ganti-rugi` |
 
-Server Actions (`kas/actions.ts`) memanggil layanan dan me-revalidate semua rute `/kas`. Foto > 300 KB dikompres di
-klien sebelum dikirim (batas body Server Action 1 MB, B-18).
+Server Actions (`kas/actions.ts`) memanggil layanan dan me-revalidate semua rute `/kas`. Foto > PAR-38 dikompres di
+klien sebelum dikirim (batas body Server Action, B-18); nilai PAR-38 dibaca server di `src/app/(office)/kas/layout.tsx`
+dan diteruskan lewat `CashPhotoLimitProvider` (v1.0.1, D-14 butir 2 — bukan konstanta).
 
 ## 7. Aturan & keputusan desain
 

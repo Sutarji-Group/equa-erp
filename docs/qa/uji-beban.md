@@ -11,7 +11,7 @@ Ringkasnya:
 | NFR-05: 3× volume (20 truk, 30 depot + 50 outlet mitra, 1.000 pelanggan, ±5.000 transaksi/hari) tanpa perubahan arsitektur | 60 hari data sintetis (±4.870 transaksi/hari, 1,5 GB) lolos semua penjaga DB & invarian; semua layanan kunci berjalan tanpa perubahan arsitektur | **Lulus**, dengan 1 batas kapasitas yang perlu keputusan (nomor jurnal, §7) — diselesaikan v1.0.1 (D-14, §10) |
 | NFR-03: web ≤ 2 detik | Sebelum: laporan keuangan 3,0 dtk (gagal), 2 layar lain 0,9 dtk karena pindai penuh. Sesudah: semua 25 kasus lulus di PGlite; terlama 0,94 dtk (laporan bulanan) | **Lulus** di PGlite; perkiraan di Neon lulus kecuali dashboard rentang bulan bila latensi per kueri ≥ 2 ms (§6) |
 | Pull sinkron ≤ 2 detik | Pull sopir 0,16 dtk (58 KB, gzip 8 KB); pull POS 0,12 dtk; delta sopir 0,06 dtk (0,7 KB gzip) | **Lulus** |
-| NFR-17: unduhan kecil, kuota ≤ 50 MB/bulan/sopir | Precache PWA dipangkas 1,45 MB → 0,55 MB gzip. Perkiraan kuota bulanan dengan setelan sekarang ±80 MB, didominasi foto bukti (PAR-38 300 KB) dan pull 60 detik | **Belum memenuhi** tanpa keputusan PAR-38 & jeda sinkron (§5); diukur ulang pada pilot |
+| NFR-17: unduhan kecil, kuota ≤ 50 MB/bulan/sopir | Precache PWA dipangkas 1,45 MB → 0,55 MB gzip. v1.0: ±81 MB/bulan (foto bukti PAR-38 300 KB, pull 60 detik). **v1.0.1** (D-14): PAR-38 150 KB/1.280 px, pull latar 5 menit, pull bersyarat → **±40 MB** sopir, tablet POS ±140 → ±13 MB (§10) | **Memenuhi (perkiraan)** sejak v1.0.1; diukur nyata pada pilot |
 
 ## 1. Lingkup & lingkungan
 
@@ -205,6 +205,9 @@ Ukuran muatan dari pengukuran §4.
 | GPS ponsel (cadangan) | 0 bila GPS truk hidup; terburuk ±4 MB bila mati sebulan | 0 | 0 |
 | **Total** | | **±81 MB** | **±38 MB** |
 
+> **Pembaruan v1.0.1:** keputusan D-14 butir 2–3 sudah diterapkan (PAR-38 150 KB/1.280 px, pull latar 5 menit, pull
+> bersyarat) — perkiraan baru ±40 MB/bulan per sopir dan ±13 MB per tablet POS; rincian & pengukuran di §10.
+
 Kesimpulan NFR-17: dengan PAR-38 = 300 KB dan pull setiap 60 dtk, kuota sopir **melebihi 50 MB/bulan**; foto bukti
 adalah penyumbang terbesar (±55 %). Agar ≤ 50 MB perlu dua keputusan (bukan perubahan kode semata): (1) PAR-38 ≤ 150 KB
 dan dimensi foto 1.280 px (`src/client/media/compress-image.ts`, bawaan 1.600 px/0,82), (2) jeda pull lapangan
@@ -218,7 +221,8 @@ transaksi shift terbuka beserta barisnya. Shift ±70 transaksi: 44 KB (gzip 5,7 
 tablet POS bila buka 14 jam/hari; muatan tumbuh ±0,35 KB mentah per transaksi shift (D05 dengan ±880 transaksi: 349 KB).
 Tidak memengaruhi NFR-17 (khusus sopir) tetapi penting bila tablet POS memakai kuota seluler. Usulan: respons
 bersyarat per kunci referensi (klien mengirim sidik jari data yang dimiliki, server mengembalikan `data[key]` hanya bila
-berubah) — perubahan protokol sinkron inti, masuk backlog.
+berubah) — perubahan protokol sinkron inti, masuk backlog. **Selesai di v1.0.1 (B-89, §10):** tanpa perubahan 0,8 KB
+(gzip 0,5 KB), setelah satu transaksi 1,6 KB (gzip 1,0 KB) — tidak lagi tumbuh dengan jumlah transaksi shift.
 
 ## 6. Perkiraan di Neon (latensi per kueri)
 
@@ -283,6 +287,7 @@ satu region + koneksi pooled, dan perbaikan §4.6 dikerjakan sebelum pilot bila 
 - **Pull ≤ 2 dtk — lulus** (0,06–0,24 dtk). Push 50 perintah 3,5 dtk (latar).
 - **NFR-17 — sebagian.** Unduhan aplikasi dipangkas ±62 % (0,55 MB gzip). Kuota bulanan sopir diperkirakan ±81 MB
   dengan setelan sekarang; ±38 MB dengan PAR-38 150 KB + jeda pull 5 menit. Wajib diukur di pilot.
+  **v1.0.1:** diterapkan + pull bersyarat → ±40 MB/bulan per sopir (≤ 50 MB NFR-17; target D-14 ≤ 40 MB) — §10.
 
 ## 9. Cara mengulang
 
@@ -302,7 +307,10 @@ Opsi pembangkit: `--tanggal YYYY-MM-DD`, `--jam HH:mm`, `--hari N`, `--benih N`.
 `--ulang N`, `--kasus a,b`, `--profil`, `--keluaran DIR`. Push menulis ke DB uji — bangkitkan ulang untuk angka yang
 dapat dibandingkan persis.
 
-## 10. v1.0.1 — nomor jurnal 6 digit & kueri berulang H+0 (tim X, D-14 butir 1 & 4)
+## 10. v1.0.1 — perbaikan hasil uji beban (D-14)
+
+Rilis perbaikan v1.0.1 mengerjakan D-14 butir 1–4: nomor jurnal 6 digit (§10.1), kueri berulang H+0 rentang
+(§10.2), kuota data lapangan & pull bersyarat (§10.3–§10.6).
 
 ### 10.1 Nomor jurnal `J-YYMM-NNNNNN` (B-87, D-14 butir 1)
 
@@ -365,3 +373,72 @@ dipakai bersama agen lain (waktu berderau ±20–30 %). Sebelum = v1.0.1 tanpa b
   lingkup v1.0.1); pengukuran Neon & render halaman produksi tetap UAT staging (B-90).
 - Mengulang: `PERF_PGLITE_DATA_DIR=./.data/pglite-perf-v101x pnpm perf:measure --label … --kasus … --keluaran DIR`,
   lalu bandingkan berkas `DIR/*.json`. Hapus `.data/pglite-perf*` sesudahnya (±0,9 GB per 14 hari).
+
+### 10.3 Kuota data lapangan & pull bersyarat (B-88, B-89; D-14 butir 2–3)
+
+Perubahan (rincian teknis: `docs/dev/sprint0-notes.md` bagian "v1.0.1 tim Y"):
+
+1. **PAR-38 bawaan 150 KB**, sisi panjang foto **1.280 px**, kualitas JPEG awal 0,7 (`src/client/media/compress-image.ts`).
+   Aplikasi lapangan membaca PAR-38 dari parameter hasil pull (`fieldPhotoMaxBytes`, `PhotoCapture`) atau aturan modul
+   dari data referensi (M3/M8 `maxPhotoKb`); formulir kas kantor menerima PAR-38 dari server (layout `/kas`). DB yang
+   sudah di-seed v1.0.0 dimutakhirkan `pnpm db:seed:prod` (versi baru berlaku hari itu bila nilai masih bawaan 300 KB).
+2. **Penjadwal sinkron adaptif** (`src/client/offline/scheduler.ts`): antrean kosong → pull latar tiap 5 menit (≤ PAR-30)
+   hanya selama aplikasi terlihat; ada antrean → push tiap 60 dtk; perubahan antrean → push segera lalu pull bila ada yang
+   terkirim; login PIN/ganti pengguna & kembali online → segera; terlihat lagi → segera (pull bila pull terakhir > 60 dtk);
+   "Kirim sekarang" tetap manual.
+3. **Pull bersyarat v2** (`?v=2&c.<kunci>=<kursor>`, `src/lib/pull-delta.ts`): kursor = sidik ISI per penyedia (SHA-256,
+   bukan waktu) → penyedia tak berubah dijawab "tidak berubah" tanpa isi; koleksi yang tumbuh (penjualan shift POS &
+   toko, rit/pembayaran sopir, saldo bahan, stok air) dikirim sebagai delta per ember berbatas isi. Karena kursor adalah
+   sidik isi, koreksi kantor/void/pembalik atas data lama PASTI terkirim. Klien lama (`?since=`) tetap menerima v1.
+
+### 10.4 Pengukuran pull (DB uji beban kecil)
+
+`pnpm perf:generate -- --hari 7 --tanggal 2026-09-30` (3× volume, 7 hari, 1,4 menit; invarian OK) lalu
+`pnpm perf:measure -- --label v101-y --ulang 5 --kasus sync.pull_*` — protokol v1 & v2 diukur pada DB, perangkat, dan
+jam jangkar (13.30 WIB) yang SAMA. Muatan penuh lebih kecil daripada §4 karena data 7 hari (faktur terbuka lebih
+sedikit) dan shift jangkar belum menerima push uji (D06 ±40, D05 ±48 transaksi); bandingkan kolom per baris.
+
+| Kasus | v1 (sebelum) | v2 (sesudah) |
+| --- | --- | --- |
+| Pull sopir (HP-T3) penuh | 164 ms · 105 kueri · 21,7 KB (gzip 3,6) | pertama kali sama (penuh + kursor) |
+| Pull sopir tanpa perubahan | 21,7 KB (gzip 3,6) — `since` v1 tidak menahan `m3.today` di DB ini; di DB 60 hari §4: 1,5 KB (gzip 0,7) | **139 ms · 0,9 KB (gzip 0,5)** — semua penyedia "tidak berubah" |
+| Pull sopir setelah koreksi kantor 1 rit Selesai | penuh | **3,3 KB (gzip 1,4)** — hanya rit itu (`m3.today` + `m2.schedule`) |
+| Pull POS-D06 penuh | 100 ms · 30,3 KB (gzip 3,9) | pertama kali sama |
+| Pull POS-D06 tanpa perubahan | 28,2 KB (gzip 3,5) — penyedia POS mengabaikan `since` | **99 ms · 0,8 KB (gzip 0,5)** |
+| Pull POS setelah 1 transaksi baru (D06, D05) | 28–31 KB (gzip 3,5–4,0), +0,35 KB per transaksi shift (D05 ±880 trx: 349 KB, §5.3) | **1,6 KB (gzip 1,0)** di kedua outlet — 1 penjualan + stok air; tidak tumbuh dengan ukuran shift |
+
+Waktu: v2 selalu menghitung data penuh di server lalu membandingkan sidik (0,1–0,2 dtk; push 1 perintah + pull delta
+0,19–0,23 dtk) — jauh di bawah target pull 2 dtk. Permintaan membawa kursor ±0,25 KB (sopir, 10 penyedia). Uji:
+`tests/lib/pull-delta.test.ts` (acak 200 perubahan: hasil klien = data penuh), `tests/core/sync-conditional.test.ts`
+(klien lama, tanpa perubahan, delta, koreksi kantor, isolasi), `tests/client/conditional-pull.test.ts`,
+`tests/client/sync-scheduler.test.ts` (waktu palsu), `tests/ui/compress-image.test.ts` (ukuran target 1.280 px).
+
+### 10.5 Perkiraan kuota bulanan per sopir (26 hari kerja)
+
+Asumsi §5.2 (10 jam layar aktif/hari, 6,75 rit, 1 foto bukti + tanda tangan per rit, 1,5 nota/hari, header+TLS 0,5 KB
+per permintaan, 4 rilis/bulan) + ±40 putaran push/hari (±6 aksi per rit), ±20 kali aplikasi kembali terlihat, 2 pull
+penuh/hari (login PIN), foto rata-rata 120 KB (batas 150 KB). 1 MB = 1.000 KB seperti §5.2.
+
+| Komponen | Hitungan v1.0.1 | v1.0 | v1.0.1 |
+| --- | --- | --- | --- |
+| Pull latar tanpa perubahan | 120 × (0,5 + 0,25 kursor + 0,5) KB/hari | 18,7 MB (600 × 1,2 KB) | 3,9 MB |
+| Pull saat aplikasi terlihat lagi | 20 × 1,25 KB/hari | — | 0,7 MB |
+| Pull setelah push + pull penuh | 40 × (1,4 + 0,75) KB + 2 × 8,4 KB | 2,5 MB | 2,7 MB |
+| Push perintah | 6,75 rit × ±6 × 1,5 KB | 1,6 MB | 1,6 MB |
+| Foto bukti Selesai | 6,75 × 120 KB | 43,9 MB (250 KB) | 21,1 MB |
+| Tanda tangan | 6,75 × 15 KB | 2,6 MB | 2,6 MB |
+| Foto nota pengeluaran | 1,5 × 120 KB | 9,8 MB | 4,7 MB |
+| Pembaruan aplikasi (precache) | 4 × 0,55 MB | 2,2 MB | 2,2 MB |
+| GPS ponsel (cadangan) | 0 bila GPS truk hidup | 0 | 0 |
+| **Total** | | **±81 MB** | **±40 MB (39,5)** |
+
+Foto tetap ±65 % kuota: setiap +10 KB rata-rata foto ≈ +2,1 MB/bulan. Ruang tambahan bila pilot menunjukkan > 40 MB:
+PAR-38 120 KB (keputusan pemilik lewat Pengaturan › Parameter, tanpa rilis) atau menghemat amplop respons pull
+(status perangkat & parameter ±0,3 KB gzip per pull, ±1,2 MB/bulan) dengan kursor amplop — belum dibangun.
+
+### 10.6 Tablet POS (buka 14 jam, 30 hari)
+
+v1.0: 840 pull/hari × (5,7 + 0,5) KB ≈ 140 MB/bulan (D06 ±70 trx/hari), tumbuh bersama shift. v1.0.1: ±70 push/hari
+diikuti pull delta 70 × (1,0 + 0,75) KB + pull latar ≤ 168 × 1,25 KB ≈ 0,33 MB/hari → **±10 MB pull + ±3 MB push ≈
+±13 MB/bulan**; outlet sangat ramai (±880 trx/hari): pull ±46 MB/bulan (sebelumnya ±500 MB, karena setiap pull membawa
+seluruh shift). Pengukuran nyata: pilot/UAT.
