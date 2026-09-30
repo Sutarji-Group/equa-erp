@@ -3,10 +3,16 @@ import { randomUUID } from "node:crypto";
 
 import { createSerwistRoute } from "@serwist/turbopack";
 
+import { filterFieldPrecache } from "@/server/pwa/field-precache";
+
 /**
  * Service worker PWA lapangan lewat @serwist/turbopack (Next 16 + Turbopack; @serwist/next hanya untuk webpack):
  * `src/app/sw.ts` dibundel esbuild saat build lalu disajikan statis di `/serwist/sw.js` (scope `/`).
  * Halaman lapangan & /~offline ikut di-precache (revisi = commit build).
+ *
+ * NFR-17 (unduhan kecil): precache HANYA aset yang dibutuhkan halaman lapangan (chunk halaman + impor dinamisnya, CSS,
+ * font) — bukan seluruh `/_next/static/**` web kantor. Uji beban S5-C: 140 → ±30 berkas, 1,4 MB → ±0,5 MB gzip per
+ * pemasangan/rilis (docs/qa/uji-beban.md §5). Aset lain tetap dapat dimuat online (CacheFirst `next-static`).
  */
 const revision =
   process.env.VERCEL_GIT_COMMIT_SHA ??
@@ -16,6 +22,7 @@ const route = createSerwistRoute({
   swSrc: "src/app/sw.ts",
   useNativeEsbuild: true,
   additionalPrecacheEntries: ["/~offline", "/aktivasi-perangkat", "/sopir", "/pos", "/produksi"].map((url) => ({ url, revision })),
+  manifestTransforms: [(entries) => filterFieldPrecache(entries)],
 });
 
 export const dynamic = "force-static";

@@ -18,7 +18,11 @@
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:mask": "tsx scripts/db-mask.ts",
     "e2e:prepare": "tsx scripts/e2e-prepare.ts",
-    "trace": "tsx tools/trace-check.ts"
+    "trace": "tsx tools/trace-check.ts",
+    "perf:generate": "tsx --require ./scripts/perf/server-only-hook.cjs scripts/perf/generate.ts",
+    "perf:measure": "tsx --require ./scripts/perf/server-only-hook.cjs scripts/perf/measure.ts",
+    "perf:explain": "tsx --require ./scripts/perf/server-only-hook.cjs scripts/perf/explain.ts",
+    "perf:pwa": "tsx --require ./scripts/perf/server-only-hook.cjs scripts/perf/pwa-size.ts"
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {

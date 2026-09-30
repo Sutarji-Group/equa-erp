@@ -25,7 +25,7 @@ export { ingestGpsFixes, isValidFix, resolveGpsDevice } from "./service/ingest";
 export type { IngestItemResult, IngestResult } from "./service/ingest";
 
 // --- Peta real-time & putar ulang (US-M12-02) ------------------------------------------------------------------------
-export { getFleetSnapshot } from "./service/live";
+export { getFleetSnapshot, latestTruckPositions } from "./service/live";
 export type { FleetLayers, FleetSnapshot, LiveTrip, LiveTruck } from "./service/live";
 export { deriveLiveStatus, LIVE_STATUS_TONE } from "./domain/status";
 export type { FleetLiveStatus, LiveStatus, LiveStatusInput } from "./domain/status";

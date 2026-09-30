@@ -57,6 +57,95 @@ async function aggregate(tx: Tx, tenantId: string, range: { fromPeriod?: string 
   return rows.map((r) => ({ accountId: r.accountId, profitCenter: r.profitCenter, internalSource: Boolean(r.internalSource), debit: Number(r.debit), credit: Number(r.credit) }));
 }
 
+type AggRange = { fromPeriod?: string | null; toPeriod: string };
+
+/**
+ * Sumber agregat laporan: `range` = `aggregate` per rentang periode, `markupState` = `markupStateUpTo`. Bawaan: satu
+ * kueri per permintaan. `computeStatements` memakai `StatementAggregates` (segmen + memo) — paket laporan satu periode
+ * meminta 7 rentang agregat + 4 posisi markup yang tersusun dari <= 3 segmen & 2 posisi (uji beban NFR-05).
+ */
+export type AggSource = {
+  range(r: AggRange): Promise<AggRow[]>;
+  markupState(inventoryAccountId: string, toPeriod: string): Promise<Map<string, MarkupState>>;
+};
+
+function directAggregates(tx: Tx, tenantId: string): AggSource {
+  return { range: (r) => aggregate(tx, tenantId, r), markupState: (inv, to) => markupStateUpTo(tx, tenantId, inv, to) };
+}
+
+/** Gabungkan baris agregat beberapa segmen rentang (jumlah per akun x pusat laba x sumber internal). */
+function mergeAggRows(parts: AggRow[][]): AggRow[] {
+  if (parts.length === 1) return parts[0]!;
+  const out = new Map<string, AggRow>();
+  for (const rows of parts) {
+    for (const r of rows) {
+      const key = `${r.accountId}|${r.profitCenter}|${r.internalSource ? 1 : 0}`;
+      const cur = out.get(key);
+      if (cur) {
+        cur.debit += r.debit;
+        cur.credit += r.credit;
+      } else out.set(key, { ...r });
+    }
+  }
+  return [...out.values()];
+}
+
+/**
+ * Agregat bersegmen dengan memo untuk satu paket laporan. Titik potong = awal periode rentang yang diminta; rentang
+ * yang ujungnya jatuh tepat pada titik potong disusun dari segmen (masing-masing SATU kueri, dihitung sekali) — hasil
+ * identik dengan `aggregate` langsung karena jumlah per kunci bersifat aditif atas periode yang saling lepas. Rentang
+ * lain jatuh ke kueri langsung.
+ */
+export class StatementAggregates implements AggSource {
+  private readonly starts: string[];
+  private readonly end: string;
+  private readonly segments = new Map<string, Promise<AggRow[]>>();
+  private readonly markups = new Map<string, Promise<Map<string, MarkupState>>>();
+
+  constructor(
+    private readonly tx: Tx,
+    private readonly tenantId: string,
+    cuts: readonly string[],
+    upTo: string,
+  ) {
+    this.starts = [...new Set(cuts.filter((c) => c <= upTo))].sort();
+    this.end = shiftPeriod(upTo, 1);
+  }
+
+  range(r: AggRange): Promise<AggRow[]> {
+    const from = r.fromPeriod ?? null;
+    if (from && from > r.toPeriod) return Promise.resolve([]);
+    const next = shiftPeriod(r.toPeriod, 1);
+    const bounds: (string | null)[] = [null, ...this.starts, this.end];
+    const i0 = bounds.indexOf(from);
+    const i1 = bounds.indexOf(next);
+    if (i0 < 0 || i1 <= i0) return aggregate(this.tx, this.tenantId, r);
+    const parts: Promise<AggRow[]>[] = [];
+    for (let i = i0; i < i1; i++) parts.push(this.segment(bounds[i] ?? null, shiftPeriod(bounds[i + 1]!, -1)));
+    return Promise.all(parts).then(mergeAggRows);
+  }
+
+  markupState(inventoryAccountId: string, toPeriod: string): Promise<Map<string, MarkupState>> {
+    const key = `${inventoryAccountId}|${toPeriod}`;
+    let p = this.markups.get(key);
+    if (!p) {
+      p = markupStateUpTo(this.tx, this.tenantId, inventoryAccountId, toPeriod);
+      this.markups.set(key, p);
+    }
+    return p;
+  }
+
+  private segment(from: string | null, to: string): Promise<AggRow[]> {
+    const key = `${from ?? ""}..${to}`;
+    let p = this.segments.get(key);
+    if (!p) {
+      p = from && from > to ? Promise.resolve([]) : aggregate(this.tx, this.tenantId, { fromPeriod: from, toPeriod: to });
+      this.segments.set(key, p);
+    }
+    return p;
+  }
+}
+
 async function tenantAccounts(tx: Tx, tenantId: string): Promise<Map<string, AccountRow>> {
   const rows = await tx.select().from(accounts).where(eq(accounts.tenantId, tenantId)).orderBy(asc(accounts.code));
   return new Map(rows.map((a) => [a.id, a]));
@@ -102,12 +191,12 @@ export type TrialBalanceRow = {
   closingCredit: number;
 };
 
-export async function computeTrialBalance(tx: Tx, tenantId: string, period: string, basis: Basis) {
+export async function computeTrialBalance(tx: Tx, tenantId: string, period: string, basis: Basis, src: AggSource = directAggregates(tx, tenantId)) {
   const { fromPeriod, toPeriod } = rangeOf(period, basis);
   const byId = await tenantAccounts(tx, tenantId);
-  const before = await aggregate(tx, tenantId, { toPeriod: shiftPeriod(fromPeriod, -1) });
-  const beforeYear = await aggregate(tx, tenantId, { fromPeriod: yearStart(period), toPeriod: shiftPeriod(fromPeriod, -1) });
-  const movement = await aggregate(tx, tenantId, { fromPeriod, toPeriod });
+  const before = await src.range({ toPeriod: shiftPeriod(fromPeriod, -1) });
+  const beforeYear = await src.range({ fromPeriod: yearStart(period), toPeriod: shiftPeriod(fromPeriod, -1) });
+  const movement = await src.range({ fromPeriod, toPeriod });
   const acc = new Map<string, { od: number; oc: number; d: number; c: number }>();
   const add = (rows: AggRow[], key: "o" | "m", filter: (a: AccountRow) => boolean) => {
     for (const r of rows) {
@@ -257,21 +346,21 @@ function unrealizedOf(states: Map<string, MarkupState>): { markup: number; unrea
  * (PTB-37); pada KONSOLIDASI pendapatan internal & HPP toko sudah dieliminasi, dan markup yang ikut terpakai sebagai beban
  * bahan depot dieliminasi dari beban; markup yang masih di persediaan depot dieliminasi dari persediaan (neraca).
  */
-export async function computeInternalMarkup(tx: Tx, tenantId: string, fromPeriod: string, toPeriod: string): Promise<InternalMarkup> {
+export async function computeInternalMarkup(tx: Tx, tenantId: string, fromPeriod: string, toPeriod: string, src: AggSource = directAggregates(tx, tenantId)): Promise<InternalMarkup> {
   const map = await resolveMapping(tx, "internal_transfer.sent", "revenue", periodEnd(toPeriod), tenantId);
   const inventoryAccountId = map?.debitAccountId ?? null;
   if (!inventoryAccountId) return { inventoryAccountId: null, transferred: 0, unrealizedStart: 0, unrealizedEnd: 0, realized: 0 };
-  const end = unrealizedOf(await markupStateUpTo(tx, tenantId, inventoryAccountId, toPeriod));
-  const start = unrealizedOf(await markupStateUpTo(tx, tenantId, inventoryAccountId, shiftPeriod(fromPeriod, -1)));
+  const end = unrealizedOf(await src.markupState(inventoryAccountId, toPeriod));
+  const start = unrealizedOf(await src.markupState(inventoryAccountId, shiftPeriod(fromPeriod, -1)));
   const transferred = end.markup - start.markup;
   return { inventoryAccountId, transferred, unrealizedStart: start.unrealized, unrealizedEnd: end.unrealized, realized: transferred - (end.unrealized - start.unrealized) };
 }
 
-export async function computeProfitLoss(tx: Tx, tenantId: string, period: string, basis: Basis) {
+export async function computeProfitLoss(tx: Tx, tenantId: string, period: string, basis: Basis, src: AggSource = directAggregates(tx, tenantId)) {
   const { fromPeriod, toPeriod } = rangeOf(period, basis);
   const byId = await tenantAccounts(tx, tenantId);
   const alloc = await allocationAccountIds(tx, tenantId, periodEnd(period));
-  const agg = await aggregate(tx, tenantId, { fromPeriod, toPeriod });
+  const agg = await src.range({ fromPeriod, toPeriod });
   const rows = new Map<string, PlRow>();
   for (const r of agg) {
     const a = byId.get(r.accountId);
@@ -312,7 +401,7 @@ export async function computeProfitLoss(tx: Tx, tenantId: string, period: string
     centers[pc] = { revenue, beforeAllocation, allocationL1, allocationShared, net: beforeAllocation + allocationL1 + allocationShared };
   }
   // B-56: markup harga mitra yang terpakai sebagai beban bahan depot dieliminasi dari beban konsolidasi.
-  const markup = await computeInternalMarkup(tx, tenantId, fromPeriod, toPeriod);
+  const markup = await computeInternalMarkup(tx, tenantId, fromPeriod, toPeriod, src);
   const consolidated = {
     revenue: sum((r) => r.kind === "revenue", (r) => r.consolidated, () => 1),
     net: sum(() => true, (r) => r.consolidated) + markup.realized,
@@ -331,10 +420,10 @@ export async function computeProfitLoss(tx: Tx, tenantId: string, period: string
 
 export type BalanceRow = { accountId: string | null; code: string; name: string; section: "asset" | "liability" | "equity"; amount: number };
 
-export async function computeBalanceSheet(tx: Tx, tenantId: string, period: string) {
+export async function computeBalanceSheet(tx: Tx, tenantId: string, period: string, src: AggSource = directAggregates(tx, tenantId)) {
   const byId = await tenantAccounts(tx, tenantId);
-  const all = await aggregate(tx, tenantId, { toPeriod: period });
-  const ytd = await aggregate(tx, tenantId, { fromPeriod: yearStart(period), toPeriod: period });
+  const all = await src.range({ toPeriod: period });
+  const ytd = await src.range({ fromPeriod: yearStart(period), toPeriod: period });
   const bal = new Map<string, number>();
   let retained = 0;
   for (const r of all) {
@@ -360,7 +449,7 @@ export async function computeBalanceSheet(tx: Tx, tenantId: string, period: stri
   rows.push({ accountId: null, code: "", name: "Saldo laba (akumulasi tahun lalu)", section: "equity", amount: retained - currentYear });
   rows.push({ accountId: null, code: "", name: "Laba (rugi) tahun berjalan", section: "equity", amount: currentYear });
   // B-56: markup harga mitra yang masih melekat di persediaan depot dieliminasi (persediaan dinilai harga pokok PT).
-  const markup = await computeInternalMarkup(tx, tenantId, period, period);
+  const markup = await computeInternalMarkup(tx, tenantId, period, period, src);
   if (markup.unrealizedEnd !== 0) {
     rows.push({ accountId: null, code: "", name: "Eliminasi markup transfer internal di persediaan depot", section: "asset", amount: -markup.unrealizedEnd });
     rows.push({ accountId: null, code: "", name: "Laba internal belum terealisasi (eliminasi transfer toko → depot)", section: "equity", amount: -markup.unrealizedEnd });
@@ -412,33 +501,56 @@ function classify(a: AccountRow, byId: Map<string, AccountRow>): CashFlowCategor
   return "other";
 }
 
-export async function computeCashFlow(tx: Tx, tenantId: string, period: string, basis: Basis) {
+/**
+ * Arus kas per akun lawan (periode posting `fromPeriod`..`toPeriod`): untuk setiap jurnal terposting yang menyentuh akun
+ * kas/bank, kas bersih = debit - kredit baris akun kas; akun lawan = baris non-kas dengan debit+kredit terbesar (seri ->
+ * nomor baris terkecil; tanpa baris non-kas -> `null`). Kas bersih positif = masuk, negatif = keluar; dijumlahkan per akun
+ * lawan di SQL — sebelumnya seluruh baris jurnal kas dimuat ke memori (1,2 dtk pada uji beban NFR-05).
+ */
+export async function cashMovementsByCounterAccount(
+  tx: Tx,
+  tenantId: string,
+  cashIds: readonly string[],
+  fromPeriod: string,
+  toPeriod: string,
+): Promise<{ counterAccountId: string | null; inflow: number; outflow: number }[]> {
+  if (!cashIds.length) return [];
+  const cashList = sql.join(
+    cashIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  const res = await tx.execute<{ counter_account_id: string | null; inflow: string; outflow: string }>(sql`
+    with lines as (
+      select l.journal_id, l.account_id, l.debit, l.credit, l.line_no, (l.account_id in (${cashList})) as is_cash
+      from ${journalLines} l
+      join ${journals} j on j.id = l.journal_id
+      join ${accountingPeriods} p on p.id = j.period_id
+      where j.tenant_id = ${tenantId} and j.status = 'posted' and p.period >= ${fromPeriod} and p.period <= ${toPeriod}
+    ),
+    per_journal as (
+      select journal_id, sum(case when is_cash then debit - credit else 0 end) as net
+      from lines group by journal_id having bool_or(is_cash)
+    ),
+    counter as (
+      select distinct on (journal_id) journal_id, account_id
+      from lines where not is_cash
+      order by journal_id, (debit + credit) desc, line_no asc
+    )
+    select c.account_id as counter_account_id,
+           coalesce(sum(case when pj.net > 0 then pj.net else 0 end), 0) as inflow,
+           coalesce(sum(case when pj.net < 0 then -pj.net else 0 end), 0) as outflow
+    from per_journal pj left join counter c on c.journal_id = pj.journal_id
+    where pj.net <> 0
+    group by c.account_id`);
+  return res.rows.map((r) => ({ counterAccountId: r.counter_account_id, inflow: Number(r.inflow), outflow: Number(r.outflow) }));
+}
+
+export async function computeCashFlow(tx: Tx, tenantId: string, period: string, basis: Basis, src: AggSource = directAggregates(tx, tenantId)) {
   const { fromPeriod, toPeriod } = rangeOf(period, basis);
   const byId = await tenantAccounts(tx, tenantId);
   const cashIds = [...byId.values()].filter((a) => a.isCash).map((a) => a.id);
-  const opening = cashIds.length ? await aggregate(tx, tenantId, { toPeriod: shiftPeriod(fromPeriod, -1) }) : [];
+  const opening = cashIds.length ? await src.range({ toPeriod: shiftPeriod(fromPeriod, -1) }) : [];
   const openingCash = opening.filter((r) => cashIds.includes(r.accountId)).reduce((s, r) => s + r.debit - r.credit, 0);
-  const lines = cashIds.length
-    ? await tx
-        .select({ journalId: journalLines.journalId, accountId: journalLines.accountId, debit: journalLines.debit, credit: journalLines.credit })
-        .from(journalLines)
-        .innerJoin(journals, eq(journals.id, journalLines.journalId))
-        .innerJoin(accountingPeriods, eq(accountingPeriods.id, journals.periodId))
-        .where(
-          and(
-            eq(journals.tenantId, tenantId),
-            eq(journals.status, "posted"),
-            gte(accountingPeriods.period, fromPeriod),
-            lte(accountingPeriods.period, toPeriod),
-            sql`${journals.id} in (select jl2.journal_id from journal_lines jl2 where jl2.account_id in (${sql.join(
-              cashIds.map((id) => sql`${id}::uuid`),
-              sql`, `,
-            )}))`,
-          ),
-        )
-    : [];
-  const byJournal = new Map<string, typeof lines>();
-  for (const l of lines) byJournal.set(l.journalId, [...(byJournal.get(l.journalId) ?? []), l]);
   const cats: Record<CashFlowCategory, { inflow: number; outflow: number }> = {
     customers: { inflow: 0, outflow: 0 },
     suppliers: { inflow: 0, outflow: 0 },
@@ -447,16 +559,11 @@ export async function computeCashFlow(tx: Tx, tenantId: string, period: string, 
     financing: { inflow: 0, outflow: 0 },
     other: { inflow: 0, outflow: 0 },
   };
-  const cashSet = new Set(cashIds);
-  for (const jl of byJournal.values()) {
-    const net = jl.filter((l) => cashSet.has(l.accountId)).reduce((s, l) => s + l.debit - l.credit, 0);
-    if (net === 0) continue;
-    // Akun lawan terbesar menentukan kategori.
-    const others = jl.filter((l) => !cashSet.has(l.accountId)).sort((a, b) => b.debit + b.credit - (a.debit + a.credit));
-    const counter = others[0] ? byId.get(others[0].accountId) : undefined;
+  for (const r of await cashMovementsByCounterAccount(tx, tenantId, cashIds, fromPeriod, toPeriod)) {
+    const counter = r.counterAccountId ? byId.get(r.counterAccountId) : undefined;
     const cat = counter ? classify(counter, byId) : "other";
-    if (net > 0) cats[cat].inflow += net;
-    else cats[cat].outflow += -net;
+    cats[cat].inflow += r.inflow;
+    cats[cat].outflow += r.outflow;
   }
   const netChange = Object.values(cats).reduce((s, c) => s + c.inflow - c.outflow, 0);
   const section = (keys: CashFlowCategory[]) => keys.reduce((s, k) => s + cats[k].inflow - cats[k].outflow, 0);
@@ -496,10 +603,24 @@ export type LedgerLine = {
   memo: string | null;
 };
 
+/** Baris buku besar per halaman layar (US-M11-04 KP-1; uji beban NFR-05: satu akun kas depot ±50 ribu baris/bulan). */
+export const LEDGER_PAGE_SIZE = 250;
+/** Batas baris per pemanggilan (ekspor Excel/PDF) — saldo & mutasi tetap dihitung atas seluruh rentang. */
+export const LEDGER_MAX_ROWS = 20_000;
+
+export type LedgerPage = { offset: number; limit: number; total: number };
+
+/**
+ * Buku besar satu akun: saldo awal (sebelum `fromPeriod`; akun laba rugi sejak awal tahun), mutasi & saldo akhir atas
+ * SELURUH rentang (agregat SQL), dan baris mutasi per halaman (`offset`/`limit`, urutan tanggal → nomor jurnal → baris)
+ * dengan saldo berjalan yang diteruskan dari baris sebelum halaman (`pageOpening`). Sebelumnya baris dipotong diam-diam
+ * pada 5.000 dan mutasi/saldo akhir dihitung dari baris yang terpotong itu (salah untuk akun bervolume tinggi).
+ */
 export async function computeLedger(
   tx: Tx,
   tenantId: string,
   filter: { accountId: string; profitCenter?: ProfitCenter | null; outletId?: string | null; fromPeriod: string; toPeriod: string },
+  page: { offset?: number | null; limit?: number | null } = {},
 ) {
   const [a] = await tx.select().from(accounts).where(and(eq(accounts.id, filter.accountId), eq(accounts.tenantId, tenantId))).limit(1);
   if (!a) throw new DomainError("ACCOUNT_MISSING", "Akun tidak ditemukan.");
@@ -520,15 +641,45 @@ export async function computeLedger(
     .innerJoin(accountingPeriods, eq(accountingPeriods.id, journals.periodId))
     .where(and(...openingConds));
   const opening = signedAmount(a.type, Number(op?.d ?? 0), Number(op?.c ?? 0));
-  const rows = await tx
-    .select({ l: journalLines, j: journals, period: accountingPeriods.period })
+  const rangeConds = baseConds([gte(accountingPeriods.period, filter.fromPeriod) as ReturnType<typeof eq>, lte(accountingPeriods.period, filter.toPeriod) as ReturnType<typeof eq>]);
+  const [tot] = await tx
+    .select({ n: sql<string>`count(*)`, d: sql<string>`coalesce(sum(${journalLines.debit}),0)`, c: sql<string>`coalesce(sum(${journalLines.credit}),0)` })
     .from(journalLines)
     .innerJoin(journals, eq(journals.id, journalLines.journalId))
     .innerJoin(accountingPeriods, eq(accountingPeriods.id, journals.periodId))
-    .where(and(...baseConds([gte(accountingPeriods.period, filter.fromPeriod) as ReturnType<typeof eq>, lte(accountingPeriods.period, filter.toPeriod) as ReturnType<typeof eq>])))
-    .orderBy(asc(journals.journalDate), asc(journals.number), asc(journalLines.lineNo))
-    .limit(5000);
-  let running = opening;
+    .where(and(...rangeConds));
+  const total = Number(tot?.n ?? 0);
+  const debit = Number(tot?.d ?? 0);
+  const credit = Number(tot?.c ?? 0);
+  const limit = Math.max(1, Math.min(Math.trunc(page.limit ?? LEDGER_MAX_ROWS), LEDGER_MAX_ROWS));
+  const offset = Math.max(0, Math.min(Math.trunc(page.offset ?? 0), Math.max(0, total - 1)));
+  const order = [asc(journals.journalDate), asc(journals.number), asc(journalLines.lineNo)];
+  let pageOpening = opening;
+  if (offset > 0) {
+    const before = tx
+      .select({ debit: journalLines.debit, credit: journalLines.credit })
+      .from(journalLines)
+      .innerJoin(journals, eq(journals.id, journalLines.journalId))
+      .innerJoin(accountingPeriods, eq(accountingPeriods.id, journals.periodId))
+      .where(and(...rangeConds))
+      .orderBy(...order)
+      .limit(offset)
+      .as("sebelum");
+    const [b] = await tx.select({ d: sql<string>`coalesce(sum(${before.debit}),0)`, c: sql<string>`coalesce(sum(${before.credit}),0)` }).from(before);
+    pageOpening += signedAmount(a.type, Number(b?.d ?? 0), Number(b?.c ?? 0));
+  }
+  const rows = total
+    ? await tx
+        .select({ l: journalLines, j: journals, period: accountingPeriods.period })
+        .from(journalLines)
+        .innerJoin(journals, eq(journals.id, journalLines.journalId))
+        .innerJoin(accountingPeriods, eq(accountingPeriods.id, journals.periodId))
+        .where(and(...rangeConds))
+        .orderBy(...order)
+        .limit(limit)
+        .offset(offset)
+    : [];
+  let running = pageOpening;
   const lines: LedgerLine[] = rows.map(({ l, j, period }) => {
     running += signedAmount(a.type, l.debit, l.credit);
     return {
@@ -550,7 +701,8 @@ export async function computeLedger(
       memo: l.description,
     };
   });
-  return { account: a, opening, lines, closing: running, debit: lines.reduce((s, l) => s + l.debit, 0), credit: lines.reduce((s, l) => s + l.credit, 0) };
+  const page_: LedgerPage = { offset, limit, total };
+  return { account: a, opening, pageOpening, lines, closing: opening + signedAmount(a.type, debit, credit), debit, credit, page: page_ };
 }
 
 // =====================================================================================================================
@@ -572,14 +724,16 @@ export type Statements = {
 };
 
 export async function computeStatements(tx: Tx, tenantId: string, period: string, basis: Basis, now: Date): Promise<Omit<Statements, "status" | "revision" | "retroactive">> {
+  // Segmen: s.d. akhir tahun lalu, awal tahun s.d. sebelum rentang, rentang laporan (dihitung sekali untuk ke-4 laporan).
+  const src = new StatementAggregates(tx, tenantId, [yearStart(period), rangeOf(period, basis).fromPeriod], period);
   return {
     period,
     basis,
     generatedAt: now.toISOString(),
-    trialBalance: await computeTrialBalance(tx, tenantId, period, basis),
-    profitLoss: await computeProfitLoss(tx, tenantId, period, basis),
-    balanceSheet: await computeBalanceSheet(tx, tenantId, period),
-    cashFlow: await computeCashFlow(tx, tenantId, period, basis),
+    trialBalance: await computeTrialBalance(tx, tenantId, period, basis, src),
+    profitLoss: await computeProfitLoss(tx, tenantId, period, basis, src),
+    balanceSheet: await computeBalanceSheet(tx, tenantId, period, src),
+    cashFlow: await computeCashFlow(tx, tenantId, period, basis, src),
   };
 }
 
@@ -675,13 +829,14 @@ export async function getStatements(ctx: ActorContext, filter: { period: string;
 
 export async function getLedger(
   ctx: ActorContext,
-  filter: { accountId: string; profitCenter?: ProfitCenter | null; outletId?: string | null; fromPeriod: string; toPeriod?: string | null },
+  filter: { accountId: string; profitCenter?: ProfitCenter | null; outletId?: string | null; fromPeriod: string; toPeriod?: string | null; offset?: number | null; limit?: number | null },
   opts: { tx?: Tx } = {},
 ) {
   await authorize(ctx, "m11.ledger.read", { tx: opts.tx });
   if (!isPeriodLabel(filter.fromPeriod)) throw new DomainError("INVALID_PERIOD", "Periode harus berformat YYYY-MM.");
   const toPeriod = filter.toPeriod && isPeriodLabel(filter.toPeriod) ? filter.toPeriod : filter.fromPeriod;
-  return computeLedger(opts.tx ?? getDb(), ctx.tenantId, { ...filter, toPeriod });
+  const { offset, limit, ...rest } = filter;
+  return computeLedger(opts.tx ?? getDb(), ctx.tenantId, { ...rest, toPeriod }, { offset, limit });
 }
 
 /** Saldo akun per akhir periode (dipakai rekonsiliasi). */

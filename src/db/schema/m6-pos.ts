@@ -234,6 +234,9 @@ export const posSales = pgTable(
       .where(sql`${t.number} is not null`),
     uniqueIndex("pos_sales_device_local_number_uq").on(t.deviceId, t.localNumber),
     index("pos_sales_outlet_date_idx").on(t.outletId, t.businessDate),
+    // Uji beban NFR-05: agregat omzet/galon per tenant & rentang tanggal (M9 H+0/bulanan, M6 `salesAggregates`) tanpa
+    // filter outlet — tanpa indeks ini memindai seluruh transaksi semua tenant (±4.800/hari pada 3× volume).
+    index("pos_sales_tenant_date_idx").on(t.tenantId, t.businessDate),
     index("pos_sales_shift_idx").on(t.shiftId),
     index("pos_sales_customer_idx").on(t.customerId),
     foreignKey({ name: "pos_sales_reversal_fk", columns: [t.reversalOfId], foreignColumns: [t.id] }),
@@ -283,6 +286,8 @@ export const posSaleLines = pgTable(
     uniqueIndex("pos_sale_lines_sale_line_uq").on(t.posSaleId, t.lineNo),
     index("pos_sale_lines_product_idx").on(t.productId),
     index("pos_sale_lines_outlet_date_idx").on(t.outletId, t.businessDate, t.productId),
+    // Uji beban NFR-05: galon terjual per tenant & rentang tanggal (M9) — lihat `pos_sales_tenant_date_idx`.
+    index("pos_sale_lines_tenant_date_idx").on(t.tenantId, t.businessDate),
   ],
 );
 

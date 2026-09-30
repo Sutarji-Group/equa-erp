@@ -58,7 +58,7 @@ export {
   submitShiftDepositSchema,
 } from "./service/shifts";
 export type { ShiftSyncStatus, OpenShiftResult, CloseShiftResult, OperatorShiftHistoryRow } from "./service/shifts";
-export { computeShiftFigures, isCountedSale } from "./service/figures";
+export { computeShiftCashTotals, computeShiftFigures, isCountedSale, type ShiftCashTotals } from "./service/figures";
 export type { ShiftFigures } from "./service/figures";
 
 // --- Transaksi & void (US-M6-01, US-M6-03) ----------------------------------------------------------------------------

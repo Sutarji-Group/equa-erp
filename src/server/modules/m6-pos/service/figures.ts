@@ -4,7 +4,7 @@
  */
 import "server-only";
 
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { posSaleLines, posSales, products } from "@/db/schema";
 
@@ -140,6 +140,56 @@ export async function computeShiftFigures(tx: Tx, shift: ShiftRow, opts: { soldU
   f.expectedDrawer = f.expectedCash - f.partialDepositTotal;
   f.depositAmount = f.expectedCash - f.openingCash - f.partialDepositTotal;
   return f;
+}
+
+export type ShiftCashTotals = Pick<ShiftFigures, "cashSales" | "qrisSales" | "expectedCash" | "expectedDrawer" | "depositAmount">;
+
+/**
+ * Angka kas shift (tunai & QRIS terhitung, tunai seharusnya, kas di laci, setoran) untuk BANYAK shift sekaligus lewat
+ * satu agregat SQL — nilai yang SAMA dengan field bernama sama dari `computeShiftFigures`, tanpa memuat seluruh
+ * transaksi, baris, produk & resep shift. Dipakai jalur panas: `checkCashLimit` (setiap transaksi tunai tersinkron;
+ * versi lengkap membuat push batch O(n²) per shift — uji beban NFR-05: 45 ms/transaksi pada shift 500 transaksi) dan
+ * posisi kas M4 (semua shift terbuka). Syarat "terhitung" = `isCountedSale` (alasan pembalik kosong = tanpa alasan).
+ */
+export async function computeShiftCashTotals(tx: Tx, shiftRows: readonly Pick<ShiftRow, "id" | "openingCashFixed" | "partialDepositTotal">[]): Promise<Map<string, ShiftCashTotals>> {
+  const out = new Map<string, ShiftCashTotals>();
+  if (!shiftRows.length) return out;
+  const rows = await tx
+    .select({
+      shiftId: posSales.shiftId,
+      cash: sql<string>`coalesce(sum(case when ${posSales.paymentMethod} = 'cash' then ${posSales.total} else 0 end), 0)`,
+      qris: sql<string>`coalesce(sum(case when ${posSales.paymentMethod} = 'qris' then ${posSales.total} else 0 end), 0)`,
+    })
+    .from(posSales)
+    .where(
+      and(
+        inArray(
+          posSales.shiftId,
+          shiftRows.map((s) => s.id),
+        ),
+        sql`(${posSales.isReversal} = true or ${posSales.status} in ('valid', 'void_pending') or (${posSales.status} = 'voided' and coalesce(${posSales.reversalReason}, '') <> ''))`,
+      ),
+    )
+    .groupBy(posSales.shiftId);
+  const byShift = new Map(rows.map((r) => [r.shiftId, r]));
+  for (const s of shiftRows) {
+    const r = byShift.get(s.id);
+    const cashSales = Number(r?.cash ?? 0);
+    const expectedCash = s.openingCashFixed + cashSales;
+    out.set(s.id, {
+      cashSales,
+      qrisSales: Number(r?.qris ?? 0),
+      expectedCash,
+      expectedDrawer: expectedCash - s.partialDepositTotal,
+      depositAmount: expectedCash - s.openingCashFixed - s.partialDepositTotal,
+    });
+  }
+  return out;
+}
+
+/** Kas di laci seharusnya (BR-08) satu shift — `computeShiftCashTotals` (= `computeShiftFigures(...).expectedDrawer`). */
+export async function computeShiftDrawer(tx: Tx, shift: Pick<ShiftRow, "id" | "openingCashFixed" | "partialDepositTotal">): Promise<number> {
+  return (await computeShiftCashTotals(tx, [shift])).get(shift.id)!.expectedDrawer;
 }
 
 /** Kas berjalan di laci (BR-08): kas awal + tunai − kembalian − void tunai − setor sebagian. */

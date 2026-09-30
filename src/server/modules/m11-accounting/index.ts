@@ -67,6 +67,9 @@ export {
 export {
   getStatements,
   getLedger,
+  LEDGER_PAGE_SIZE,
+  LEDGER_MAX_ROWS,
+  type LedgerPage,
   loadStatements,
   computeTrialBalance,
   computeProfitLoss,

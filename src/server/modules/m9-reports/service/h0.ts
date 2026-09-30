@@ -381,13 +381,21 @@ export async function getDailyDashboard(ctx: ActorContext, input: unknown = {}, 
   if (dates.length === 1) {
     figures = published.get(from) ?? (await computeDaySnapshot(db, ctx.tenantId, from, ctx.now));
   } else {
-    const [revMap, tripRows, gallonRows, flowMap] = await Promise.all([
-      revenueDaily(db, ctx.tenantId, from, to),
-      tripsDaily(db, ctx.tenantId, from, to),
-      gallonsDaily(db, ctx.tenantId, from, to),
-      receivablesFlowDaily(db, ctx.tenantId, from, to),
-    ]);
-    const activity = await cashActivityDates(db, ctx.tenantId, from, to);
+    // Angka hidup hanya untuk tanggal yang BELUM terbit (biasanya hari ini); tanggal terbit memakai snapshot. Agregat
+    // harian dihitung atas rentang tanggal belum terbit saja — sebelumnya selalu sebulan penuh (uji beban NFR-05).
+    const live = dates.filter((d) => !published.has(d));
+    const liveFrom = live[0];
+    const liveTo = live[live.length - 1];
+    const [revMap, tripRows, gallonRows, flowMap] =
+      liveFrom && liveTo
+        ? await Promise.all([
+            revenueDaily(db, ctx.tenantId, liveFrom, liveTo),
+            tripsDaily(db, ctx.tenantId, liveFrom, liveTo),
+            gallonsDaily(db, ctx.tenantId, liveFrom, liveTo),
+            receivablesFlowDaily(db, ctx.tenantId, liveFrom, liveTo),
+          ])
+        : [new Map<string, RevenueFigures>(), [] as TripDayRow[], [] as Awaited<ReturnType<typeof gallonsDaily>>, new Map<string, { formed: number; paid: number }>()];
+    const activity = liveFrom && liveTo ? await cashActivityDates(db, ctx.tenantId, liveFrom, liveTo) : new Set<string>();
     const revenue: RevenueFigures[] = [];
     const tripsList: TripDayRow[] = [];
     const gallonsList: typeof gallonRows = [];

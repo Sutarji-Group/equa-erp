@@ -217,6 +217,10 @@ export const journals = pgTable(
     index("journals_period_idx").on(t.periodId),
     index("journals_date_idx").on(t.tenantId, t.journalDate),
     index("journals_source_idx").on(t.sourceObjectType, t.sourceObjectId),
+    // Uji beban NFR-05 (docs/qa/uji-beban.md): cek duplikat jurnal otomatis per event (`source_event_id` + `kind`) tidak
+    // dapat memakai indeks parsial di bawah (predikat `reversal_of_id is null`) → pindai penuh ±47 ms/event pada 143 rb
+    // jurnal, dua kali per event di jalur sinkron. Indeks biasa ini melayani `executeSpec`/`postJournal`/pembalik.
+    index("journals_source_event_idx").on(t.sourceEventId),
     /** Satu jurnal otomatis per event domain (idempotensi posting). */
     uniqueIndex("journals_auto_event_uq")
       .on(t.sourceEventId)

@@ -10,7 +10,7 @@
  */
 import "server-only";
 
-import { and, asc, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 
 import { customerAddresses, customers, employees, fleetEvents, gpsPositions, outlets, tariffZones, trips } from "@/db/schema";
 import { STRAIGHT_LINE_ROUTE_FACTOR, type LatLng } from "@/lib/geo";
@@ -27,6 +27,43 @@ import { deriveLiveStatus, LIVE_STATUS_TONE, type FleetLiveStatus } from "../dom
 import { locationContaining } from "../domain/track";
 import { fleetTrucks, inServiceHours, legalLocations, m12Rules, type LegalLocation } from "./common";
 import { livePhoneTracking } from "./devices";
+
+/**
+ * Posisi valid terakhir per truk (≤ `before` bila diisi). Satu kueri LATERAL — setiap truk memakai indeks
+ * `gps_positions_truck_time_idx` mundur dan berhenti di baris pertama. Pengganti `DISTINCT ON (truck_id)` yang memindai
+ * seluruh riwayat posisi (uji beban NFR-05: ±730 rb posisi/60 hari → ±0,9 dtk per panggilan; retensi 12 bulan PAR-52
+ * menjadikannya ±4 jt baris).
+ */
+export async function latestTruckPositions(
+  tx: Tx,
+  truckIds: readonly string[],
+  opts: { before?: Date | null } = {},
+): Promise<{ truckId: string; lat: number; lng: number; at: Date; source: string; speedKmh: number | null; heading: number | null }[]> {
+  if (truckIds.length === 0) return [];
+  const upper = opts.before ? sql`and g.device_time <= ${opts.before}` : sql``;
+  const res = await tx.execute<{ truck_id: string; lat: number; lng: number; device_time: Date | string; source: string; speed_kmh: number | null; heading: number | null }>(sql`
+    select p.truck_id, p.lat, p.lng, p.device_time, p.source, p.speed_kmh, p.heading
+    from (values ${sql.join(
+      truckIds.map((id) => sql`(${id}::uuid)`),
+      sql`, `,
+    )}) as t(id)
+    cross join lateral (
+      select g.truck_id, g.lat, g.lng, g.device_time, g.source, g.speed_kmh, g.heading
+      from ${gpsPositions} g
+      where g.truck_id = t.id and g.is_valid ${upper}
+      order by g.device_time desc
+      limit 1
+    ) p`);
+  return res.rows.map((r) => ({
+    truckId: r.truck_id,
+    lat: Number(r.lat),
+    lng: Number(r.lng),
+    at: r.device_time instanceof Date ? r.device_time : new Date(r.device_time),
+    source: r.source,
+    speedKmh: r.speed_kmh === null ? null : Number(r.speed_kmh),
+    heading: r.heading === null ? null : Number(r.heading),
+  }));
+}
 
 export type LiveTrip = {
   id: string;
@@ -98,21 +135,7 @@ export async function getFleetSnapshot(ctx: ActorContext, input: { date?: string
   const truckIds = fleet.map((t) => t.id);
   const now = ctx.now;
 
-  const lastRows = truckIds.length
-    ? await tx
-        .selectDistinctOn([gpsPositions.truckId], {
-          truckId: gpsPositions.truckId,
-          lat: gpsPositions.lat,
-          lng: gpsPositions.lng,
-          at: gpsPositions.deviceTime,
-          source: gpsPositions.source,
-          speedKmh: gpsPositions.speedKmh,
-          heading: gpsPositions.heading,
-        })
-        .from(gpsPositions)
-        .where(and(inArray(gpsPositions.truckId, truckIds), eq(gpsPositions.isValid, true), sql`${gpsPositions.deviceTime} <= ${now}`))
-        .orderBy(gpsPositions.truckId, desc(gpsPositions.deviceTime))
-    : [];
+  const lastRows = await latestTruckPositions(tx, truckIds, { before: now });
   // Gerak: dua posisi perangkat terakhir (kecepatan dilaporkan atau perpindahan).
   const recent = truckIds.length
     ? await tx

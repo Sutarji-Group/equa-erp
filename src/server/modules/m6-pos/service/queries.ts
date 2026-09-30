@@ -82,7 +82,12 @@ export type SalesAggregateRow = {
   gallonLiters: number;
 };
 
-export async function salesAggregates(tx: Tx, tenantId: string, input: { from: BusinessDate; to: BusinessDate; outletIds?: string[] }): Promise<SalesAggregateRow[]> {
+/**
+ * Agregat penjualan per outlet per tanggal. `withGallons: false` melewati kueri galon per baris (`gallons` &
+ * `gallonLiters` = 0) — untuk pemanggil yang hanya butuh omzet/transaksi (kueri baris 0,2–0,5 dtk per bulan pada uji
+ * beban NFR-05).
+ */
+export async function salesAggregates(tx: Tx, tenantId: string, input: { from: BusinessDate; to: BusinessDate; outletIds?: string[]; withGallons?: boolean }): Promise<SalesAggregateRow[]> {
   const where: SQL[] = [eq(posSales.tenantId, tenantId), gte(posSales.businessDate, input.from), lte(posSales.businessDate, input.to)];
   if (input.outletIds?.length) where.push(inArray(posSales.outletId, input.outletIds));
   const rows = await tx
@@ -100,17 +105,20 @@ export async function salesAggregates(tx: Tx, tenantId: string, input: { from: B
     .groupBy(posSales.outletId, posSales.businessDate);
   const lineWhere: SQL[] = [eq(posSaleLines.tenantId, tenantId), gte(posSaleLines.businessDate, input.from), lte(posSaleLines.businessDate, input.to), isNotNull(posSaleLines.gallonSizeL)];
   if (input.outletIds?.length) lineWhere.push(inArray(posSaleLines.outletId, input.outletIds));
-  const gallons = await tx
-    .select({
-      outletId: posSaleLines.outletId,
-      businessDate: posSaleLines.businessDate,
-      gallons: sql<string>`coalesce(sum(${posSaleLines.quantity}), 0)`,
-      liters: sql<string>`coalesce(sum(${posSaleLines.quantity} * ${posSaleLines.gallonSizeL}), 0)`,
-    })
-    .from(posSaleLines)
-    .innerJoin(posSales, eq(posSales.id, posSaleLines.posSaleId))
-    .where(and(...lineWhere, COUNTED_SALE))
-    .groupBy(posSaleLines.outletId, posSaleLines.businessDate);
+  const gallons =
+    input.withGallons === false
+      ? []
+      : await tx
+          .select({
+            outletId: posSaleLines.outletId,
+            businessDate: posSaleLines.businessDate,
+            gallons: sql<string>`coalesce(sum(${posSaleLines.quantity}), 0)`,
+            liters: sql<string>`coalesce(sum(${posSaleLines.quantity} * ${posSaleLines.gallonSizeL}), 0)`,
+          })
+          .from(posSaleLines)
+          .innerJoin(posSales, eq(posSales.id, posSaleLines.posSaleId))
+          .where(and(...lineWhere, COUNTED_SALE))
+          .groupBy(posSaleLines.outletId, posSaleLines.businessDate);
   const gMap = new Map(gallons.map((g) => [`${g.outletId}:${g.businessDate}`, g]));
   return rows.map((r) => {
     const g = gMap.get(`${r.outletId}:${r.businessDate}`);

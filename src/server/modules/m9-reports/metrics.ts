@@ -144,7 +144,8 @@ export async function revenueDaily(tx: Tx, tenantId: string, from: BusinessDate,
     }
   }
   const kinds = await outletKinds(tx, tenantId);
-  const sales = await m6.salesAggregates(tx, tenantId, { from, to });
+  // Omzet & transaksi saja — galon dihitung `gallonsDaily`.
+  const sales = await m6.salesAggregates(tx, tenantId, { from, to, withGallons: false });
   for (const s of sales) {
     const kind = kinds.get(s.outletId)?.kind;
     const f = at(s.businessDate);
