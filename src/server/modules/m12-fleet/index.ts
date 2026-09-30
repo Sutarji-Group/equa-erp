@@ -8,7 +8,8 @@
  * Kontrak untuk modul lain (rincian: docs/dev/modules/m12-fleet.md):
  * - Penghubung vendor (NFR-21): `GPS_VENDOR_ADAPTERS`, `getGpsVendorAdapter`, `ingestGpsFixes` (rute `/api/gps/ingest/[vendor]`).
  * - M2 papan jadwal: `getFleetSnapshot` + komponen `@/components/m12-fleet/fleet-live-map` (US-M12-02 KP-4).
- * - M9 H+0: `fleetDaySummary(tx, tenantId, date, now)`; laporan ekspor `m12.*`.
+ * - M9 H+0: `fleetDaySummary(tx, tenantId, date, now)`; rentang (v1.0.1): `fleetRangeSummary(tx, tenantId, from, to, now)`
+ *   = satu ringkasan per tanggal, identik dengan versi harian, dengan kueri tetap per rentang; laporan ekspor `m12.*`.
  * - M8 neraca air: `geofenceFlagsFor(tx, { tenantId, date, waterSourceId? })` + event `fleet_event.detected`.
  * - M10 halaman perangkat: `getGpsDeviceHealth(ctx, deviceId)` + komponen `@/components/m12-fleet/gps-health-card`.
  * - M11: `fuelMonthly` / tabel `fuel_estimates` (informasi biaya BBM per rit L2, tidak dijurnal).
@@ -67,6 +68,7 @@ export type { FuelMonthly, FuelTripRow, FuelTruckRow, FuelZoneRow, ZoneCheckRow 
 // --- Perangkat GPS mati/dicabut & GPS ponsel cadangan (US-M12-08) -----------------------------------------------------
 export {
   checkOutagePattern,
+  deviceOutageMinutesForRange,
   deviceOutageMinutesOn,
   deviceOutageReport,
   getGpsDeviceHealth,
@@ -84,6 +86,7 @@ export type { DeviceHealthRunResult, GpsDeviceHealth, OutageReportRow } from "./
 export {
   closeFleetEvent,
   fleetDaySummary,
+  fleetRangeSummary,
   getFleetDaySummary,
   getFleetEvent,
   groupOf,

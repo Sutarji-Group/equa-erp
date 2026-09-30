@@ -13,18 +13,19 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, notInArray, sql } fr
 
 import { customerAddresses, customers, employees, fleetEvents, trips, trucks, users } from "@/db/schema";
 import { label, type EnumValue, type FleetEventKind } from "@/lib/labels";
-import { addDays, type BusinessDate } from "@/lib/time";
+import { addDays, daysBetween, type BusinessDate } from "@/lib/time";
 
 import { query as auditQuery, record as auditRecord, type AuditRow } from "@/server/core/audit";
 import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
+import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
 
 import { closeEventSchema, eventFilterSchema, reviewSchema } from "../schemas";
-import { m12Rules } from "./common";
+import { m12Rules, type M12Rules } from "./common";
 import { notifyDriver } from "./detection";
-import { deviceOutageMinutesOn } from "./devices";
+import { deviceOutageMinutesForRange, deviceOutageMinutesOn } from "./devices";
 import { EVENT_GROUPS, notifyOnce, REVIEW_KINDS, type FleetEventRow } from "./fleet-events";
 
 export type FleetEventView = {
@@ -336,10 +337,60 @@ export async function fleetDaySummary(tx: Tx, tenantId: string, date: BusinessDa
     .from(fleetEvents)
     .leftJoin(trucks, eq(trucks.id, fleetEvents.truckId))
     .where(and(eq(fleetEvents.tenantId, tenantId), eq(fleetEvents.businessDate, date)))
-    .orderBy(asc(fleetEvents.startedAt));
-  const unexplained = events.filter((r) => r.e.requiresExplanation && !r.e.explanation && r.e.status !== "done");
+    .orderBy(asc(fleetEvents.startedAt), asc(fleetEvents.id));
   const truckRows = await tx.select({ id: trucks.id, code: trucks.code }).from(trucks).where(eq(trucks.tenantId, tenantId));
   const dead = await deviceOutageMinutesOn(tx, truckRows.map((t) => t.id), date, now);
+  return summarizeFleetDay(date, rules, events, truckRows, dead);
+}
+
+/**
+ * Versi RENTANG `fleetDaySummary` (v1.0.1, D-14 butir 4 / B-90 — H+0 rentang bulan): satu kueri kejadian, satu kueri
+ * truk, satu kueri perangkat mati untuk seluruh rentang, dan aturan per tanggal lewat cache parameter (`params.cached`,
+ * satu kueri per parameter) — sebelumnya ±16 kueri PER HARI (30 hari ≈ 480 kueri). Mengembalikan satu ringkasan per
+ * tanggal `from..to` (urut naik) yang IDENTIK dengan `fleetDaySummary(tx, tenantId, d, now)` (diuji).
+ */
+export async function fleetRangeSummary(
+  tx: Tx,
+  tenantId: string,
+  from: BusinessDate,
+  to: BusinessDate,
+  now: Date,
+  opts: { cache?: params.ParamCache } = {},
+): Promise<FleetDaySummary[]> {
+  // Jumlah hari terbatas (bukan perbandingan teks) — sama dengan `datesInRange` M9; `from > to` → rentang kosong.
+  const dates: BusinessDate[] = [];
+  const span = daysBetween(from, to);
+  for (let i = 0; i <= span; i++) dates.push(addDays(from, i));
+  if (dates.length === 0) return [];
+  const cache = opts.cache ?? params.cached(tx);
+  const rulesByDate = new Map<BusinessDate, M12Rules>();
+  for (const d of dates) rulesByDate.set(d, await m12Rules(tx, d, tenantId, { cache }));
+  const events = await tx
+    .select({ e: fleetEvents, truckCode: trucks.code })
+    .from(fleetEvents)
+    .leftJoin(trucks, eq(trucks.id, fleetEvents.truckId))
+    .where(and(eq(fleetEvents.tenantId, tenantId), gte(fleetEvents.businessDate, from), lte(fleetEvents.businessDate, to)))
+    .orderBy(asc(fleetEvents.startedAt), asc(fleetEvents.id));
+  const eventsByDate = new Map<string, typeof events>();
+  for (const r of events) {
+    const list = eventsByDate.get(r.e.businessDate);
+    if (list) list.push(r);
+    else eventsByDate.set(r.e.businessDate, [r]);
+  }
+  const truckRows = await tx.select({ id: trucks.id, code: trucks.code }).from(trucks).where(eq(trucks.tenantId, tenantId));
+  const dead = await deviceOutageMinutesForRange(tx, truckRows.map((t) => t.id), dates, now);
+  return dates.map((d) => summarizeFleetDay(d, rulesByDate.get(d)!, eventsByDate.get(d) ?? [], truckRows, dead.get(d) ?? new Map()));
+}
+
+/** Susun ringkasan H+0 satu tanggal (murni — dipakai `fleetDaySummary` & `fleetRangeSummary` agar keluarannya sama). */
+function summarizeFleetDay(
+  date: BusinessDate,
+  rules: M12Rules,
+  events: readonly { e: FleetEventRow; truckCode: string | null }[],
+  truckRows: readonly { id: string; code: string }[],
+  dead: Map<string, number>,
+): FleetDaySummary {
+  const unexplained = events.filter((r) => r.e.requiresExplanation && !r.e.explanation && r.e.status !== "done");
   return {
     date,
     unexplained: unexplained.map((r) => ({ id: r.e.id, kind: r.e.kind, kindLabel: label("fleet_event_kind", r.e.kind), truckCode: r.truckCode, startedAt: r.e.startedAt })),

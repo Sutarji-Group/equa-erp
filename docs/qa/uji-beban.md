@@ -8,7 +8,7 @@ Ringkasnya:
 
 | Target | Hasil | Status |
 | --- | --- | --- |
-| NFR-05: 3× volume (20 truk, 30 depot + 50 outlet mitra, 1.000 pelanggan, ±5.000 transaksi/hari) tanpa perubahan arsitektur | 60 hari data sintetis (±4.870 transaksi/hari, 1,5 GB) lolos semua penjaga DB & invarian; semua layanan kunci berjalan tanpa perubahan arsitektur | **Lulus**, dengan 1 batas kapasitas yang perlu keputusan (nomor jurnal, §7) |
+| NFR-05: 3× volume (20 truk, 30 depot + 50 outlet mitra, 1.000 pelanggan, ±5.000 transaksi/hari) tanpa perubahan arsitektur | 60 hari data sintetis (±4.870 transaksi/hari, 1,5 GB) lolos semua penjaga DB & invarian; semua layanan kunci berjalan tanpa perubahan arsitektur | **Lulus**, dengan 1 batas kapasitas yang perlu keputusan (nomor jurnal, §7) — diselesaikan v1.0.1 (D-14, §10) |
 | NFR-03: web ≤ 2 detik | Sebelum: laporan keuangan 3,0 dtk (gagal), 2 layar lain 0,9 dtk karena pindai penuh. Sesudah: semua 25 kasus lulus di PGlite; terlama 0,94 dtk (laporan bulanan) | **Lulus** di PGlite; perkiraan di Neon lulus kecuali dashboard rentang bulan bila latensi per kueri ≥ 2 ms (§6) |
 | Pull sinkron ≤ 2 detik | Pull sopir 0,16 dtk (58 KB, gzip 8 KB); pull POS 0,12 dtk; delta sopir 0,06 dtk (0,7 KB gzip) | **Lulus** |
 | NFR-17: unduhan kecil, kuota ≤ 50 MB/bulan/sopir | Precache PWA dipangkas 1,45 MB → 0,55 MB gzip. Perkiraan kuota bulanan dengan setelan sekarang ±80 MB, didominasi foto bukti (PAR-38 300 KB) dan pull 60 detik | **Belum memenuhi** tanpa keputusan PAR-38 & jeda sinkron (§5); diukur ulang pada pilot |
@@ -48,7 +48,8 @@ Metodologi pembangkitan (bulk insert yang menjaga invarian — layanan per trans
    ditutup). Rantai hash audit dihitung dengan fungsi inti yang sama (`computeAuditHash`).
 4. **Jurnal M11 memakai mesin asli**: kemunculan pertama setiap varian peristiwa (174 varian) diposting lewat
    `processEvent` M11, lalu barisnya dipakai sebagai templat untuk peristiwa sejenis (akun & pusat laba sama, nominal
-   baru, nomor `J-YYMM-NNNNN` berurutan dan disinkronkan ke `document_sequences`).
+   baru, nomor jurnal berurutan dari `formatDocNumber` — `J-YYMM-NNNNNN` sejak v1.0.1, semula `J-YYMM-NNNNN` — dan
+   disinkronkan ke `document_sequences`).
 5. **H+0 setiap hari lampau diterbitkan lewat layanan M9** (`publishDailySummary`) — angka dihitung ulang dari data.
 6. Verifikasi invarian (gagal → proses keluar kode 1): jurnal terposting seimbang; setiap event keuangan EQUA
    bernominal punya jurnal otomatis; saldo stok = Σ kartu stok; sisa faktur = jumlah − alokasi; setoran sopir = Σ tunai
@@ -162,6 +163,7 @@ baris) tampilan sama seperti sebelumnya.
 - **H+0 rentang bulan: 662 kueri** — 412 di antaranya pembacaan parameter berulang dari `fleetDaySummary` M12 per hari
   (30 hari × aturan armada + kejadian + truk + perangkat mati). Aman di PGlite (0,9 dtk) tetapi sensitif latensi Neon
   (§6). Usulan: `fleetRangeSummary` sekali per rentang + cache parameter per permintaan (tambahan di inti).
+  **Dikerjakan v1.0.1 (D-14 butir 4, §10): 662 → 197 kueri, keluaran identik.**
 - Kas hari ini M4: 20 × 5 kueri per sopir (setoran berjalan, rit terakhir) — 142 kueri.
 - Push: ±65 kueri per perintah POS (otorisasi, sesi, nomor, audit, event, jurnal otomatis); 3,5 dtk/50 perintah di
   PGlite.
@@ -227,6 +229,7 @@ konservatif (driver WebSocket/HTTP, region berbeda zona).
 | Kasus | Median PGlite | Kueri | ≈ Neon (RTT 1 ms) | ≈ Neon (RTT 3 ms) |
 | --- | --- | --- | --- | --- |
 | M9 H+0 rentang bulan | 895 | 662 | 1,56 dtk | **2,88 dtk** ✗ |
+| M9 H+0 rentang bulan — v1.0.1 (DB uji 14 hari, §10) | 462 | 197 | 0,66 dtk | 1,05 dtk ✓ |
 | M9 laporan bulanan | 937 | 59 | 1,00 dtk | 1,11 dtk |
 | M11 laporan keuangan | 851 | 17 | 0,87 dtk | 0,90 dtk |
 | M12 riwayat hari | 689 | 97 | 0,79 dtk | 0,98 dtk |
@@ -298,3 +301,67 @@ DB_DRIVER=neon DATABASE_URL=postgres://…/equa_perf pnpm perf:measure --label n
 Opsi pembangkit: `--tanggal YYYY-MM-DD`, `--jam HH:mm`, `--hari N`, `--benih N`. Opsi pengukuran: `--label`,
 `--ulang N`, `--kasus a,b`, `--profil`, `--keluaran DIR`. Push menulis ke DB uji — bangkitkan ulang untuk angka yang
 dapat dibandingkan persis.
+
+## 10. v1.0.1 — nomor jurnal 6 digit & kueri berulang H+0 (tim X, D-14 butir 1 & 4)
+
+### 10.1 Nomor jurnal `J-YYMM-NNNNNN` (B-87, D-14 butir 1)
+
+- `DOC_TYPES.journal.digits` 5 → **6** (`src/server/core/numbering.ts`): kapasitas **999.999 jurnal/bulan/tenant**
+  (±14× kebutuhan 3× volume ±72.000/bulan; ±40× volume v1.0). Nomor yang sudah terbit tidak diubah; penghitung
+  `document_sequences` menyimpan nilai (bukan teks) sehingga urutan bulan berjalan berlanjut (`J-2610-01234` →
+  `J-2610-001235`). Nomor ke-1.000.000 dalam sebulan ditolak `SEQUENCE_EXHAUSTED` dengan pesan berisi tindakan.
+- Bulan peralihan: urutan teks biasa menaruh `…-001235` sebelum `…-01234`. Tampilan yang mengurutkan menurut nomor
+  (buku besar, daftar tinjauan pemilik, ekspor templat pajak, rincian bulanan M9) memakai `docNumberOrder` (panjang
+  lalu teks = urutan terbit); pada nomor sepanjang sama hasilnya identik dengan urutan lama.
+- Tidak ada CHECK/regex DB atas format nomor jurnal; pembangkit uji beban kini memakai `formatDocNumber` (tidak lagi
+  menulis format sendiri); seed demo `JD-YYMM-NNNNNN`; fixture uji memakai awalan `JU-` agar tidak bertabrakan dengan
+  nomor resmi 6 digit. D-04 diperbarui (catatan "diubah D-14"). Risiko RP-23 ditutup.
+- Uji: `tests/core/numbering.test.ts` (format, nomor ke-100.000 terbit dengan penghitung disetel langsung ke 99.999,
+  batas 999.999, kelanjutan 5 → 6 digit), `tests/m11-accounting/journal-number.test.ts` (jurnal otomatis ke-100.000
+  terposting, tidak masuk antrean; buku besar bulan peralihan urut terbit).
+
+### 10.2 Kueri berulang H+0 rentang (B-90 sebagian, D-14 butir 4)
+
+- **Ringkasan armada versi rentang** `m12.fleetRangeSummary(tx, tenantId, from, to, now)`: satu kueri kejadian, satu
+  kueri truk, satu kueri perangkat mati (irisan per hari dihitung di memori dengan aturan yang sama) dan aturan armada
+  per tanggal lewat cache parameter — tetap ±16 kueri per RENTANG, bukan per hari. Penyusun ringkasan dipakai bersama
+  versi harian (`summarizeFleetDay`), jadi per tanggal keluarannya identik dengan `fleetDaySummary`.
+  `m9.exceptionsForRange` memakainya.
+- **Cache parameter per transaksi/permintaan** (tambahan inti, hanya tambah): `params.cached(tx)` → `ParamCache`
+  (`get`/`resolve` bertanda sama tanpa `tx`). Satu kueri per (kunci, tenant, outlet) memuat riwayat nilai kandidat;
+  nilai per tanggal diselesaikan di memori dengan aturan `resolve` (lingkup paling spesifik, lalu `effective_from`
+  terbaru ≤ tanggal; bawaan registri; galat sama). Terikat objek transaksi (WeakMap) — db tanpa transaksi mendapat
+  cache baru per panggilan yang dipegang pemanggil selama satu permintaan; `params.set` (dan penulis parameter M10)
+  mengosongkan cache. `getDailyDashboard` memakai satu cache per permintaan. API lama `get`/`resolve` tidak berubah.
+- Bukti keluaran identik: (1) uji Vitest `tests/m12-fleet/range-summary.test.ts` (rentang = harian untuk perangkat
+  mati melintasi tengah malam, kejadian terbuka s.d. `now`, dua kejadian sehari, ambang `device_dead_h0_minutes`
+  berubah di tengah rentang, kejadian tenant lain, urutan seri; agregat `exceptionsForRange` = penjumlahan harian cara
+  lama; 13 kueri parameter untuk 30 hari), `tests/core/params-cache.test.ts` (cache = `params.resolve` untuk 11
+  tanggal × 5 lingkup × 3 kunci; keterikatan transaksi; pembatalan saat `set`); (2) `perf:measure --keluaran` sebelum &
+  sesudah pada DB yang sama: **19/19 kasus identik** (selain `computeMs`).
+
+**Pengukuran** — DB uji beban kecil (`PERF_PGLITE_DATA_DIR=./.data/pglite-perf-v101x pnpm perf:generate --hari 14`,
+volume 3× per hari, 0,9 GB, 64 rb transaksi POS, 32,5 rb jurnal), jangkar 30 Sep 2026 13.30 WIB, PGlite, mesin 4 CPU
+dipakai bersama agen lain (waktu berderau ±20–30 %). Sebelum = v1.0.1 tanpa butir 4 (3×), sesudah = dengan butir 4
+(5×); push tidak dijalankan agar DB sama. Median (ms) · kueri per panggilan:
+
+| Kasus | Sebelum | Sesudah |
+| --- | --- | --- |
+| **M9 Dashboard rentang bulan berjalan** | 944 · **662** | **462 · 197** |
+| M9 Dashboard H+0 hari ini (berjalan) | 343 · 197 | 313 · 197 |
+| M9 Dashboard H+0 kemarin (terbit) | 8 · 6 | 8 · 6 |
+| M9 Laporan laba kotor bulanan | 230 · 52 | 237 · 52 |
+| M4 Kas hari ini | 239 · 142 | 237 · 142 |
+| M12 Riwayat hari semua truk | 664 · 97 | 624 · 97 |
+| M11 Buku besar Kas depot — halaman 1 / terakhir | 63 · 4 / 201 · 5 | 54 · 4 / 171 · 5 |
+| M11 Laporan keuangan + laba rugi per lini | 331 · 17 | 370 · 17 |
+| 11 kasus lain (M2, M5, M10, M11 daftar, M12 peta/rincian) | kueri sama | kueri sama |
+
+- H+0 rentang bulan: **662 → 197 kueri (−70 %)**, 0,94 → 0,46 dtk. Perkiraan Neon (§6): RTT 1 ms ≈ 0,66 dtk, RTT 3 ms
+  ≈ 1,05 dtk — **lulus NFR-03 juga pada RTT 3 ms** (sebelumnya ±2,9 dtk). Satu hari (H+0 hari ini) tetap 197: rentang
+  satu tanggal memakai jumlah kueri armada yang sama (16).
+- Sisa kueri berulang di H+0 (hari berjalan): posisi kas M4 untuk hari ini — ±51 pembacaan parameter per outlet/sopir
+  (M3 `dayFigures`, M6 kas shift) + 3 × 20 kueri per sopir. Kandidat `params.cached` berikutnya di M3/M4/M6 (di luar
+  lingkup v1.0.1); pengukuran Neon & render halaman produksi tetap UAT staging (B-90).
+- Mengulang: `PERF_PGLITE_DATA_DIR=./.data/pglite-perf-v101x pnpm perf:measure --label … --kasus … --keluaran DIR`,
+  lalu bandingkan berkas `DIR/*.json`. Hapus `.data/pglite-perf*` sesudahnya (±0,9 GB per 14 hari).

@@ -10,10 +10,15 @@
  * | `credit_note`        | `NK-YY-NNNNNN`                 | tahun                 |
  * | `pos_sale`           | `{kodeOutlet}-YYMMDD-NNNN`     | outlet + tanggal      |
  * | `deposit`            | `S-YY-NNNNNN`                  | tahun                 |
- * | `journal`            | `J-YYMM-NNNNN`                 | tahun-bulan           |
+ * | `journal`            | `J-YYMM-NNNNNN` (D-14)         | tahun-bulan           |
  * | `approval`           | `A-YY-NNNNNN`                  | tahun                 |
  * | `purchase_receipt`   | `NB-YY-NNNNNN` (nota internal) | tahun                 |
  * | `internal_transfer`  | `TI-YY-NNNNN`                  | tahun                 |
+ *
+ * Jurnal 6 digit sejak v1.0.1 (D-14 butir 1, B-87; sebelumnya `J-YYMM-NNNNN`, maks. 99.999/bulan/tenant): kapasitas
+ * 999.999 per bulan per tenant. Nomor yang sudah terbit TIDAK diubah dan penghitung bulan berjalan tetap dilanjutkan
+ * (`document_sequences` menyimpan nilai, bukan teks), jadi bulan peralihan dapat memuat `J-2610-01234` lalu
+ * `J-2610-001235`. Urutan tampilan memakai `docNumberOrder` (panjang lalu teks = urutan nilai urut).
  *
  * Aman konkuren: satu pernyataan UPSERT (`INSERT … ON CONFLICT (tenant_id, kind, scope_key) DO UPDATE SET last_value =
  * last_value + 1 RETURNING`) mengunci baris urutan sampai transaksi pemanggil selesai (setara `SELECT … FOR UPDATE`),
@@ -27,7 +32,7 @@
  */
 import "server-only";
 
-import { sql } from "drizzle-orm";
+import { asc, sql, type AnyColumn, type SQL } from "drizzle-orm";
 
 import { documentSequences } from "@/db/schema";
 import { newId } from "@/lib/ids";
@@ -61,7 +66,7 @@ export const DOC_TYPES: Record<DocType, DocTypeDef> = {
   credit_note: { label: "Nota kredit", prefix: "NK", digits: 6, scope: "year" },
   pos_sale: { label: "Transaksi POS", prefix: "", digits: 4, scope: "outlet_day" },
   deposit: { label: "Setoran", prefix: "S", digits: 6, scope: "year" },
-  journal: { label: "Jurnal", prefix: "J", digits: 5, scope: "year_month" },
+  journal: { label: "Jurnal", prefix: "J", digits: 6, scope: "year_month" }, // D-14: 5 → 6 digit (v1.0.1)
   approval: { label: "Persetujuan", prefix: "A", digits: 6, scope: "year" },
   purchase_receipt: { label: "Nota pembelian internal", prefix: "NB", digits: 6, scope: "year" },
   internal_transfer: { label: "Transfer internal", prefix: "TI", digits: 5, scope: "year" },
@@ -172,6 +177,16 @@ export async function assignOfficialNumber(
   input: { tenantId: string; businessDate: BusinessDate; outletCode?: string },
 ): Promise<string> {
   return nextNumber(tx, docType, input.businessDate, { tenantId: input.tenantId, outletCode: input.outletCode });
+}
+
+/**
+ * Urutan ALAMI nomor dokumen di SQL (tambahan v1.0.1, D-14): panjang teks dulu, lalu teks. Untuk nomor berlingkup sama,
+ * hasilnya sama dengan urutan nilai urut — termasuk bulan peralihan jurnal 5 → 6 digit (`J-2610-01234` sebelum
+ * `J-2610-001235`; urutan teks biasa membaliknya). Pada nomor yang panjangnya sama, identik dengan `asc(kolom)`.
+ * `.orderBy(asc(journals.journalDate), ...docNumberOrder(journals.number), asc(journalLines.lineNo))`.
+ */
+export function docNumberOrder(column: AnyColumn): SQL[] {
+  return [asc(sql`length(${column})`), asc(column)];
 }
 
 /** Nomor rit = nomor pesanan + urutan tangki: `tripNumber("P-27-000123", 2)` → `"P-27-000123/2"`. */

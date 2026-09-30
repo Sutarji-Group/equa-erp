@@ -361,6 +361,8 @@ export async function getDailyDashboard(ctx: ActorContext, input: unknown = {}, 
   if (to > today) throw new DomainError("FUTURE_DATE", "Tanggal belum terjadi. Pilih hari ini atau tanggal sebelumnya.");
   const db = opts.tx ?? getDb();
   const dates = datesInRange(from, to);
+  // v1.0.1 (D-14 butir 4): cache parameter satu permintaan (terikat `db`/transaksi ini; dibuang setelah render).
+  const paramCache = params.cached(db);
 
   let summaries = await db.select().from(dailySummaries).where(and(eq(dailySummaries.tenantId, ctx.tenantId), gte(dailySummaries.businessDate, from), lte(dailySummaries.businessDate, to)));
   // Cadangan: hari kas tertutup yang belum terbit (handler gagal/job belum jalan) diterbitkan sistem sekarang.
@@ -438,7 +440,7 @@ export async function getDailyDashboard(ctx: ActorContext, input: unknown = {}, 
       receivables,
       trips: sumTrips(tripsList),
       gallons: sumGallons(gallonsList),
-      exceptions: await exceptionsForRange(db, ctx.tenantId, from, to, ctx.now, cash.unmatchedTransfers),
+      exceptions: await exceptionsForRange(db, ctx.tenantId, from, to, ctx.now, cash.unmatchedTransfers, { cache: paramCache }),
     };
   }
   const addenda = await listAddenda(db, ctx.tenantId, from, to);
@@ -457,7 +459,7 @@ export async function getDailyDashboard(ctx: ActorContext, input: unknown = {}, 
     data: figures,
     addenda: addenda.onDates,
     correctionsRecorded: addenda.recorded,
-    pendingDiscrepancies: await discrepanciesAwaitingOwner(db, ctx.tenantId, ctx.now),
+    pendingDiscrepancies: await discrepanciesAwaitingOwner(db, ctx.tenantId, ctx.now, {}, { cache: paramCache }),
     canDecide: can(ctx, "m4.discrepancy.decide"),
     canReview: can(ctx, "m9.daily_summary.review"),
     computeMs: Date.now() - started,

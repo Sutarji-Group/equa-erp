@@ -26,7 +26,7 @@ PRD 7.11 (US-M11-01..10), 7.11.4, Bab 6.2/6.3, BR-29..35, BR-38, PTB-12/39/44/45
   sumber (kind `reversal`, baris ditukar). Jurnal asal tidak pernah diubah (hardening EQ003).
 - **Jurnal non-otomatis** (manual, pembalik, akrual, penyusutan, alokasi, saldo awal) lewat `common.insertJournal`:
   seimbang, akun aktif & detail, cut-over (kecuali `opening_balance`), periode `strict` (harus terbuka) atau `forward`
-  (periode terbuka pertama + `origin_period`), nomor `J-YYMM-NNNNN`.
+  (periode terbuka pertama + `origin_period`), nomor `J-YYMM-NNNNNN` (6 digit sejak v1.0.1, D-14; nomor 5 digit lama tetap).
 - **Laporan** (`statements.ts`) dihitung per PERIODE POSTING (peristiwa terlambat yang masuk periode berikutnya tidak
   mengubah laporan periode terkunci). Laba rugi per lini `centers[pc] = {revenue, beforeAllocation, allocationL1,
   allocationShared, net}`; akun alokasi dari pemetaan `m11.allocation`; eliminasi = akun `is_internal_transfer` + jurnal
@@ -126,7 +126,7 @@ harian/berulang/retroaktif; `?sumberTipe=&sumberId=` = jurnal suatu sumber), `/j
 ## 10. Seed demo
 `seedM11AccountingDefaults` SELALU (juga DB uji): akun 6-9301/6-9302 + pemetaan wajib yang belum ada di seed inti
 (`m11.allocation`, `m11.asset_disposal`, `m11.opening_balance`, selisih setoran depot/toko) — melempar galat bila masih
-ada pemetaan wajib yang tidak tertutup. Data transaksi demo (dev/E2E saja): 8 jurnal `JD-YYMM-NNNNN` bulan berjalan
+ada pemetaan wajib yang tidak tertutup. Data transaksi demo (dev/E2E saja): 8 jurnal `JD-YYMM-NNNNNN` bulan berjalan
 (rit tunai/tempo, setoran, penjualan depot & toko + HPP, pasokan air internal, listrik L1 bertinjauan pemilik, setor
 bank), jurnal berulang sewa kantor (K15), 2 aset tetap (truk T1, peralatan D01).
 
@@ -248,3 +248,14 @@ Untuk paket B (B-65): `trip.completed` rit prabayar digital membawa `prepaidAmou
   penerimaan setoran demo mengembalikan saldo ke 0 dan rekonsiliasi kas sopir (saldo sistem wajib 0) dapat nol di P-07.
   Uji `tests/m11-accounting/demo-seed-driver-cash.test.ts`.
 - Uji: `tests/m11-accounting/audit-s5b.test.ts`.
+
+## 14. v1.0.1 — nomor jurnal 6 digit (tim X, D-14 butir 1, B-87)
+
+- Nomor jurnal `J-YYMM-NNNNNN` (inti `DOC_TYPES.journal.digits = 6`; kapasitas 999.999/bulan/tenant). Nomor 5 digit yang
+  sudah terbit tidak diubah; penghitung bulan berjalan dilanjutkan (`J-2610-01234` → `J-2610-001235`).
+- Urutan menurut nomor memakai `docNumberOrder(journals.number)` (tambahan inti `numbering.ts`: panjang lalu teks) di
+  buku besar (`computeLedger`, termasuk saldo berjalan & paginasi), daftar tinjauan pemilik (`ownerReviewList`) dan
+  ekspor templat pajak (`templateRows`) — bulan peralihan tetap urut terbit; nomor sepanjang sama = urutan lama.
+- Seed demo `JD-YYMM-NNNNNN` (6 digit, di luar urutan resmi). Fixture uji (`tests/helpers/db-fixtures.ts`) memakai `JU-`.
+- Uji: `tests/m11-accounting/journal-number.test.ts` (`US-M11-02 KP-1 D-14 …` jurnal otomatis ke-100.000;
+  `US-M11-04 KP-1 D-14 …` buku besar bulan peralihan), `tests/core/numbering.test.ts` (`D-14 B-87 …`).

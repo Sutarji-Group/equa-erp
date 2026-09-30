@@ -464,14 +464,20 @@ export function sumCash(list: readonly CashFigures[]): CashFigures {
 // =====================================================================================================================
 
 /** Batas tindak lanjut selisih (jam) dari aturan kas M4 — dasar KPI-03. */
-export async function discrepancyFollowUpHours(tx: Tx, tenantId: string, date: BusinessDate): Promise<number> {
-  const rules = await params.get(tx, "m4.cash_rules", date, { tenantId });
+export async function discrepancyFollowUpHours(tx: Tx, tenantId: string, date: BusinessDate, opts: { cache?: params.ParamCache } = {}): Promise<number> {
+  const rules = opts.cache ? await opts.cache.get("m4.cash_rules", date, { tenantId }) : await params.get(tx, "m4.cash_rules", date, { tenantId });
   return Number((rules as { discrepancy_follow_up_hours?: number }).discrepancy_follow_up_hours ?? 24);
 }
 
 /** Selisih yang menunggu keputusan pemilik (≥ ambang / pengunci rit) — aksi satu ketuk H+0 & kotak masuk. */
-export async function discrepanciesAwaitingOwner(tx: Tx, tenantId: string, now: Date, filter: { date?: BusinessDate | null } = {}): Promise<DiscrepancyAwaiting[]> {
-  const hours = await discrepancyFollowUpHours(tx, tenantId, toBusinessDate(now));
+export async function discrepanciesAwaitingOwner(
+  tx: Tx,
+  tenantId: string,
+  now: Date,
+  filter: { date?: BusinessDate | null } = {},
+  opts: { cache?: params.ParamCache } = {},
+): Promise<DiscrepancyAwaiting[]> {
+  const hours = await discrepancyFollowUpHours(tx, tenantId, toBusinessDate(now), opts);
   const conds = [
     eq(discrepancies.tenantId, tenantId),
     eq(discrepancies.requiresOwnerDecision, true),
@@ -507,13 +513,21 @@ export async function discrepanciesAwaitingOwner(tx: Tx, tenantId: string, now: 
  * MENUNGGU keputusan pemilik saat ini, rit gagal, kejadian GPS (ringkasan H+0 M12 per hari), susut air, utilisasi
  * sumber > PAR-19 (M8), produksi belum lengkap, transfer belum dicocokkan.
  */
-export async function exceptionsForRange(tx: Tx, tenantId: string, from: BusinessDate, to: BusinessDate, now: Date, unmatchedTransfers: number): Promise<ExceptionFigures> {
+export async function exceptionsForRange(
+  tx: Tx,
+  tenantId: string,
+  from: BusinessDate,
+  to: BusinessDate,
+  now: Date,
+  unmatchedTransfers: number,
+  opts: { cache?: params.ParamCache } = {},
+): Promise<ExceptionFigures> {
   const approvals = await tx
     .select({ deadlineAt: approvalRequests.deadlineAt, overdueAt: approvalRequests.overdueAt, type: approvalRequests.type })
     .from(approvalRequests)
     .where(and(eq(approvalRequests.tenantId, tenantId), eq(approvalRequests.status, "submitted"), eq(approvalRequests.approverRole, "owner")));
   const approvalsOverdue = approvals.filter((a) => a.overdueAt || (a.deadlineAt && a.deadlineAt <= now)).length;
-  const discs = await discrepanciesAwaitingOwner(tx, tenantId, now);
+  const discs = await discrepanciesAwaitingOwner(tx, tenantId, now, {}, { cache: opts.cache });
   const failed = await tx
     .select({ id: trips.id, number: trips.number, truckCode: trucks.code, customerName: customers.name, reason: trips.failReason })
     .from(trips)
@@ -523,8 +537,9 @@ export async function exceptionsForRange(tx: Tx, tenantId: string, from: Busines
     .orderBy(asc(trips.number));
   const fleet: ExceptionFigures["fleet"] = { offSchedule: 0, unknownStops: 0, deviationsL2: 0, inconsistent: 0, geofenceFlags: 0, awaitingReview: 0, unexplained: 0, deviceOutages: [] };
   const outages = new Map<string, number>();
-  for (const d of datesInRange(from, to)) {
-    const f = await m12.fleetDaySummary(tx, tenantId, d, now);
+  // v1.0.1 (D-14 butir 4, B-90): ringkasan armada versi rentang — kueri tetap per rentang (sebelumnya ±16 kueri per
+  // hari, 412 di antaranya pembacaan parameter pada rentang sebulan). Per tanggal identik dengan `fleetDaySummary`.
+  for (const f of await m12.fleetRangeSummary(tx, tenantId, from, to, now, { cache: opts.cache })) {
     fleet.offSchedule += f.counts.offSchedule;
     fleet.unknownStops += f.counts.unknownStops;
     fleet.deviationsL2 += f.counts.deviationsL2;

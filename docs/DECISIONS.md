@@ -87,8 +87,11 @@ Tanggal baseline: 27 September 2026.
 
 ## D-04 Konvensi produk yang diputuskan
 - **Nomor dokumen** (PTB-14 diperluas): Pesanan `P-YY-NNNNNN`; rit `P-YY-NNNNNN/n`; Faktur `F-YY-NNNNNN`; Nota kredit
-  `NK-YY-NNNNNN`; Transaksi POS `{kodeOutlet}-YYMMDD-NNNN`; Setoran `S-YY-NNNNNN`; Jurnal `J-YYMM-NNNNN`; Persetujuan
+  `NK-YY-NNNNNN`; Transaksi POS `{kodeOutlet}-YYMMDD-NNNN`; Setoran `S-YY-NNNNNN`; Jurnal `J-YYMM-NNNNNN`; Persetujuan
   `A-YY-NNNNNN`; Nota pembelian internal `NB-YY-NNNNNN`; Transfer internal `TI-YY-NNNNN`. YY = tahun 2 digit WIB.
+  *Diubah D-14 (v1.0.1, B-87):* jurnal semula `J-YYMM-NNNNN` (5 digit, 99.999/bulan/tenant) menjadi 6 digit (999.999).
+  Nomor 5 digit yang sudah terbit tidak diubah; penghitung bulan berjalan dilanjutkan (mis. `J-2610-01234` →
+  `J-2610-001235`); daftar & buku besar diurutkan menurut urutan terbit (`docNumberOrder`, panjang lalu teks).
 - **Identitas usaha** pada struk/faktur: parameter `company.identity` (bawaan nama usaha "EQUA"; diganti identitas PT setelah PT berdiri, Bab 2.3).
 - **Bahasa**: seluruh teks antarmuka Bahasa Indonesia dengan istilah lapangan (rit, setor, tempo, galon, tutup kas, tutup shift).
 - **Zona waktu**: WIB (Asia/Jakarta). Tanggal bisnis = tanggal WIB saat dicatat di perangkat (Bab 5.3).

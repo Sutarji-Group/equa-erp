@@ -197,3 +197,16 @@ agar jejak selaras dengan kejadian demo `off_schedule_trip` T4. Uji seed gabunga
   memanggil `stopPhoneTracking` saat umpan pulih.
 - `purgeExpiredPositions` kini juga dipanggil job retensi M10 (satu jalur hapus GPS yang memastikan ringkasan).
 - Uji: `tests/m12-fleet/devices.test.ts` (gangguan vendor: pelacakan ponsel hidup lalu berhenti).
+
+## 12. v1.0.1 — ringkasan armada versi rentang (tim X, D-14 butir 4, B-90 sebagian)
+
+- **`fleetRangeSummary(tx, tenantId, from, to, now, opts?: { cache })`** (diekspor index): satu `FleetDaySummary` per
+  tanggal `from..to` (naik; `[]` bila `from > to`), IDENTIK dengan `fleetDaySummary(tx, tenantId, d, now)` per tanggal.
+  Kueri per rentang: kejadian (1), truk (1), perangkat mati (1, `deviceOutageMinutesForRange`) + 13 parameter lewat
+  `params.cached(tx)` — sebelumnya ±16 kueri per hari. Penyusun murni bersama `summarizeFleetDay` dipakai kedua versi.
+- `deviceOutageMinutesForRange(tx, truckIds, dates, now)` (diekspor): satu kueri kejadian `device_offline`/
+  `device_unplugged` yang beririsan dengan rentang, lalu menit per tanggal dengan saringan & pembulatan yang sama dengan
+  `deviceOutageMinutesOn` (yang kini memakai pembantu yang sama).
+- `m12Rules(tx, date, tenantId, opts?: { cache?: params.ParamCache })` — cache opsional; tanpa cache perilaku lama.
+- Urutan kejadian H+0 kini `startedAt, id` (seri berwaktu sama deterministik; sebelumnya urutan seri tidak ditentukan).
+- Uji: `tests/m12-fleet/range-summary.test.ts` (`US-M12-08 KP-2 US-M12-05 KP-4 D-14 …`).

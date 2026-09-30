@@ -265,7 +265,8 @@ export async function createJournalFixture(
   ];
   const debit = lines.reduce((s, l) => s + (l.debit ?? 0), 0);
   const credit = lines.reduce((s, l) => s + (l.credit ?? 0), 0);
-  const number = `J-2609-${String(uniqueSeq()).padStart(6, "0")}`;
+  // Awalan uji `JU-` (bukan `J-`): sejak D-14 nomor resmi juga 6 digit, jadi `J-2609-000001` dapat bertabrakan dengan `nextNumber`.
+  const number = `JU-2609-${String(uniqueSeq()).padStart(6, "0")}`;
   const insert = async (tx: DbOrTx) => {
     const [journal] = await tx
       .insert(journals)

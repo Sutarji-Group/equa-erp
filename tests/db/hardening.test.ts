@@ -462,7 +462,7 @@ describe("US-M11-02 KP-3 / BR-32 / US-M11-09 penjaga jurnal", () => {
     await expectSqlState(
       t.db.insert(journals).values({
         tenantId: EQUA_TENANT_ID,
-        number: `J-2609-${String(uniqueSeq()).padStart(6, "0")}`,
+        number: `JU-2609-${String(uniqueSeq()).padStart(6, "0")}`,
         kind: "manual",
         status: "posted",
         journalDate: "2026-09-15",

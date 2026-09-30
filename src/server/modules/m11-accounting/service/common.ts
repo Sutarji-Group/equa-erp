@@ -1,7 +1,7 @@
 /**
  * M11 — pembantu bersama layanan akuntansi: periode, akun, cut-over, tenant pembukuan, penomoran jurnal, sisipan jurnal
  * terposting non-otomatis (pembalik, penyusutan, alokasi, saldo awal) dengan aturan yang SAMA dengan `postJournal`
- * (seimbang, akun aktif, periode terbuka pertama + asal periode, penomoran `J-YYMM-NNNNN`).
+ * (seimbang, akun aktif, periode terbuka pertama + asal periode, penomoran `J-YYMM-NNNNNN`).
  */
 import "server-only";
 

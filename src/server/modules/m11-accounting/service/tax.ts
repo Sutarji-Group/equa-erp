@@ -27,6 +27,7 @@ import { getDb, withTx, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { renderCsv, renderExcel, renderPdf, type RenderColumn, type ReportColumnType } from "@/server/core/export";
 import { notify } from "@/server/core/notifications";
+import { docNumberOrder } from "@/server/core/numbering";
 import * as params from "@/server/core/params";
 import { authorize, authorizeAny, runService } from "@/server/core/rbac";
 
@@ -349,7 +350,7 @@ async function templateRows(tx: Tx, ctx: ActorContext, target: "journals" | "led
       .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
       .innerJoin(accountingPeriods, eq(accountingPeriods.id, journals.periodId))
       .where(and(eq(journals.tenantId, ctx.tenantId), eq(journals.status, "posted"), eq(accountingPeriods.period, period)))
-      .orderBy(asc(journals.journalDate), asc(journals.number), asc(journalLines.lineNo));
+      .orderBy(asc(journals.journalDate), ...docNumberOrder(journals.number), asc(journalLines.lineNo));
     return rows.map(({ j, l, a, period: p }) => ({
       journalDate: j.journalDate,
       period: p,

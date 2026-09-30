@@ -162,6 +162,7 @@ export async function setMinAppVersion(ctx: ActorContext, input: z.input<typeof 
             createdBy: ctx.userId,
           })
           .returning();
+    params.invalidateParamCaches(); // v1.0.1: cache pembacaan parameter (params.cached) tidak memakai nilai lama
     await auditRecord(tx, {
       ctx,
       objectType: "parameter",

@@ -2,7 +2,7 @@
  * Jurnal otomatis M11 untuk data uji beban — "templat dari layanan, replikasi massal":
  *
  * 1. Kemunculan PERTAMA setiap varian peristiwa (jenis event × pola entri × dimensi outlet/truk) diproses MESIN M11 ASLI
- *    (`processEvent` → pemetaan akun, pusat laba, penomoran `J-YYMM-NNNNN`, periode, `postJournal`) atas event domain
+ *    (`processEvent` → pemetaan akun, pusat laba, penomoran `J-YYMM-NNNNNN`, periode, `postJournal`) atas event domain
  *    sungguhan yang sudah tersimpan.
  * 2. Kemunculan berikutnya menyalin baris jurnal templat itu (akun, pusat laba, outlet, truk, memo) dengan nilai entri
  *    peristiwa tersebut; nomor jurnal melanjutkan urutan bulan yang sama (`document_sequences` disinkronkan sebelum &
@@ -18,6 +18,7 @@ import { documentSequences, domainEvents, journalLines, journals } from "@/db/sc
 import { newId } from "@/lib/ids";
 import { monthOf, type BusinessDate } from "@/lib/time";
 import type { DomainEvent } from "@/server/core/events";
+import { formatDocNumber } from "@/server/core/numbering";
 import { processEvent } from "@/server/modules/m11-accounting/service/engine";
 
 type TemplateLine = Omit<typeof journalLines.$inferInsert, "id" | "journalId" | "debit" | "credit">;
@@ -89,8 +90,8 @@ export class JournalFactory {
     if (!this.counters.has(scope)) this.counters.set(scope, await this.readCounter(tx, scope));
     const n = this.counters.get(scope)! + 1;
     this.counters.set(scope, n);
-    // Format sama dengan core/numbering (5 digit minimum; lebih dari 99.999/bulan tetap unik — lihat uji-beban.md §Kapasitas).
-    return `J-${scope}-${String(n).padStart(5, "0")}`;
+    // Format dari core/numbering (`J-YYMM-NNNNNN`, D-14) — melempar SEQUENCE_EXHAUSTED persis seperti layanan.
+    return formatDocNumber("journal", n, date);
   }
 
   /**
