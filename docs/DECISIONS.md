@@ -206,3 +206,20 @@ Tanggal baseline: 27 September 2026.
 4. **Pemantau uptime (B-85):** secret/variabel repositori (`APP_URL`, `CRON_SECRET`, `ALERT_WEBHOOK_URL` atau
    `RESEND_API_KEY` + `ALERT_EMAIL_TO`) masuk daftar periksa deploy S5-C.
 5. Hasil audit S5-B (`docs/qa/audit-s5.md`): 78 temuan, 77 diperbaiki, 0 ditolak, 1 diputuskan (butir 1). DITERIMA.
+
+## D-14 Keputusan PM atas hasil uji beban S5-C → rilis perbaikan v1.0.1 (30 Sep 2026)
+1. **Nomor jurnal (B-87):** format jurnal diubah menjadi `J-YYMM-NNNNNN` (6 digit, kapasitas 999.999/bulan/tenant ≈ 40×
+   volume saat ini). Satu jurnal per transaksi POS dipertahankan (jejak per transaksi lebih penting daripada ringkas).
+   Perubahan `DOC_TYPES` (berkas bersama) DIIZINKAN PM; nomor yang sudah terbit tidak diubah. D-04 diperbarui.
+2. **Kuota sopir NFR-17 (B-88):** bawaan PAR-38 menjadi **150 KB** dengan sisi panjang foto 1.280 px (masih dalam batas
+   PRD "≤ 300 KB"); klien membaca PAR-38 dari server. Pull latar **tiap 5 menit bila outbox kosong** (dalam batas PAR-30
+   "≤ 5 menit"); push tetap segera saat ada antrean, dan pull segera setelah push berhasil atau saat aplikasi kembali
+   aktif. Target perkiraan ≤ 40 MB/bulan; pengukuran nyata di pilot (NFR-17 kolom verifikasi).
+3. **Pull POS (B-89):** protokol pull mendukung respons bersyarat (kursor/versi per penyedia): penyedia yang datanya tidak
+   berubah sejak kursor klien mengembalikan "tidak berubah" tanpa isi; penjualan shift terbuka dikirim sebagai delta.
+   Perubahan protokol sinkron inti DIIZINKAN PM (kompatibel mundur dengan klien lama).
+4. **Rentang H+0 (sebagian B-90):** kurangi kueri berulang — ringkasan armada M12 versi rentang + cache parameter per
+   permintaan/transaksi (tambahan inti, hanya tambah). Pengukuran Neon & render halaman produksi tetap UAT staging.
+5. **Rilis v1.0.1** = butir 1–4 + cek penuh (Vitest, build, seluruh E2E + skenario, trace, alur rilis bersih).
+6. **Berkas `/rilis-server.pid`** (6 bita, sisa pemeriksaan alur rilis di akar sistem berkas kontainer) tidak berbahaya;
+   penghapusan di luar repo diblokir pengaman — dibiarkan (kontainer sementara).
