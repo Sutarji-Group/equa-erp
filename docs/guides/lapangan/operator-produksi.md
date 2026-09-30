@@ -25,7 +25,8 @@ mengembalikan dengan catatan.
 penanggung jawab, tenggat) · **Riwayat**.
 
 **Status data.** *Tersimpan di ponsel* → *Terkirim* sendiri saat sinyal kembali (**Semua terkirim**). Jangan hapus
-aplikasi/data peramban sebelum semua terkirim. Muncul **Perbarui aplikasi** → muat ulang dulu.
+aplikasi/data peramban sebelum semua terkirim. Muncul **Perbarui aplikasi** → muat ulang dulu. **Data dari kantor** (jadwal isi truk, keputusan) masuk sendiri: segera setelah data Anda terkirim, saat aplikasi dibuka lagi, dan tiap
+±5 menit selama aplikasi terbuka. Perlu segera → ketuk pil status (**kirim sekarang**).
 
 **PIN:** salah 5× = terkunci 15 menit; lupa → minta admin sistem. **Kendala aplikasi:** **Bantuan → Laporkan kendala**
 (ada juga **Kirim sekarang**).

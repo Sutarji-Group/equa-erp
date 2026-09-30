@@ -31,7 +31,7 @@ IMPOR & API UTAMA (semua client component kecuali disebut):
 - Form: `const form = useZodForm(schema, {defaultValues})` lalu `<Form {...form}>` (dari @/components/ui/form) + FormFieldText/Textarea/Select(options: enumOptions('…'))/Money/Liter/Date/Checkbox(variant 'switch') {control, name, label, description?, required?}; FormSubmitButton {control}; galat server: form.setError('root',{message}) + <FormRootError control/>.
 - ConfirmWithReasonDialog {open?/onOpenChange?|trigger, title, description?, reasons?: {code,label}[] ('Lainnya'/otherCode 'other' ditambahkan otomatis, wajib teks), minLength?=3, confirmLabel?, destructive?, onConfirm({reasonCode, reasonText, reason}) (boleh async; Error.message ditampilkan)}.
 - StatusBadge {enumName (nama enum labels.ts), value, tone?, dot?}; peta nada STATUS_TONES (append saat enum baru). ToneBadge untuk status bebas. KpiTile {label, value, hint?, href?, hrefLabel?, unclosed?: boolean|string, tone?, icon?}. Timeline {items:{id,title,at,actor?,description?,status?:{enumName,value}}[]}. KeyValueList {items:{label,value,hint?,full?}[], columns?}. ExportButtons {excelHref?, pdfHref?, disabled?}. NotificationBell {count, items?, href?='/notifikasi', onOpenChange?, onMarkAllRead?}. ApprovalCountBadge {count, overdueCount?, href?='/persetujuan'}. MapView {markers?:{id,position:{lat,lng},label?,popup?,tone?}[], polylines?, circles?:{id,center,radiusM,tone?,label?}[], center?, zoom?, fitBounds?=true, height?, onMapClick?}; MapPicker {value, onValueChange, radiusM?}. Server-safe (tanpa 'use client'): PageHeader, EmptyState, SectionCard, KpiTile, KeyValueList, Timeline, StatusBadge, MoneyText, ExportButtons, ApprovalCountBadge, LoadingSkeletons, BigButton, FieldListItem, StepScreen, ShiftBadge.
-- Lapangan: BigButton {variant:'primary'|'danger'|'secondary'|'success'|'outline', size:'default'|'xl', icon?, hint?, loading?, asChild?}; PinPad {length?=6, onComplete(pin) (dikosongkan setelahnya; lempar/set error untuk salah), title?, description?, error?, disabled?}; NumericKeypad {onDigit, onBackspace, extraKey?:'clear'|'000'|null}; StepScreen {steps(≤3), current, title, description?, actions?}; PhotoCapture {onCapture({blob, previewUrl, width, height, sizeBytes, capturedAt}), onClear?, label?, compress?: {maxBytes (PAR-38)…}} — blob JPEG siap outbox; SignaturePad {ref: SignaturePadHandle{clear,isEmpty,toBlob():Promise<Blob|null>}, onChange(isEmpty)}; AmountConfirm {label, expected, unit?:'rupiah'|'liter', max?, maxMessage?, reasons?, onConfirm({amount, changed, reasonCode, reasonText, reason})}. Kompresi: `@/client/media/compress-image` → compressImage(file, opts), compressWithEncoder (murni), DEFAULT_MAX_PHOTO_BYTES=300 KB (ambil PAR-38 dari parameter bila ada).
+- Lapangan: BigButton {variant:'primary'|'danger'|'secondary'|'success'|'outline', size:'default'|'xl', icon?, hint?, loading?, asChild?}; PinPad {length?=6, onComplete(pin) (dikosongkan setelahnya; lempar/set error untuk salah), title?, description?, error?, disabled?}; NumericKeypad {onDigit, onBackspace, extraKey?:'clear'|'000'|null}; StepScreen {steps(≤3), current, title, description?, actions?}; PhotoCapture {onCapture({blob, previewUrl, width, height, sizeBytes, capturedAt}), onClear?, label?, compress?: {maxBytes (PAR-38)…}} — blob JPEG siap outbox; SignaturePad {ref: SignaturePadHandle{clear,isEmpty,toBlob():Promise<Blob|null>}, onChange(isEmpty)}; AmountConfirm {label, expected, unit?:'rupiah'|'liter', max?, maxMessage?, reasons?, onConfirm({amount, changed, reasonCode, reasonText, reason})}. Kompresi: `@/client/media/compress-image` → compressImage(file, opts), compressWithEncoder (murni), DEFAULT_MAX_PHOTO_BYTES = bawaan PAR-38 (150 KB & 1.280 px sejak v1.0.1; batas sebenarnya WAJIB dari PAR-38 — lihat bagian v1.0.1 tim Y).
 - Auth (presentasional): LoginForm {onSubmit({username,password}) → void|{error}|throw, error?, footer?}, TotpForm {onSubmit(code), onCancel?, userName?}, TotpEnrollCard {otpauthUrl, secret, qrDataUrl?, onVerify(code)}, DeviceActivationForm {onSubmit(code 8 char tanpa '-')}, FieldPinLogin {users:{id,name,roleLabel?}[], onLogin(userId,pin), lockedUntil?, deviceLabel?}, LockScreen {userName, onUnlock(pin), onSwitchUser?, lockedUntil?, pendingCount?}. Semua melempar/menampilkan Error.message sebagai pesan tindakan.
 - Demo visual (dev saja): pnpm dev → /ui-kit, /ui-kit/kantor, /ui-kit/lapangan, /ui-kit/pos, /ui-kit/auth. PIN demo 123456.
 - Konvensi lint React 19 (eslint-plugin-react-hooks v7): jangan panggil Date.now()/new Date() saat render (react-hooks/purity), jangan setState sinkron di effect, jangan akses ref saat render; jangan impor fungsi non-komponen dari modul 'use client' ke Server Component (taruh helper murni di berkas terpisah seperti badge-count.ts, pos/cart.ts, map/map-types.ts). Ikon lucide 1.x: pakai nama kanonik (LoaderCircle, CircleCheckBig, ChartColumn; bukan Loader2/CheckCircle2/BarChart3).
@@ -250,3 +250,53 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
   `/api/health/sync` (GET, tanpa autentikasi, cek DB) dan `/api/monitor/outage` (POST, Bearer `CRON_SECRET`). Berkas baru
   `src/db/mask.ts`, `scripts/db-mask.ts` (`pnpm db:mask`), `scripts/uptime-monitor.sh`; job `monitor` di
   `.github/workflows/cron.yml`.
+
+## v1.0.1 tim Y — kuota lapangan & pull bersyarat (D-14 butir 2–3, B-88/B-89) — perubahan inti (diizinkan PM, dilaporkan)
+
+**Protokol pull bersyarat v2** (`src/lib/pull-delta.ts` isomorfik + `src/server/core/sync/conditional.ts` baru):
+- Permintaan `GET /api/sync/pull?v=2&c.<kunci>=<kursor>…` (`pullCursorQuery` klien, `readPullCursors` di route). Tanpa
+  `v=2` → perilaku & respons v1 PERSIS (klien lama; `since` tetap dihormati). Dengan `v=2`, `since` DIABAIKAN: setiap
+  penyedia menerima `since: null`, hasilnya dihitung penuh lalu dibandingkan dengan kursor klien.
+- Kursor = sidik ISI (SHA-256 terpotong) data penyedia — bukan waktu perangkat/server — sehingga koreksi kantor, void,
+  pembalik, data terlambat sinkron pasti terkirim. Kunci tingkat atas `generatedAt` TIDAK ikut sidik (klien menyegarkannya
+  ke `serverTime` saat "tidak berubah").
+- `PullResponse` (tambahan opsional, hanya v2): `protocol: 2`, `cursors[kunci]` (kursor baru untuk data penuh/delta),
+  `unchanged: [kunci]` (tanpa isi), `patches[kunci] = { base?, cols: { <jalur>: { from, segs: [{copy:[awal,jumlah]} |
+  {items:[…]}], record? } } }`. `PullQuery` (`processPull(auth, { since?, keys?, cursors? })`) diekspor dari
+  `@/server/core/sync`, juga `versionOf`, `compareWithCursor`, tipe `PullCollections`.
+- `registerPullProvider(key, { roles?, fetch, collections? })` — TAMBAHAN `collections`: jalur bertitik ke larik/objek dalam
+  hasil `fetch` → ukuran ember sasaran (1 = per butir; 8–16 untuk daftar yang tumbuh). Koleksi dipotong ember berbatas isi;
+  delta = salin ember yang sama + kirim ember berubah (butir baru di ujung akhir/awal hanya mengirim butir baru). Jalur
+  tidak boleh bertumpuk. Terdaftar: `m6.pos` (`openShift.sales`, `openShift.openingStock`, `materials`, `recipes`,
+  `water`, `history`, `transfers`, `conflictShifts`), `m7.store` (penjualan terbaru-dulu, barang, pelanggan, …),
+  `m3.today` (`trips`, `payments`, `collections`, `expenses`, `invoicesByCustomer`, `notices`, …), `m2.schedule`
+  (`trips`, `revision`), `m1.catalog` (`products`).
+- ATURAN penyedia baru: hasil harus DETERMINISTIK untuk data yang sama (urutan stabil, tanpa nilai bergantung jam kecuali
+  `generatedAt` tingkat atas) — bila tidak, penyedia itu selalu dikirim penuh (benar, tetapi boros). Daftar yang tumbuh
+  sepanjang hari → deklarasikan `collections`.
+
+**Klien** (`src/client/offline/`): `refs.cursor` (kursor disimpan bersama datanya, tanpa versi Dexie baru);
+`pull.ts` baru (`pullQueryString`, `applyPullResponse` — satu transaksi; delta tidak cocok → `PullPatchError` → kunci itu
+ditarik penuh sekali lagi); kursor waktu lama `meta pullCursor:<userId>` dihapus. `scheduler.ts` baru
+(`createSyncScheduler`, `idleIntervalFor(PAR-30)`, `IDLE_PULL_INTERVAL_MS` 5 menit, `BUSY_SYNC_INTERVAL_MS` 60 dtk,
+`VISIBLE_PULL_MIN_GAP_MS` 60 dtk) dipakai `startSyncWorker` (tanda tangan sama). `syncNow({ force?, pull? })` — `pull`
+bawaan `true` (perilaku lama); `"auto"` = pull bila ada yang terkirim/diunggah atau jeda idle terlewati. `SyncState.lastPullAt`
+baru. `params.ts` baru: `fieldOfflineParams()`, `fieldPhotoMaxKb()/fieldPhotoMaxBytes()` (PAR-38 dari pull),
+`syncMaxMinutesOf()`. `SYNC_INTERVAL_MS` tetap 60 dtk (= jeda sibuk).
+
+**Foto (B-88)**: `compress-image.ts` bawaan 150 KB (`DEFAULT_PHOTO_MAX_KB`), sisi 1.280 px (`DEFAULT_MAX_PHOTO_DIMENSION`),
+kualitas awal 0,7, `photoMaxBytes(kb)`. `PhotoCapture` tanpa `compress.maxBytes` → PAR-38 hasil pull (POS, toko, P3);
+M3/M8 tetap memakai `maxPhotoKb` dari data referensi modul. Kas kantor: `src/app/(office)/kas/layout.tsx` membaca PAR-38 →
+`CashPhotoLimitProvider`/`useCashPhotoMaxBytes` (`src/components/m4-cash/photo-limit.tsx`) → `prepareCashFormData`.
+Unggah formulir kantor lain (`UploadGuard`, 1 MB/2.400 px, D-10) TIDAK berubah.
+
+**Seed/parameter**: PAR-38 Lampiran B `{ max_kb: 150 }` (+ deskripsi). `CHANGED_DEFAULTS` + `upgradeChangedDefaults(tx, today)`
+(`src/db/seed/{parameters,index}.ts`): DB yang di-seed versi lama dengan nilai bawaan lama (baris seed, belum diubah
+pemilik, tanpa jadwal ke depan) mendapat versi global baru berlaku `today` — dipanggil `seedBaseSettings(tx, { today })`,
+jadi juga `pnpm db:seed:prod` (`seedProductionReference(tx, { now })`). `params-registry.ts` tidak berubah (nilai bawaan
+registri berasal dari seed).
+
+**Uji & alat**: `tests/helpers/field.ts` `pull(owner, PullQuery)` (v2: `{ cursors: {} }`); uji baru
+`tests/lib/pull-delta.test.ts`, `tests/core/sync-conditional.test.ts`, `tests/client/{conditional-pull,sync-scheduler}.test.ts`,
+`tests/client/photo-limit.test.tsx`; `scripts/perf/measure.ts` kasus `sync.pull_*_v2_*`. Hasil & perkiraan kuota:
+`docs/qa/uji-beban.md` §10.

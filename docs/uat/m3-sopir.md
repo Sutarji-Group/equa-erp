@@ -199,7 +199,7 @@ Cara mengisi: centang **Lulus** atau **Gagal** per KP; setiap Gagal dicatat di t
 | Rujukan | Uji | Lulus | Gagal | Catatan |
 |---|---|:-:|:-:|---|
 | B-19 / NFR-18 | Ukuran teks ≥ 16 pt & kontras terbaca di bawah sinar matahari langsung oleh sopir (tanpa kacamata baca). | ☐ | ☐ |  |
-| B-19 | Kamera nyata ponsel truk: foto bukti kirim & nota ≤ 300 KB setelah kompresi (PAR-38), tetap terbaca. | ☐ | ☐ |  |
+| B-19 | Kamera nyata ponsel truk: foto bukti kirim & nota ≤ PAR-38 (bawaan 150 KB, sisi 1.280 px) setelah kompresi, tetap terbaca. | ☐ | ☐ |  |
 | B-19 / NFR-06 | Rute Cianjur tanpa sinyal: satu hari penuh rit (≥ 24 jam mode pesawat untuk uji UI) → semua transaksi terkirim, jumlah & nilai = server. | ☐ | ☐ |  |
 | NFR-07 | Uji putus-sambung 50× (matikan/nyalakan data) → 0 transaksi hilang/dobel (cocokkan jumlah & nilai). | ☐ | ☐ |  |
 | NFR-08 | Sopir baru dapat menyebutkan status item (tersimpan vs terkirim) tanpa dibantu. | ☐ | ☐ |  |
