@@ -1015,6 +1015,56 @@ export const PARAM_REGISTRY = {
         "Sesi pelanggan 30 hari dengan verifikasi ulang OTP untuk pembayaran, pembatasan permintaan OTP, ambang kemiripan nama saat menautkan nomor WA ke pelanggan lama, jangkauan tanggal pemesanan, riwayat 24 bulan, pengingat isi ulang H-2, dan nomor telepon kantor untuk tombol \"Hubungi kantor\".",
     },
   }),
+  /** (Tambahan S5-B) Target ketersediaan bulanan pada jam layanan (NFR-02) — laporan uptime bulanan. */
+  "monitoring.availability_target": defineParam({
+    schema: z.object({ pct: z.number().min(90).max(100) }).strict(),
+    affectedRoles: ["system_admin", "owner"],
+    fallback: { pct: 99.5 },
+    meta: {
+      name: "Target ketersediaan layanan per bulan (jam layanan)",
+      unit: "%",
+      reference: "NFR-02",
+      description: "Ketersediaan API sinkron dan web kantor pada jam layanan PAR-07; laporan uptime bulanan menandai layanan di bawah target.",
+    },
+  }),
+  /** (Tambahan S5-B) Retensi pendek data aplikasi pelanggan yang memuat nomor WA (NFR-12, US-M10-06 KP-3). */
+  "p2.data_retention": defineParam({
+    schema: z
+      .object({
+        /** Kode OTP (termasuk nomor tujuan) dihapus setelah N hari. */
+        otp_days: int(1),
+        /** Nomor lama/baru pada permintaan ganti nomor disamarkan setelah N hari. */
+        phone_change_days: int(1),
+      })
+      .strict(),
+    affectedRoles: ["system_admin"],
+    fallback: { otp_days: 30, phone_change_days: 90 },
+    meta: {
+      name: "Retensi data aplikasi pelanggan (kode OTP, permintaan ganti nomor)",
+      unit: "hari",
+      reference: "NFR-12, US-M10-06 KP-3, US-P2-01 KP-5",
+      description: "Kode verifikasi beserta nomor tujuannya dihapus, dan nomor pada permintaan ganti nomor disamarkan, setelah masa simpan pendek ini (job retensi harian).",
+    },
+  }),
+  /** (Tambahan S5-B) Batas penyalahgunaan permintaan OTP aplikasi pelanggan: per alamat IP & total per jam. */
+  "p2.otp_request_limits": defineParam({
+    schema: z
+      .object({
+        /** Permintaan kode dari satu alamat IP per jam (semua nomor). */
+        per_ip_per_hour: int(1),
+        /** Total permintaan kode seluruh aplikasi per jam (rem biaya pesan WA). */
+        global_per_hour: int(1),
+      })
+      .strict(),
+    affectedRoles: ["owner", "system_admin"],
+    fallback: { per_ip_per_hour: 20, global_per_hour: 500 },
+    meta: {
+      name: "Batas permintaan kode verifikasi (OTP) aplikasi pelanggan per IP & total",
+      unit: "permintaan per jam",
+      reference: "US-P2-01 KP-1, PAR-74, NFR-29",
+      description: "Mencegah pemindaian nomor dan tagihan pesan WhatsApp berlebih: permintaan kode dibatasi per alamat IP dan total seluruh aplikasi per jam, di samping batas per nomor.",
+    },
+  }),
   /** Pembayaran digital (PTB-50): biaya gerbang dibukukan sebagai beban; masa berlaku QRIS/VA. */
   "p2.payment_rules": defineParam({
     schema: z

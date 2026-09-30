@@ -6,6 +6,7 @@ import { customerId, employeeId, EQUA_TENANT_ID, truckId, userIdByUsername } fro
 import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
 import * as approvals from "@/server/core/approvals";
+import * as m12 from "@/server/modules/m12-fleet";
 import { ForbiddenError, NotFoundError } from "@/server/core/errors";
 import { exportReport, registerReport } from "@/server/core/export";
 import {
@@ -150,7 +151,11 @@ describe("US-M10-06 Data pribadi, retensi, dan pencadangan", () => {
     await t.db.insert(accessLogs).values({ tenantId: EQUA_TENANT_ID, event: "logout", occurredAt: new Date(Date.now() - 370 * 86_400_000) });
     const r = await runRetention(new Date());
     expect(r.policy).toMatchObject({ accessLogYears: 1, photoYears: 2, accountingYears: 10, gpsMonths: 12 });
-    expect(r.gpsPurged).toBe(1);
+    // B-42: posisi GPS mentah dimiliki M12 — M10 tidak menghapusnya; M12 memastikan ringkasan lalu menghapus.
+    expect(r.gpsPurged).toBe(0);
+    expect((await t.db.select().from(gpsPositions)).length).toBe(2);
+    const m12Purge = await m12.purgeExpiredPositions(new Date());
+    expect(m12Purge.purged).toBe(1);
     expect(r.accessLogsPurged).toBeGreaterThanOrEqual(1);
     expect(r.photosArchived).toBeGreaterThanOrEqual(1);
     const rows = await t.db.select().from(attachments).where(eq(attachments.id, photo!.id));

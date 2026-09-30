@@ -36,7 +36,7 @@ export async function generateRetroactiveJournals(ctx: ActorContext, input: z.in
     const today = ctxBusinessDate(ctx);
     const cutover = await currentCutover(tx, today);
     if (!cutover) throw new DomainError("CUTOVER_REQUIRED", "Tetapkan tanggal cut-over akuntansi (tanggal 1) dulu di Akuntansi > Saldo awal.");
-    if (!(await m11Active(tx, ctx.tenantId))) throw new DomainError("M11_INACTIVE", "Aktifkan jurnal otomatis M11 dulu (pemilik) setelah semua pemetaan lengkap.");
+    if (!(await m11Active(tx, ctx.tenantId, today))) throw new DomainError("M11_INACTIVE", "Aktifkan jurnal otomatis M11 dulu (pemilik) setelah semua pemetaan lengkap.");
     const from: BusinessDate = data.fromDate && data.fromDate > cutover ? data.fromDate : cutover;
     const [run] = await tx.insert(retroactiveRuns).values({ tenantId: ctx.tenantId, fromDate: from, toDate: today, startedBy: ctx.userId, startedAt: ctx.now }).returning();
     let afterSeq = 0;

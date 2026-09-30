@@ -18,6 +18,7 @@ import { tripIncidents, tripStatusEvents, trips } from "@/db/schema";
 import { haversineMeters, isValidLatLng } from "@/lib/geo";
 import { label } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
+import { formatUnderpaymentReason } from "@/lib/reasons";
 import { toBusinessDate } from "@/lib/time";
 
 import { record as auditRecord } from "@/server/core/audit";
@@ -479,7 +480,7 @@ export async function completeTrip(ctx: ActorContext, input: unknown, meta: M3Wr
       event: "trip.underpayment",
       tenantId: trip.tenantId,
       title: `Kurang bayar ${formatRupiah(pay.underpayment)}: ${tc.customer.name}`,
-      body: `Rit ${trip.number} — diterima ${formatRupiah(pay.received)} dari ${formatRupiah(pay.expected)}. ${pay.underpaymentReason ?? ""} Faktur kurang bayar jatuh tempo hari ini (PTB-18).`.trim(),
+      body: `Rit ${trip.number} — diterima ${formatRupiah(pay.received)} dari ${formatRupiah(pay.expected)}. ${formatUnderpaymentReason(pay.underpaymentReason)} Faktur kurang bayar jatuh tempo hari ini (PTB-18).`.trim(),
       objectType: "trip",
       objectId: trip.id,
       valueAmount: pay.underpayment,

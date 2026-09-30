@@ -51,6 +51,8 @@ describe("M11 tutup & kunci periode (US-M11-10) + laporan Sementara/Final (US-M1
     await setPeriod(t.db, PREV2, "open");
     await setPeriod(t.db, PREV, "open");
     await setPeriod(t.db, THIS_PERIOD, "open");
+    // Pemilik mengaktifkan M11 setelah pemetaan lengkap (US-M11-01 KP-2): pemetaan yang kelak hilang → daftar tunggu.
+    await m11.setAccountingActive(owner(), { enabled: true, reason: "Pemetaan wajib lengkap (uji)" });
   });
 
   it("US-M11-10 KP-2 pengingat tanggal 5 & 8 (PAR-71) bila periode lalu belum ditutup; lewat tanggal 10 → pengingat terlambat", async () => {

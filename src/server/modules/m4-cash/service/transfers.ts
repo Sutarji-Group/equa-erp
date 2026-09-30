@@ -33,6 +33,7 @@ import { label, type EnumValue } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { daysBetween, formatTanggal, toBusinessDate, type BusinessDate } from "@/lib/time";
 
+import * as approvals from "@/server/core/approvals";
 import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core/context";
 import { getDb, withTx, type Db, type Tx } from "@/server/core/db";
@@ -45,7 +46,7 @@ import { linkAttachment } from "@/server/core/storage";
 import { confirmMatchesSchema, importStatementSchema, markStatementLineSchema, matchTransferSchema } from "../schemas";
 import { cashRules, type DiscrepancyReason } from "./common";
 import { receiveDepositCore } from "./deposits";
-import { parseStatement } from "./statement-parse";
+import { parseStatement, StatementFormatError } from "./statement-parse";
 
 export type IncomingTransferRow = typeof incomingTransfers.$inferSelect;
 export type StatementLineRow = typeof bankStatementLines.$inferSelect;
@@ -291,6 +292,7 @@ async function matchCore(tx: Tx, ctx: ActorContext, transferId: string, ref: Mat
       .update(bankDeposits)
       .set({ status: "matched", matchedAt: ctx.now, matchedBy: ctx.userId, bankStatementLineId: ref.line?.id ?? null, updatedAt: ctx.now })
       .where(eq(bankDeposits.id, t.sourceObjectId));
+    await cancelOpenBankDepositCorrections(tx, ctx, t.tenantId, t.sourceObjectId);
   }
   await emit(
     tx,
@@ -309,6 +311,28 @@ async function matchCore(tx: Tx, ctx: ActorContext, transferId: string, ref: Mat
   );
   await markActionedForObject(tx, { objectType: "incoming_transfer", objectId: t.id, now: ctx.now });
   return row!;
+}
+
+/**
+ * Setor bank terbukti di mutasi → permintaan pembalik (`correction`, BR-38) yang masih menunggu keputusan pemilik
+ * dibatalkan: uang sudah di bank, sehingga kas kantor tidak boleh dikembalikan (US-M4-04 KP-2, US-M4-05 KP-1).
+ */
+async function cancelOpenBankDepositCorrections(tx: Tx, ctx: ActorContext, tenantId: string, bankDepositId: string): Promise<void> {
+  const open = (await approvals.listForObject(tx, "bank_deposit", bankDepositId)).filter((a) => a.type === "correction" && a.status === "submitted");
+  for (const req of open) {
+    await approvals.cancel(systemContext({ tenantId, now: ctx.now }), req.id, "Setor bank sudah cocok dengan mutasi rekening — pembalik tidak berlaku.", { tx });
+    await notify(tx, {
+      event: "approval.decided",
+      tenantId,
+      recipients: { userIds: [req.requesterUserId] },
+      title: `Pembalik setor bank ${req.number} dibatalkan otomatis`,
+      body: "Setor bank itu sudah cocok dengan mutasi rekening (uang terbukti masuk bank). Bila memang keliru, koreksi lewat jurnal manual Akuntansi.",
+      objectType: "bank_deposit",
+      objectId: bankDepositId,
+      link: "/kas/kantor",
+      now: ctx.now,
+    });
+  }
 }
 
 /** Cocokkan manual dengan referensi mutasi internet banking (US-M4-04 KP-2). */
@@ -364,7 +388,10 @@ export async function importBankStatement(ctx: ActorContext, input: unknown, opt
   try {
     parsed = await parseStatement(data.fileName, data.content, { year: Number(today.slice(0, 4)) });
   } catch (error) {
-    throw new DomainError("STATEMENT_UNREADABLE", error instanceof Error ? error.message : "Berkas mutasi tidak dapat dibaca.");
+    throw new DomainError(
+      "STATEMENT_UNREADABLE",
+      error instanceof StatementFormatError ? error.message : "Berkas mutasi tidak dapat dibaca. Unduh ulang mutasi sebagai CSV atau .xlsx dari internet banking lalu unggah lagi.",
+    );
   }
   if (!parsed.lines.length) throw new DomainError("STATEMENT_EMPTY", "Tidak ada baris mutasi yang terbaca. Periksa format berkas (Tanggal, Keterangan, Jumlah/Kredit).");
   return runService(ctx, opts, async (tx) => {

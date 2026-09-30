@@ -64,7 +64,7 @@ export default async function NewJournalPage({ searchParams }: { searchParams: S
             <FormInput label="Periode asal (koreksi periode terkunci)" name="originPeriod" placeholder="YYYY-MM" hint="Isi bila mengoreksi transaksi periode Dikunci (FR-M11-10)." />
           </div>
           <FormTextarea label="Keterangan" name="description" required defaultValue={tpl ? tpl.label : ""} />
-          <JournalLinesInput accounts={options.accounts} outlets={options.outlets} rows={6} defaults={defaults} testId="baris-jurnal" />
+          <JournalLinesInput accounts={options.accounts} outlets={options.outlets} waterSources={options.waterSources} rows={6} defaults={defaults} testId="baris-jurnal" />
           <div className="flex flex-wrap gap-6">
             <FormCheckbox name="isAccrual" label="Jurnal akrual" hint="Dibalik otomatis tanggal 1 periode berikutnya (P-07 langkah 3)." />
             <FormCheckbox name="submitNow" label="Ajukan/posting sekarang" hint="Tanpa centang: disimpan sebagai draf." defaultChecked />

@@ -33,7 +33,6 @@ import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core
 import { getDb, withTx, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { exportReport, type ExportResult } from "@/server/core/export";
-import { isEnabled } from "@/server/core/flags";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize } from "@/server/core/rbac";
@@ -133,7 +132,7 @@ async function periodOf(tx: Tx, tenantId: string, month: string) {
 // Perhitungan dari jurnal M11
 // =====================================================================================================================
 
-type AccountAgg = { profitCenter: ProfitCenter; accountId: string; code: string; name: string; type: string; internal: boolean; debit: number; credit: number };
+type AccountAgg = { profitCenter: ProfitCenter; accountId: string; code: string; name: string; type: string; internal: boolean; internalSource: boolean; debit: number; credit: number };
 
 async function accountAggregates(tx: Tx, tenantId: string, periodId: string): Promise<AccountAgg[]> {
   const rows = await tx
@@ -144,6 +143,12 @@ async function accountAggregates(tx: Tx, tenantId: string, periodId: string): Pr
       name: accounts.name,
       type: accounts.type,
       internal: accounts.isInternalTransfer,
+      // Satu definisi dengan konsolidasi M11: baris jurnal dari transfer internal (mis. HPP toko atas barang yang
+      // dikirim ke depot) dieliminasi walau akunnya bukan akun internal (US-M9-02 KP-2, BR-33).
+      internalSource: sql<boolean>`coalesce(${journals.sourceType} in (${sql.join(
+        [...m11.INTERNAL_TRANSFER_SOURCES].map((x) => sql`${x}`),
+        sql`, `,
+      )}), false)`,
       debit: sql<string>`coalesce(sum(${journalLines.debit}), 0)`,
       credit: sql<string>`coalesce(sum(${journalLines.credit}), 0)`,
     })
@@ -151,8 +156,8 @@ async function accountAggregates(tx: Tx, tenantId: string, periodId: string): Pr
     .innerJoin(journals, eq(journals.id, journalLines.journalId))
     .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
     .where(and(eq(journals.tenantId, tenantId), eq(journals.status, "posted"), eq(journals.periodId, periodId), inArray(accounts.type, ["revenue", "expense"])))
-    .groupBy(journalLines.profitCenter, accounts.id, accounts.code, accounts.name, accounts.type, accounts.isInternalTransfer);
-  return rows.map((r) => ({ ...r, profitCenter: r.profitCenter as ProfitCenter, debit: Number(r.debit), credit: Number(r.credit) }));
+    .groupBy(journalLines.profitCenter, accounts.id, accounts.code, accounts.name, accounts.type, accounts.isInternalTransfer, sql`7`);
+  return rows.map((r) => ({ ...r, internalSource: Boolean(r.internalSource), profitCenter: r.profitCenter as ProfitCenter, debit: Number(r.debit), credit: Number(r.credit) }));
 }
 
 /** Klasifikasi akun: pendapatan / biaya langsung (`5-`) / beban operasional. */
@@ -178,16 +183,21 @@ function finishLines(map: Map<ProfitCenter, MonthlyLine>): MonthlyFigures["lines
   return [...map.values()];
 }
 
-function consolidate(lines: MonthlyLine[]): MonthlyFigures["consolidated"] {
+/**
+ * Konsolidasi (US-M9-02 KP-2, BR-33): pendapatan & biaya transfer internal dieliminasi (akun internal + baris jurnal
+ * bersumber transfer internal), lalu markup harga mitra yang ikut terpakai sebagai beban bahan depot dikurangkan dari
+ * biaya — sama dengan laba rugi konsolidasi M11 (`computeInternalMarkup`).
+ */
+function consolidate(lines: MonthlyLine[], markupRealized = 0): MonthlyFigures["consolidated"] {
   const revenue = lines.reduce((s, l) => s + l.revenue - l.internalRevenue, 0);
-  const directCost = lines.reduce((s, l) => s + l.directCost - l.internalCost, 0);
+  const directCost = lines.reduce((s, l) => s + l.directCost - l.internalCost, 0) - markupRealized;
   return {
     revenue,
     directCost,
     grossProfit: revenue - directCost,
     marginPct: pct(revenue - directCost, revenue),
     eliminatedRevenue: lines.reduce((s, l) => s + l.internalRevenue, 0),
-    eliminatedCost: lines.reduce((s, l) => s + l.internalCost, 0),
+    eliminatedCost: lines.reduce((s, l) => s + l.internalCost, 0) + markupRealized,
     operatingExpense: lines.reduce((s, l) => s + l.operatingExpense, 0),
   };
 }
@@ -257,11 +267,11 @@ export async function computeMonthlyFigures(
         if (cls === "revenue") {
           const amount = a.credit - a.debit;
           line.revenue += amount;
-          if (a.internal) line.internalRevenue += amount;
+          if (a.internal || a.internalSource) line.internalRevenue += amount;
         } else if (cls === "direct") {
           const amount = a.debit - a.credit;
           line.directCost += amount;
-          if (a.internal) line.internalCost += amount;
+          if (a.internal || a.internalSource) line.internalCost += amount;
         } else {
           line.operatingExpense += a.debit - a.credit;
         }
@@ -283,11 +293,12 @@ export async function computeMonthlyFigures(
     map.get("L4")!.directCost = Number(buys.rows[0]?.total ?? 0);
   }
   const lines = finishLines(map);
+  const markupRealized = m11Active && period ? (await m11.computeInternalMarkup(tx, tenantId, month, month)).realized : 0;
   const grossRevenueByLine = Object.fromEntries(lines.map((l) => [l.profitCenter, l.revenue - l.internalRevenue])) as Record<ProfitCenter, number>;
   return {
     source: m11Active ? "journals" : "operational",
     lines,
-    consolidated: consolidate(lines),
+    consolidated: consolidate(lines, markupRealized),
     grossRevenueByLine,
     waterCost:
       opts.withWaterCost === false
@@ -376,7 +387,7 @@ async function pkpFor(
 
 /** Laporan lengkap (tanpa versi Final) untuk satu bulan — dasar Sementara dan isi snapshot Final. */
 async function buildReport(tx: Tx, tenantId: string, month: string, today: BusinessDate): Promise<Omit<MonthlyGrossProfit, "final" | "previousFinals">> {
-  const m11Active = await isEnabled(tx, "accounting.m11_active", { tenantId });
+  const m11Active = await m11.isAccountingActive(tx, tenantId, today);
   const figures = await computeMonthlyFigures(tx, tenantId, month, m11Active);
   const period = figures.periodId ? await periodOf(tx, tenantId, month) : null;
   const par23 = await params.get(tx, "PAR-23", today, { tenantId });
@@ -536,7 +547,7 @@ export async function getMonthlyReport(ctx: ActorContext, input: unknown, opts: 
 export async function pkpDashboard(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<m11.PkpStatus | null> {
   await authorize(ctx, "m9.monthly_report.read", { tx: opts.tx });
   const db = opts.tx ?? getDb();
-  if (!(await isEnabled(db, "accounting.m11_active", { tenantId: ctx.tenantId }))) return null;
+  if (!(await m11.isAccountingActive(db, ctx.tenantId, ctxBusinessDate(ctx)))) return null;
   return m11.pkpStatus(db, ctx.tenantId, ctxBusinessDate(ctx));
 }
 

@@ -69,6 +69,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                       <span className="flex flex-wrap gap-1">
                         {b.required ? null : <ToneBadge tone="muted">Tidak wajib (tanpa mutasi)</ToneBadge>}
                         <RecStatusBadge status={b.saved?.status} />
+                        {b.stale ? <span className="block text-xs text-destructive" data-testid="rekonsiliasi-basi">Perlu direkonsiliasi ulang — saldo buku berubah setelah disimpan</span> : null}
                       </span>
                     </div>
                     <p className="text-sm">
@@ -137,6 +138,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                         <TableCell className="text-right">{c.saved ? formatRupiah(c.saved.physicalBalance) : "—"}</TableCell>
                         <TableCell>
                           <RecStatusBadge status={c.saved?.status} />
+                          {c.stale ? <span className="block text-xs text-destructive">Perlu direkonsiliasi ulang — saldo sistem berubah setelah disimpan</span> : null}
                           {c.saved?.reason ? <span className="block text-xs text-muted-foreground">{c.saved.reason}</span> : null}
                         </TableCell>
                         {editable ? (
@@ -145,7 +147,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                               <input type="hidden" name="periodId" value={view.period.id} />
                               <input type="hidden" name="kind" value={c.kind} />
                               {c.outletId ? <input type="hidden" name="outletId" value={c.outletId} /> : null}
-                              <FormInput label="Saldo fisik (Rp)" name="physicalBalance" inputMode="numeric" required defaultValue={c.saved?.physicalBalance ?? c.suggestedPhysical ?? c.systemBalance} />
+                              <FormInput label="Saldo fisik (Rp)" name="physicalBalance" inputMode="numeric" required defaultValue={c.kind === "driver_cash" ? 0 : (c.saved?.physicalBalance ?? c.suggestedPhysical ?? c.systemBalance)} />
                               <FormInput label="Alasan selisih" name="reason" />
                             </M11ActionForm>
                           </TableCell>

@@ -23,7 +23,7 @@ import { authorize, runService } from "@/server/core/rbac";
 import { linkAttachment } from "@/server/core/storage";
 
 import { pettyCashCountSchema, pettyCashSchema } from "../schemas";
-import { assertCashDayOpen, assertNotFuture, cashRules, officeCashBalance, postOfficeCash } from "./common";
+import { assertCashDayOpen, assertNotFuture, cashRules, decisionCashDate, officeCashBalance, postOfficeCash } from "./common";
 import { formDiscrepancy } from "./discrepancies";
 
 export type PettyCashRow = typeof pettyCashTransactions.$inferSelect;
@@ -149,16 +149,46 @@ export async function recordPettyCash(ctx: ActorContext, input: unknown, opts: {
   });
 }
 
-/** Keputusan persetujuan kas kecil (handler `petty_cash`). */
+/**
+ * Keputusan persetujuan kas kecil (handler `petty_cash`). Disetujui → berlaku pada hari kas terbuka ≥ max(tanggal
+ * pengajuan, hari keputusan): hari kas yang sudah ditutup tetap terkunci (US-M4-06 KP-7, BR-38). Saldo kas kantor
+ * (pengisian) / kas kecil (pengeluaran) diperiksa ulang pada tanggal berlaku.
+ */
 export async function decidePettyCash(tx: Tx, ctx: ActorContext, id: string, approved: boolean): Promise<Record<string, unknown>> {
   const row = (await tx.select().from(pettyCashTransactions).where(eq(pettyCashTransactions.id, id)).for("update").limit(1))[0];
   if (!row) throw new NotFoundError("Transaksi kas kecil tidak ditemukan.");
   if (row.status !== "pending_approval") return { status: row.status };
   if (approved) {
-    const date = ctxBusinessDate(ctx);
-    // Transaksi berlaku pada hari keputusan bila hari pengajuannya sudah ditutup.
-    const [updated] = await tx.update(pettyCashTransactions).set({ status: "approved", updatedAt: ctx.now }).where(eq(pettyCashTransactions.id, row.id)).returning();
-    await auditRecord(tx, { ctx, objectType: "petty_cash_transaction", objectId: row.id, action: "approve", before: { status: "pending_approval" }, after: { status: "approved" }, rule: "6.2a", businessDate: row.businessDate });
+    const cash = await decisionCashDate(tx, row.tenantId, row.businessDate, ctxBusinessDate(ctx));
+    const date = cash.date;
+    if (row.kind === "topup") {
+      const office = await officeCashBalance(tx, row.tenantId, date);
+      if (row.amount > office) {
+        throw new DomainError("INSUFFICIENT_OFFICE_CASH", `Pengisian kas kecil ${formatRupiah(row.amount)} melebihi saldo kas kantor saat ini (${formatRupiah(office)}). Tolak pengajuan ini atau setujui setelah kas kantor cukup.`);
+      }
+    } else {
+      const petty = await pettyCashBalance(tx, row.tenantId, date);
+      if (row.amount > petty) {
+        throw new DomainError("INSUFFICIENT_PETTY_CASH", `Pengeluaran kas kecil ${formatRupiah(row.amount)} melebihi saldo kas kecil saat ini (${formatRupiah(petty)}). Tolak pengajuan ini atau setujui setelah kas kecil diisi.`);
+      }
+    }
+    // Tanggal berlaku = hari kas terbuka (tanggal pengajuan tercatat di jejak audit).
+    const description = cash.afterClose ? `${row.description ?? ""} (setelah kas ditutup)`.trim() : row.description;
+    const [updated] = await tx
+      .update(pettyCashTransactions)
+      .set({ status: "approved", businessDate: date, description, updatedAt: ctx.now })
+      .where(eq(pettyCashTransactions.id, row.id))
+      .returning();
+    await auditRecord(tx, {
+      ctx,
+      objectType: "petty_cash_transaction",
+      objectId: row.id,
+      action: "approve",
+      before: { status: "pending_approval", businessDate: row.businessDate },
+      after: { status: "approved", businessDate: date },
+      rule: "6.2a, US-M4-06 KP-7",
+      businessDate: date,
+    });
     await applyPettyCash(tx, ctx, updated!);
     return { status: "approved", appliedOn: date };
   }

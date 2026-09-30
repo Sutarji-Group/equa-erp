@@ -189,3 +189,26 @@ harian yang sudah dibayar di muka → aplikasi sopir dapat menampilkan "sudah di
 - **B-66** `ratingAggregates` & `complaintMonthlyReport` dipakai kinerja M9.
 - **B-18** batas unggah Server Action 4 MB (foto kantor dikompresi; aplikasi pelanggan memakai API sendiri).
 - Masih terbuka: **B-75** pengaburan wajah foto bukti kirim (keputusan PM sebelum Tahap 2 aktif), **B-74** UAT.
+
+## 10. S5-B perbaikan temuan audit (tim B)
+
+- **Gerbang Tahap 2 pada notifikasi otomatis (D-02 butir 3, US-P2-08).** `notifyCustomer` (messaging.ts) keluar tanpa
+  apa pun (0 in-app, tanpa push/WA) selama flag `phase2.customer_app` mati untuk tenant itu — mencakup handler
+  `order.status_changed`/`trip.departed`/`trip.completed`/`trip.failed` dan job `p2.refill.reminders`/`p2.recurring.failures`,
+  walau `WA_PROVIDER=cloud_api` sudah aktif untuk Tahap 1. Pencatatan non-pelanggan (konfirmasi pesanan aplikasi,
+  pencocokan pembayaran digital, job tenggat internal/kedaluwarsa kode bayar) tetap berjalan.
+- **Sesi setelah flag dimatikan kembali.** `resolveCustomerSession` mengembalikan `null` bila Tahap 2 mati (halaman →
+  masuk; rute JSON/berkas `customerForRoute` → 401; aksi → belum masuk). `cancelMyOrder` juga `assertAppEnabled`.
+- **Pencocokan nama nomor daur ulang (US-P2-01 KP-2, PRD 8.7).** `nameSimilarity(input, namaM1)` = porsi token
+  BERMAKNA nama pelanggan M1 (tanpa sapaan & kata umum `GENERIC_NAME_TOKENS`: PT, CV, Toko, Hotel, Rumah, Makan, …)
+  yang ditemukan di nama isian; awalan hanya diterima bila ≥ 4 huruf. Pelanggan Tempo/Ditahan atau berharga khusus aktif
+  wajib 100% token cocok; lainnya ambang `name_match_min_pct`. Jejak audit memuat `requiredSimilarity`.
+- **Web Push tanpa SSRF (US-P2-03 KP-4).** `isAllowedPushEndpoint(url)` (diekspor): https, port bawaan, tanpa kredensial/IP
+  literal, host layanan push dikenal (FCM, Mozilla autopush, WNS, Apple). Endpoint milik akun lain hanya berpindah bila
+  kunci `auth` sama (peramban yang sama); selain itu `PUSH_SUBSCRIPTION_OWNED`.
+- **OTP tanpa enumerasi + batas laju (US-P2-01 KP-1, PAR-74).** Aksi `requestOtpAction` tidak lagi mengirim `purpose` ke
+  klien; `requestLoginOtp` seragam untuk nomor baru/terdaftar/nonaktif (akun nonaktif ditolak setelah verifikasi kode).
+  Parameter baru `p2.otp_request_limits` { per_ip_per_hour 20, global_per_hour 500 } (tambahan registri parameter) +
+  kolom `otp_codes.request_ip` (indeks `otp_codes_ip_idx`, `otp_codes_created_idx`); galat `OTP_IP_LIMIT` /
+  `OTP_GLOBAL_LIMIT` berbahasa Indonesia.
+- Uji: `tests/p2-customer/audit-s5b.test.ts`.

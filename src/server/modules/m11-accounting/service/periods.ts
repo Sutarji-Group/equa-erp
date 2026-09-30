@@ -16,6 +16,7 @@ import { z } from "zod";
 
 import { accountingPeriods, cashDays, costAllocationRuns, deposits, journals, notifications, outlets, periodReviewNotes, stockCounts } from "@/db/schema";
 import { enumValues, label, type EnumValue } from "@/lib/labels";
+import { formatRupiah } from "@/lib/money";
 import { monthOf, toBusinessDate, wibToUtc, type BusinessDate } from "@/lib/time";
 
 import * as approvals from "@/server/core/approvals";
@@ -29,7 +30,7 @@ import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
 
-import { previewL1Allocation, previewSharedAllocation } from "./allocation";
+import { postCostAllocation, previewL1Allocation, previewSharedAllocation } from "./allocation";
 import { depreciationPending, postDepreciationFor } from "./assets";
 import { currentCutover, ensurePeriod, inJobTx, isAccountingTenant, isOpenStatus, listPeriodRows, loadPeriod, shiftPeriod, type PeriodRow } from "./common";
 import { openingPosted } from "./opening";
@@ -130,8 +131,10 @@ export async function periodPrerequisites(tx: Tx, period: PeriodRow, today: Busi
   // 9. Alokasi
   const l1 = await previewL1Allocation(tx, period);
   const shared = await previewSharedAllocation(tx, period);
-  const allocOk = (!l1.required || !!l1.posted) && (!shared.required || !!shared.posted);
-  add("allocations_posted", allocOk, allocOk ? "Alokasi terposting / tidak diperlukan" : `Belum terposting: ${[!l1.posted && l1.required ? "alokasi L1" : null, !shared.posted && shared.required ? "biaya bersama" : null].filter(Boolean).join(", ")}`, `/akuntansi/periode/${period.id}`);
+  // Sisa biaya belum dialokasikan harus nol (biaya susulan setelah alokasi ikut dialokasikan — US-M11-01 KP-3).
+  const allocOk = !l1.required && !shared.required;
+  const allocText = (p: typeof l1, name: string) => (p.required ? (p.posted ? `${name}: sisa ${formatRupiah(p.remaining, { signed: true })} belum dialokasikan` : `${name} belum terposting`) : null);
+  add("allocations_posted", allocOk, allocOk ? "Alokasi terposting / tidak diperlukan" : [allocText(l1, "alokasi L1"), allocText(shared, "biaya bersama")].filter(Boolean).join(", "), `/akuntansi/periode/${period.id}`);
 
   // 10–12. Periode cut-over & retroaktif
   const cutover = await currentCutover(tx, today);
@@ -195,6 +198,11 @@ export async function closePeriod(ctx: ActorContext, input: z.input<typeof perio
     if (today <= period.endDate) throw new DomainError("PERIOD_NOT_ENDED", `Periode ${period.period} baru dapat ditutup setelah ${period.endDate}.`);
     // Penyusutan bulanan diposting otomatis pada hari pertama tutup periode (US-M11-05 KP-2).
     const depreciation = await postDepreciationFor(tx, ctx, period);
+    // Penyusutan (dan biaya susulan lain) menambah biaya L1/bersama SESUDAH alokasi → alokasi yang sudah dijalankan
+    // disusul otomatis sebesar sisanya sebelum prasyarat diperiksa (US-M11-01 KP-3, US-M11-10 KP-1).
+    for (const p of [await previewL1Allocation(tx, period), await previewSharedAllocation(tx, period)]) {
+      if (p.posted && p.required && !p.message) await postCostAllocation(tx, ctx, period, p.kind);
+    }
     const prerequisites = await periodPrerequisites(tx, period, today);
     const failed = prerequisites.filter((p) => !p.ok);
     if (failed.length) {

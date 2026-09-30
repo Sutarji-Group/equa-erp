@@ -26,6 +26,7 @@ import {
   journalsOfSource,
   linesOf,
   notificationsOf,
+  owner,
   queueOfEvent,
   setPeriod,
   tripPayload,
@@ -34,6 +35,10 @@ import {
 describe("M11 jurnal otomatis dari transaksi operasional (US-M11-02)", () => {
   const t = useTestDb({ seed: true });
   beforeAll(() => bootstrapForTests());
+  // Pemilik mengaktifkan M11 setelah pemetaan lengkap (US-M11-01 KP-2): pemetaan yang kelak hilang → daftar tunggu.
+  beforeAll(async () => {
+    await m11.setAccountingActive(owner(), { enabled: true, reason: "Pemetaan wajib lengkap (uji)" });
+  });
 
   it("US-M11-02 KP-1 rit Selesai (sinkron sopir) → satu jurnal otomatis L2 per rit dengan rujukan nomor rit; setoran diterima → kas kantor + selisih kurang pada pusat laba sumber", async () => {
     const d = await driverDay(t.db, { trips: 2, transferTrips: 1 });
@@ -170,7 +175,8 @@ describe("M11 jurnal otomatis dari transaksi operasional (US-M11-02)", () => {
     expect(await journalOfEvent(t.db, ev.id)).toBeNull();
     const q = await queueOfEvent(t.db, ev.id);
     expect(q).toMatchObject({ status: "pending", reason: "mapping_missing", eventKey: "trip.completed" });
-    expect(q!.message).toMatch(/trip\.completed \/ transfer/);
+    expect(q!.message).toMatch(/"Rit Selesai transfer" belum ada\. Lengkapi di Akuntansi > Pemetaan jurnal otomatis/);
+    expect(q!.message).not.toMatch(/trip\.completed/);
     expect((await notificationsOf(t.db, "journal.queued")).some((n) => n.objectId === q!.id || (n.body ?? "").includes("trip.completed"))).toBe(true);
     const queue = await m11.listJournalQueue(accountant(), { status: "pending" });
     expect(queue.some((r) => r.id === q!.id)).toBe(true);

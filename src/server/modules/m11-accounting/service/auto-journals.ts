@@ -20,8 +20,8 @@ import type { DomainEvent, DomainEventMap, DomainEventType } from "@/server/core
 import * as m5 from "@/server/modules/m5-receivables";
 
 import { TRANSFER_SOURCES_NOT_JOURNALED } from "../constants";
-import { outlets } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { domainEvents, journals, outlets } from "@/db/schema";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 
 import { accountsByCode, bankGlAccountId } from "./common";
 import { eventDate, type AutoEntry, type EventJournalSpec } from "./posting";
@@ -421,14 +421,46 @@ async function supplierPayment(tx: Tx, e: Ev<"supplier_payment.recorded">): Prom
   );
 }
 
-function waterSupply(e: Ev<"water_supply.confirmed">): EventJournalSpec {
+/**
+ * Nilai transfer internal yang SUDAH dijurnal untuk satu penerimaan pasokan (per objek sumber, bukan per event): nilai
+ * `transferValue` event terakhir yang jurnal otomatisnya masih hidup (tidak dibalik). Satu penerimaan dapat memancarkan
+ * `water_supply.confirmed` lebih dari sekali (diterima otomatis saat tutup shift PAR-61, lalu konfirmasi operator yang
+ * dibuat luring tersinkron) — jurnal berikutnya hanya membukukan selisihnya (US-M11-02 KP-1, BR-33).
+ */
+async function bookedWaterSupplyValue(tx: Tx, receiptId: string, exceptEventId: string): Promise<number> {
+  const rows = await tx
+    .select({ payload: domainEvents.payload })
+    .from(journals)
+    .innerJoin(domainEvents, eq(domainEvents.id, journals.sourceEventId))
+    .where(
+      and(
+        eq(journals.kind, "auto"),
+        eq(journals.sourceObjectType, "water_supply_receipt"),
+        eq(journals.sourceObjectId, receiptId),
+        isNull(journals.reversalOfId),
+        ne(domainEvents.id, exceptEventId),
+        sql`not exists (select 1 from journals r where r.reversal_of_id = ${journals.id})`,
+      ),
+    )
+    .orderBy(desc(domainEvents.seq))
+    .limit(1);
+  const v = (rows[0]?.payload as { transferValue?: number } | undefined)?.transferValue;
+  return typeof v === "number" ? v : 0;
+}
+
+async function waterSupply(tx: Tx, e: Ev<"water_supply.confirmed">): Promise<EventJournalSpec> {
   const p = e.payload;
-  if (!p.transferValue) return skip("Pasokan tanpa nilai transfer internal (sumber lain).");
+  const booked = await bookedWaterSupplyValue(tx, p.waterSupplyReceiptId, e.id);
+  const delta = (p.transferValue ?? 0) - booked;
+  if (!p.transferValue && !booked) return skip("Pasokan tanpa nilai transfer internal (sumber lain).");
+  if (delta === 0) return skip("Penerimaan pasokan ini sudah dijurnal dengan nilai yang sama (konfirmasi setelah diterima otomatis).");
   return journal(
     "water_supply.confirmed",
     eventDate(e),
-    `Pasokan air depot ${p.volumeReceivedL.toLocaleString("id-ID")} L (transfer internal L2 → L3)`,
-    [{ entryKey: "internal_transfer", amount: p.transferValue, debitOutletId: p.outletId, creditOutletId: null }],
+    booked
+      ? `Penyesuaian pasokan air depot ${p.volumeReceivedL.toLocaleString("id-ID")} L (konfirmasi setelah diterima otomatis; selisih nilai)`
+      : `Pasokan air depot ${p.volumeReceivedL.toLocaleString("id-ID")} L (transfer internal L2 → L3)`,
+    [{ entryKey: "internal_transfer", amount: delta, debitOutletId: p.outletId, creditOutletId: null }],
     { type: "water_supply_receipt", id: p.waterSupplyReceiptId },
   );
 }
@@ -591,7 +623,7 @@ export async function specForEvent(tx: Tx, event: DomainEvent): Promise<EventJou
     case "supplier_payment.recorded":
       return supplierPayment(tx, as<"supplier_payment.recorded">());
     case "water_supply.confirmed":
-      return waterSupply(as<"water_supply.confirmed">());
+      return waterSupply(tx, as<"water_supply.confirmed">());
     case "partner.subscription_invoiced":
       return partnerSubscription(as<"partner.subscription_invoiced">());
     case "digital_payment.succeeded":

@@ -20,10 +20,11 @@ import type { ProfitCenter } from "@/lib/labels";
 import { toBusinessDate, type BusinessDate } from "@/lib/time";
 
 import type { Tx } from "@/server/core/db";
-import type { DomainEvent } from "@/server/core/events";
+import { DOMAIN_EVENT_LABELS, type DomainEvent } from "@/server/core/events";
 import { outlets } from "@/db/schema";
 import { postJournal, queueJournal, resolveMapping, type JournalQueueReason } from "@/server/core/ledger";
 
+import { mappingMissingMessage } from "../constants";
 import {
   accountsById,
   currentCutover,
@@ -171,8 +172,8 @@ async function gate(tx: Tx, event: EventLike, date: BusinessDate, opts: ProcessO
   const tenantId = event.tenantId;
   if (!tenantId) return { status: "skipped", reason: "no_tenant" };
   if (!(await isAccountingTenant(tx, tenantId))) return { status: "skipped", reason: "partner_tenant" };
-  if (!(await m11Active(tx, tenantId))) return { status: "skipped", reason: "m11_inactive" };
   const today = opts.today ?? toBusinessDate(new Date());
+  if (!(await m11Active(tx, tenantId, today))) return { status: "skipped", reason: "m11_inactive" };
   const cutover = await currentCutover(tx, today > date ? today : date);
   if (cutover && date < cutover) return { status: "skipped", reason: "before_cutover" };
   return null;
@@ -217,7 +218,7 @@ export async function executeSpec(tx: Tx, event: EventLike, spec: EventJournalSp
       (await resolveMapping(tx, eventKey, entry.entryKey, spec.date, tenantId)) ??
       (opts.today && opts.today > spec.date ? await resolveMapping(tx, eventKey, entry.entryKey, opts.today, tenantId) : null);
     if (!mapping) {
-      return queueForEvent(tx, event, { date: spec.date, sourceObject: spec.sourceObject, payload: queuePayload }, "mapping_missing", `Pemetaan akun untuk ${eventKey} / ${entry.entryKey} belum ada.`, opts);
+      return queueForEvent(tx, event, { date: spec.date, sourceObject: spec.sourceObject, payload: queuePayload }, "mapping_missing", mappingMissingMessage(eventKey, entry.entryKey), opts);
     }
     const derivedOutlet = entry.outletId ?? entry.debitOutletId ?? entry.creditOutletId ?? null;
     const outletPc = mapping.profitCenterRule === "from_outlet" && derivedOutlet ? await outletLine(tx, derivedOutlet) : null;
@@ -250,10 +251,10 @@ export async function executeSpec(tx: Tx, event: EventLike, spec: EventJournalSp
   for (const l of lines) {
     const a = accounts.get(l.accountId);
     if (!a || a.tenantId !== tenantId) {
-      return queueForEvent(tx, event, { date: spec.date, sourceObject: spec.sourceObject, payload: queuePayload }, "mapping_missing", `Akun pada pemetaan ${spec.eventKey} tidak ditemukan di bagan akun.`, opts);
+      return queueForEvent(tx, event, { date: spec.date, sourceObject: spec.sourceObject, payload: queuePayload }, "mapping_missing", `Akun pada pemetaan ${eventName(spec.eventKey)} tidak ditemukan di bagan akun. Perbarui pemetaan di Akuntansi > Pemetaan jurnal otomatis.`, opts);
     }
     if (!a.isActive || !a.isPostable) {
-      return queueForEvent(tx, event, { date: spec.date, sourceObject: spec.sourceObject, payload: queuePayload }, "account_inactive", `Akun ${a.code} ${a.name} nonaktif atau akun induk — perbarui pemetaan ${spec.eventKey}.`, opts);
+      return queueForEvent(tx, event, { date: spec.date, sourceObject: spec.sourceObject, payload: queuePayload }, "account_inactive", `Akun ${a.code} ${a.name} nonaktif atau akun induk — perbarui pemetaan ${eventName(spec.eventKey)} di Akuntansi > Pemetaan jurnal otomatis.`, opts);
     }
   }
 
@@ -382,4 +383,10 @@ export async function loadDomainEvent(tx: Tx, id: string): Promise<DomainEvent |
     objectType: r.objectType,
     objectId: r.objectId,
   };
+}
+
+/** Nama peristiwa untuk pesan pengguna (label katalog event; kunci teknis hanya di payload). */
+function eventName(eventKey: string): string {
+  const label = (DOMAIN_EVENT_LABELS as Record<string, string>)[eventKey];
+  return label ? `"${label}"` : "peristiwa ini";
 }

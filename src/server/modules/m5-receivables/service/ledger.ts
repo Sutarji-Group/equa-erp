@@ -15,7 +15,7 @@ import "server-only";
 
 import { and, asc, desc, eq, gt, isNull, sql, sum } from "drizzle-orm";
 
-import { creditNotes, customerAdvances, invoiceLines, invoices, paymentAllocations } from "@/db/schema";
+import { creditNotes, customerAdvances, invoiceLines, invoices, paymentAllocations, trips } from "@/db/schema";
 import type { EnumValue, InvoiceKind } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
 import { type BusinessDate } from "@/lib/time";
@@ -359,7 +359,7 @@ async function moveOverflowToAdvance(tx: Tx, ctx: ActorContext, inv: InvoiceRow,
 export async function createAdvance(
   tx: Tx,
   ctx: ActorContext,
-  input: { tenantId: string; customerId: string; amount: number; sourcePaymentId?: string | null; notes: string; notify?: boolean },
+  input: { tenantId: string; customerId: string; amount: number; sourcePaymentId?: string | null; orderId?: string | null; notes: string; notify?: boolean },
 ): Promise<AdvanceRow> {
   const [adv] = await tx
     .insert(customerAdvances)
@@ -367,6 +367,7 @@ export async function createAdvance(
       tenantId: input.tenantId,
       customerId: input.customerId,
       sourcePaymentId: input.sourcePaymentId ?? null,
+      orderId: input.orderId ?? null,
       amount: input.amount,
       remainingAmount: input.amount,
       status: "open",
@@ -379,16 +380,16 @@ export async function createAdvance(
     objectType: "customer_advance",
     objectId: adv!.id,
     action: "create",
-    after: { customerId: input.customerId, amount: input.amount, sourcePaymentId: input.sourcePaymentId ?? null },
+    after: { customerId: input.customerId, amount: input.amount, sourcePaymentId: input.sourcePaymentId ?? null, orderId: input.orderId ?? null },
     reason: input.notes,
-    rule: "US-M5-02 KP-3",
+    rule: input.orderId ? "US-M5-02 KP-3, D-12 butir 1" : "US-M5-02 KP-3",
   });
   if (input.notify !== false) {
     await notify(tx, {
       event: "receivable.advance_review",
       tenantId: input.tenantId,
       title: `Uang muka pelanggan ${formatRupiah(input.amount)}`,
-      body: `${input.notes} Uang muka otomatis dialokasikan ke faktur berikutnya; pengembalian ke pelanggan perlu persetujuan pemilik.`,
+      body: `${input.notes} ${input.orderId ? "Uang muka ini khusus untuk faktur rit pesanan yang dibayar di muka" : "Uang muka otomatis dialokasikan ke faktur berikutnya"}; pengembalian ke pelanggan perlu persetujuan pemilik.`,
       objectType: "customer_advance",
       objectId: adv!.id,
       valueAmount: input.amount,
@@ -413,6 +414,9 @@ export async function applyAdvanceToInvoice(tx: Tx, ctx: ActorContext, advanceId
   const adv = await loadAdvance(tx, advanceId, { forUpdate: true });
   const inv = await loadInvoice(tx, invoiceId, { forUpdate: true });
   if (adv.customerId !== inv.customerId) throw new DomainError("ADVANCE_CUSTOMER", "Uang muka hanya dapat dialokasikan ke faktur pelanggan yang sama.");
+  if (adv.orderId && adv.orderId !== (await orderOfInvoice(tx, inv))) {
+    throw new DomainError("ADVANCE_ORDER", "Uang muka ini dibayar di muka untuk pesanan lain — hanya dipakai faktur rit pesanan itu. Pilih uang muka lain, atau tunggu pesanan itu selesai/dibatalkan.");
+  }
   if (inv.status === "paid") throw new DomainError("INVOICE_LOCKED", `Faktur ${inv.number} sudah Lunas dan terkunci.`);
   const take = Math.min(amount ?? Number.MAX_SAFE_INTEGER, adv.remainingAmount, inv.outstandingAmount);
   if (take <= 0) return 0;
@@ -436,16 +440,29 @@ export async function applyAdvanceToInvoice(tx: Tx, ctx: ActorContext, advanceId
   return take;
 }
 
-/** Uang muka terbuka pelanggan dialokasikan otomatis ke faktur (tertua dulu), kecuali yang sedang diajukan dikembalikan. */
+/** Pesanan asal faktur (lewat rit), untuk uang muka bertanda pesanan (B-81). */
+async function orderOfInvoice(tx: Tx, inv: Pick<InvoiceRow, "tripId">): Promise<string | null> {
+  if (!inv.tripId) return null;
+  const [t] = await tx.select({ orderId: trips.orderId }).from(trips).where(eq(trips.id, inv.tripId)).limit(1);
+  return t?.orderId ?? null;
+}
+
+/**
+ * Uang muka terbuka pelanggan dialokasikan otomatis ke faktur (tertua dulu), kecuali yang sedang diajukan dikembalikan.
+ * B-81 / D-12 butir 1: uang muka bertanda pesanan hanya untuk faktur rit pesanan itu (dan dipakai lebih dulu olehnya);
+ * uang muka umum tetap tertua dulu.
+ */
 export async function applyOpenAdvances(tx: Tx, ctx: ActorContext, invoiceId: string): Promise<number> {
   const inv = await loadInvoice(tx, invoiceId);
   if (inv.outstandingAmount <= 0 || inv.disputeStatus === "disputed") return 0;
   const pending = await advancesPendingRefund(tx, inv.customerId);
-  const open = await tx
+  const orderId = await orderOfInvoice(tx, inv);
+  const rows = await tx
     .select()
     .from(customerAdvances)
     .where(and(eq(customerAdvances.customerId, inv.customerId), eq(customerAdvances.status, "open"), gt(customerAdvances.remainingAmount, 0)))
     .orderBy(asc(customerAdvances.createdAt));
+  const open = [...rows.filter((a) => a.orderId && a.orderId === orderId), ...rows.filter((a) => !a.orderId)];
   let applied = 0;
   for (const adv of open) {
     if (pending.has(adv.id)) continue;

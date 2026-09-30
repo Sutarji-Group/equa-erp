@@ -358,15 +358,20 @@ function addMonthsDate(date: BusinessDate, months: number): BusinessDate {
   return `${ny}-${String(nm).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
 }
 
-/** Batas akhir masa transisi = go-live (PAR-41; bila belum diisi: hari ini) + PAR-41 bulan. */
-export async function transitionLimit(tx: Tx, date: BusinessDate): Promise<{ goLive: BusinessDate | null; maxUntil: BusinessDate; months: number }> {
+/**
+ * Batas akhir masa transisi = go-live + PAR-41 bulan (6.2b "maksimal 2 bulan sejak go-live"). Go-live = PAR-41
+ * `go_live_date`, atau tanggal cut-over akuntansi bila belum diisi. Tanpa keduanya `maxUntil` = null — penundaan
+ * ditolak (batas tidak boleh bergulir dari hari ini).
+ */
+export async function transitionLimit(tx: Tx, date: BusinessDate): Promise<{ goLive: BusinessDate | null; maxUntil: BusinessDate | null; months: number }> {
   const par41 = await params.get(tx, "PAR-41", date);
-  const goLive = par41.go_live_date ?? null;
-  return { goLive, maxUntil: addMonthsDate(goLive ?? date, par41.max_months_since_go_live), months: par41.max_months_since_go_live };
+  const cutover = await params.get(tx, "accounting.cutover_date", date);
+  const goLive = par41.go_live_date ?? cutover.date ?? null;
+  return { goLive, maxUntil: goLive ? addMonthsDate(goLive, par41.max_months_since_go_live) : null, months: par41.max_months_since_go_live };
 }
 
 /** Batas masa transisi untuk layar (izin `m5.credit_exposure.read`). */
-export async function holdDeferralLimit(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<{ goLive: BusinessDate | null; maxUntil: BusinessDate; months: number; today: BusinessDate }> {
+export async function holdDeferralLimit(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<{ goLive: BusinessDate | null; maxUntil: BusinessDate | null; months: number; today: BusinessDate }> {
   await authorize(ctx, "m5.credit_exposure.read", { tx: opts.tx });
   const tx = opts.tx ?? getDb();
   const today = ctxBusinessDate(ctx);
@@ -385,6 +390,9 @@ export async function deferCreditHold(ctx: ActorContext, input: unknown, opts: {
     }
     if (data.until < today) throw new DomainError("DEFER_PAST", "Tanggal berakhir masa transisi tidak boleh sebelum hari ini.");
     const limit = await transitionLimit(tx, today);
+    if (!limit.maxUntil) {
+      throw new DomainError("GO_LIVE_NOT_SET", "Tanggal go-live belum ditetapkan. Isi tanggal go-live di Pengaturan > Parameter (masa transisi penahanan otomatis) sebelum menunda penahanan.");
+    }
     if (data.until > limit.maxUntil) {
       throw new DomainError(
         "DEFER_TOO_LONG",

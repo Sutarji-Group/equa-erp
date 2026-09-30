@@ -70,6 +70,7 @@ export {
   loadStatements,
   computeTrialBalance,
   computeProfitLoss,
+  computeInternalMarkup,
   computeBalanceSheet,
   computeCashFlow,
   finalVersions,
@@ -126,3 +127,10 @@ export {
 
 // Periode (US-M11-10)
 export { listPeriods, periodDetail, closePeriod, lockPeriod, reopenPeriod, addPeriodReviewNote, periodPrerequisites, runPeriodReminders, type Prerequisite } from "./service/periods";
+
+// Sumber jurnal transfer internal yang dieliminasi pada konsolidasi (dipakai M9 — satu definisi, US-M9-02 KP-2).
+export { INTERNAL_TRANSFER_SOURCES } from "./constants";
+
+// Status aktivasi jurnal otomatis (US-M11-01 KP-2): flag bawaan saja tidak cukup — pemetaan wajib lengkap atau aktivasi
+// pemilik (dipakai M9 agar "M11 aktif" satu definisi).
+export { accountingActivation, m11Active as isAccountingActive, type AccountingActivation } from "./service/common";

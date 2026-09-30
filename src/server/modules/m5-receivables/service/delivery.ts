@@ -3,7 +3,7 @@
  * US-M5-04 KP-2, US-M5-06 KP-4):
  *
  * - `RESEND_API_KEY` terisi → e-mail dikirim lewat Resend dengan PDF terlampir (faktur: `renderInvoicePdf`; pernyataan:
- *   laporan `m5.customer_card` PDF, tercatat di log ekspor karena berisi data pribadi — BR-39), status "terkirim".
+ *   `renderStatementPdf` internal — cukup izin `m5.invoice.send`, D-12 butir 2 — tercatat di jejak audit), status "terkirim".
  * - Tidak terisi → tautan `mailto:` berisi subjek & teks (PDF dilampirkan manual dari tombol unduh), dicatat "dibuka",
  *   bukan "terkirim".
  *
@@ -21,11 +21,10 @@ import { record as auditRecord } from "@/server/core/audit";
 import type { ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
 import { DomainError, parseInput, ValidationError } from "@/server/core/errors";
-import { exportReport } from "@/server/core/export";
 import { isEmailDeliveryConfigured, sendEmail } from "@/server/core/notifications";
 import { authorize, runService } from "@/server/core/rbac";
 
-import { statementMessage } from "./aging";
+import { renderStatementPdf, statementMessage } from "./aging";
 import { loadInvoice } from "./common";
 import { invoiceMessage, sendInvoice } from "./invoices";
 import { renderInvoicePdf } from "./pdf";
@@ -86,8 +85,9 @@ export async function emailStatement(ctx: ActorContext, input: unknown, opts: { 
   const data = parseInput(emailStatementSchema, input, { email: "Alamat e-mail" });
   const configured = isEmailDeliveryConfigured();
   const to = configured ? requireRecipient(data.email) : (data.email ?? null);
-  // PDF kartu piutang (data pribadi → log ekspor bertujuan, BR-39) dirender di luar transaksi.
-  const pdf = configured ? await exportReport(ctx, "m5.customer_card", "pdf", { customerId: data.customerId }, `Pernyataan piutang dikirim ke pelanggan lewat e-mail (${to})`) : null;
+  // D-12 butir 2 (B-77): izin `m5.invoice.send` cukup — PDF pernyataan dibangkitkan INTERNAL (bukan lewat ekspor laporan
+  // yang butuh `m5.aging.export`), dirender di luar transaksi; pengiriman tercatat di jejak audit (lampiran + penerima).
+  const pdf = configured ? await renderStatementPdf(ctx, data.customerId, opts) : null;
   return runService(ctx, opts, async (tx) => {
     const msg = await statementMessage(tx, ctx, data.customerId);
     let link: string | null = null;

@@ -43,7 +43,7 @@ import { linkAttachment } from "@/server/core/storage";
 
 import { ASSET_CATEGORY_ACCOUNT } from "../constants";
 import { accountsByCode, assertBalancedLines, assertPostableAccounts, currentCutover, insertJournal, loadJournal, mappingAccounts, shiftPeriod, sumLines } from "./common";
-import { importedAssetsForOpening } from "./assets";
+import { applyApprovedAssetCost, importedAssetsForOpening } from "./assets";
 import { journalLineSchema, postManual } from "./manual";
 
 type Group = EnumValue<"opening_batch_group">;
@@ -398,7 +398,10 @@ export async function onOpeningAdjustmentApproved(tx: Tx, request: ApprovalRow, 
   const j = await loadJournal(tx, request.tenantId, request.objectId, { forUpdate: true });
   if (j.status !== "submitted") return { skipped: true };
   const posted = await postManual(tx, ctx, j, { requiresOwnerReview: false, periodMode: "forward", approvalId: request.id });
-  return { journalId: posted.id, number: posted.number };
+  // Penyesuaian nilai perolehan aset impor (US-M11-09 KP-3): aset diperbarui + penyusutan dihitung ulang saat disetujui.
+  const assetCost = (request.payload as { assetCost?: { assetId: string; acquisitionCost: number; reason: string } } | null)?.assetCost;
+  const asset = assetCost ? await applyApprovedAssetCost(tx, ctx, assetCost) : null;
+  return { journalId: posted.id, number: posted.number, ...(asset ? { assetAdjustment: asset.adjustment } : {}) };
 }
 
 export async function onOpeningAdjustmentRejected(tx: Tx, request: ApprovalRow, ctx: ActorContext, reason: string | null): Promise<Record<string, unknown>> {

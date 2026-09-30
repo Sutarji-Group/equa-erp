@@ -16,6 +16,7 @@
  * | `cash_day.closed`        | `m5-receivables:hold_after_cash_close`    | Evaluasi umur & Ditahan setelah tutup kas (US-M5-03 KP-1).             |
  * | `trip.corrected`         | `m5-receivables:trip_corrected`           | (S5, B-34) Koreksi harga rit: +Δ faktur koreksi/belum ditagih; −Δ nota kredit `trip_correction` / uang muka. |
  * | `trip_payment.reversed`  | `m5-receivables:trip_payment_reversed`    | (S5, B-34) Pembayaran tunai/transfer rit dibalik → faktur koreksi sebesar uang yang dibalik. |
+ * | `order.status_changed`   | `m5-receivables:release_order_advance`    | (S5-B, B-81) Pesanan Dibatalkan → tanda pesanan pada uang muka dilepas (uang muka umum) + audit. |
  */
 import "server-only";
 
@@ -25,7 +26,7 @@ import { EQUA_TENANT_ID, systemContext, type ActorContext } from "@/server/core/
 import { on, type DomainEvent } from "@/server/core/events";
 
 import { evaluateCreditHolds } from "./service/credit-hold";
-import { onCollectionRecorded } from "./service/payments";
+import { onCollectionRecorded, releaseOrderAdvances } from "./service/payments";
 import {
   creditFromPosVoid,
   creditFromStoreReturn,
@@ -46,6 +47,7 @@ export function registerEvents(): void {
   on("trip.completed", async (event, tx) => void (await onTripCompleted(tx, systemFor(event), event)), { name: "m5-receivables:trip_receivable" });
   on("trip.payment_recorded", async (event, tx) => void (await onTripPaymentRecorded(tx, systemFor(event), event)), { name: "m5-receivables:trip_payment_receivable" });
   on("collection.recorded", async (event, tx) => void (await onCollectionRecorded(tx, systemFor(event), event)), { name: "m5-receivables:apply_collection" });
+  on("order.status_changed", async (event, tx) => void (await releaseOrderAdvances(tx, systemFor(event), event)), { name: "m5-receivables:release_order_advance" });
   on("pos_sale.recorded", async (event, tx) => void (await invoiceFromPosSale(tx, systemFor(event), event)), { name: "m5-receivables:store_credit_invoice" });
   on("shift.closed", async (event, tx) => void (await invoiceShiftCreditSales(tx, systemFor(event), event.payload.shiftId)), { name: "m5-receivables:store_shift_invoices" });
   on("pos_sale.voided", async (event, tx) => void (await creditFromPosVoid(tx, systemFor(event), event)), { name: "m5-receivables:store_void_credit" });

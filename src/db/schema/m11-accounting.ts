@@ -603,6 +603,9 @@ export type TemplateJournalLine = {
   side: "debit" | "credit";
   amount: number;
   memo?: string | null;
+  /** (S5-B) Sumber air baris beban L1 (PTB-39) — atau `waterSourceShared` = gabungan semua sumber. */
+  waterSourceId?: string | null;
+  waterSourceShared?: boolean;
 };
 
 /**
@@ -657,6 +660,11 @@ export const manualJournalDetails = pgTable(
     writeOff: jsonb("write_off").$type<{ invoiceId: string; amount: number } | null>(),
     /** Catatan akuntan (wajib untuk penyesuaian saldo awal, US-M11-09 KP-3). */
     accountantNote: text("accountant_note"),
+    /**
+     * (S5-B) Jurnal pelepasan aset tetap (US-M11-05 KP-4, BR-35): aset ditandai Dilepas saat jurnal ini TERPOSTING
+     * (setelah persetujuan pemilik bila > PAR-20).
+     */
+    assetDisposal: jsonb("asset_disposal").$type<{ assetId: string; date: string; proceeds: number; gainLoss: number; bookValue: number } | null>(),
     ...timestamps(),
   },
   (t) => [

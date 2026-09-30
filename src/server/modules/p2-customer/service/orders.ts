@@ -290,6 +290,8 @@ export async function cancelMyOrder(cctx: CustomerContext, orderId: string, inpu
   requireLinked(cctx);
   const data = parseInput(z.object({ reason: z.string().trim().min(3, { error: "Tulis alasan pembatalan (minimal 3 huruf)." }).max(300) }), input, { reason: "Alasan" });
   return runInTx(opts.tx, async (tx) => {
+    // D-02 butir 3: sesi lama tidak dapat memutasi pesanan setelah Tahap 2 dimatikan kembali.
+    await assertAppEnabled(tx, cctx.tenantId);
     const order = await loadOwnOrder(tx, cctx, orderId, { forUpdate: true });
     const rule = (await params.get(tx, "PAR-72", customerBusinessDate(cctx))).rule;
     const tripRows = await tx.select().from(trips).where(eq(trips.orderId, order.id));

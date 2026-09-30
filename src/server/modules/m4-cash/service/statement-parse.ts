@@ -14,6 +14,9 @@ import { isBusinessDate } from "@/lib/time";
 
 const ExcelJS = ((ExcelJSNs as unknown as { default?: typeof ExcelJSNs }).default ?? ExcelJSNs) as typeof ExcelJSNs;
 
+/** Galat format berkas mutasi berpesan Indonesia bertindakan — aman ditampilkan apa adanya. */
+export class StatementFormatError extends Error {}
+
 export type ParsedStatementLine = {
   lineDate: string;
   description: string | null;
@@ -156,7 +159,7 @@ function toLines(rows: readonly (readonly unknown[])[], opts: { year?: number })
     }
   }
   if (headerIndex < 0) {
-    throw new Error("Kolom mutasi tidak dikenali. Pastikan baris judul memuat Tanggal, Keterangan, dan Jumlah (atau Kredit/Debit).");
+    throw new StatementFormatError("Kolom mutasi tidak dikenali. Pastikan baris judul memuat Tanggal, Keterangan, dan Jumlah (atau Kredit/Debit).");
   }
   const lines: ParsedStatementLine[] = [];
   const seen = new Map<string, number>();
@@ -204,9 +207,14 @@ export function parseStatementCsv(text: string, opts: { year?: number } = {}): P
 
 export async function parseStatementXlsx(bytes: Uint8Array, opts: { year?: number } = {}): Promise<ParsedStatement> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(Buffer.from(bytes) as unknown as ArrayBuffer);
+  try {
+    await wb.xlsx.load(Buffer.from(bytes) as unknown as ArrayBuffer);
+  } catch {
+    // Pesan pustaka (bahasa Inggris + URL) tidak diteruskan ke pengguna (CLAUDE.md aturan 1, NFR-15).
+    throw new StatementFormatError("Berkas Excel rusak atau bukan format .xlsx. Unduh ulang mutasi sebagai CSV atau .xlsx dari internet banking lalu unggah lagi.");
+  }
   const ws = wb.worksheets[0];
-  if (!ws) throw new Error("Berkas Excel tidak memiliki lembar kerja.");
+  if (!ws) throw new StatementFormatError("Berkas Excel tidak memiliki lembar kerja.");
   const rows: unknown[][] = [];
   ws.eachRow({ includeEmpty: false }, (row) => {
     const values = row.values as unknown[];
@@ -229,12 +237,12 @@ export async function parseStatementXlsx(bytes: Uint8Array, opts: { year?: numbe
 export async function parseStatement(fileName: string, content: string | Uint8Array, opts: { year?: number } = {}): Promise<ParsedStatement> {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".xlsx")) {
-    if (typeof content === "string") throw new Error("Berkas Excel harus diunggah sebagai berkas biner.");
+    if (typeof content === "string") throw new StatementFormatError("Berkas Excel harus diunggah sebagai berkas biner.");
     return parseStatementXlsx(content, opts);
   }
   if (lower.endsWith(".csv") || lower.endsWith(".txt")) {
     const text = typeof content === "string" ? content : new TextDecoder("utf-8").decode(content);
     return parseStatementCsv(text, opts);
   }
-  throw new Error("Format berkas tidak didukung. Unggah CSV atau Excel (.xlsx) dari internet banking.");
+  throw new StatementFormatError("Format berkas tidak didukung. Unggah CSV atau Excel (.xlsx) dari internet banking.");
 }

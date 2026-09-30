@@ -209,3 +209,26 @@ Ikon tombol klien dikirim sebagai ELEMEN (`icon={<MessageCircle aria-hidden />}`
   di M4) + `seedDemoM5PendingTransfers` (piutang sementara, dijalankan sesudah seed M4); pelunasan tunai PLG-0001 pindah
   ke H-1 (hari kas M4 terbuka). Ekspor `DEMO_M5_PAYMENT_KEYS`, `demoM5PaymentId`, `DEMO_M4_NOT_FOUND_TRANSFER_ID`.
 - **B-55** tautan "Lihat jurnal" di rincian faktur (rit/POS/faktur kemitraan) & pelunasan. **B-18** batas unggah 4 MB.
+
+## 12. S5-B perbaikan temuan audit (tim B)
+
+- **B-81 / D-12 butir 1 — uang muka bertanda pesanan.** Kolom `customer_advances.order_id` (nullable, FK `orders`,
+  indeks `customer_advances_order_idx`). `applyPaymentEffects` mengisi `orderId` dari `payment_intents.order_id`
+  (pembayaran P2 yang menarget pesanan). `applyOpenAdvances`: uang muka bertanda hanya untuk faktur rit pesanan itu dan
+  dipakai lebih dulu; uang muka umum tetap tertua dulu. `applyAdvanceToInvoice` (alokasi manual) menolak uang muka
+  bertanda pesanan lain (`ADVANCE_ORDER`). Handler baru `m5-receivables:release_order_advance` (`order.status_changed`
+  → `cancelled`): tanda dilepas + audit `release_order`. Uji `tests/integration/p2-m5-advance.test.ts`.
+- **B-77 / D-12 butir 2 — e-mail pernyataan.** `renderStatementPdf(ctx, customerId)` (aging.ts) merender PDF pernyataan
+  lewat `renderPdf` inti tanpa `exportReport`; `emailStatement` cukup `m5.invoice.send`; audit `statement_sent` memuat
+  penerima & nama lampiran (tidak ada lagi baris `export_logs` untuk pengiriman).
+- **BR-38 ambang PAR-21 tidak dapat dipecah.** `requestCreditNote` menjumlahkan nota kredit koreksi tanpa persetujuan
+  (faktur itu kapan pun + pelanggan itu hari ini, dari event `credit_note.issued`) + permintaan nota kredit yang masih
+  menunggu; `reallocateCustomerPayment` menjumlahkan realokasi sebelumnya tanpa persetujuan (jejak audit `reallocate`).
+- **Teks pelanggan tanpa kode.** `formatUnderpaymentReason` (`src/lib/reasons.ts`, berkas baru) → baris faktur kurang bayar
+  & notifikasi M3 memakai label Indonesia (`customer_short` → "Uang pelanggan kurang", `credit_not_approved:` /
+  `prepaid_short:` → kalimat). "(BR-29)", "(PTB-28)", "(BR-38)" dihapus dari PDF faktur & pernyataan piutang.
+- **Faktur bulanan susulan (US-M5-06 KP-2).** Job `m5.monthly_invoices` berjalan setiap hari ≥ tanggal terbit PAR-12
+  (idempoten); `issueMonthlyInvoices` terisolasi `withSavepoint` per pelanggan, gagal → `summary.failed` + insiden M10.
+- **PAR-41 masa transisi.** Go-live = PAR-41 `go_live_date` → `accounting.cutover_date`; tanpa keduanya `maxUntil = null`
+  dan `deferCreditHold` ditolak (`GO_LIVE_NOT_SET`); layar rincian pelanggan menampilkan pesan pengisian parameter.
+- Uji: `tests/m5-receivables/audit-s5b.test.ts`.

@@ -13,11 +13,12 @@ import "server-only";
 import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { accountingPeriods, dataSignoffs, depreciationEntries, fixedAssetExtras, fixedAssets, journals, outlets, trucks, waterSources } from "@/db/schema";
+import { accountingPeriods, accounts, dataSignoffs, depreciationEntries, fixedAssetExtras, fixedAssets, journals, manualJournalDetails, outlets, trucks, waterSources } from "@/db/schema";
 import { enumValues, label, type EnumValue, type ProfitCenter } from "@/lib/labels";
 import { formatRupiah, zRupiahNonNegative, zRupiahPositive } from "@/lib/money";
-import { isBusinessDate, monthOf, toBusinessDate, type BusinessDate } from "@/lib/time";
+import { addDays as addDaysDate, isBusinessDate, monthOf, toBusinessDate, type BusinessDate } from "@/lib/time";
 
+import * as approvals from "@/server/core/approvals";
 import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core/context";
 import { emit } from "@/server/core/events";
@@ -26,10 +27,12 @@ import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize, runService } from "@/server/core/rbac";
+import { linkAttachment } from "@/server/core/storage";
 
 import { ASSET_CATEGORY_ACCOUNT, ASSET_CATEGORY_PROFIT_CENTER } from "../constants";
 import { accountsByCode, currentCutover, ensurePeriod, inJobTx, insertJournal, isAccountingTenant, isOpenStatus, mappingAccounts, periodEnd, shiftPeriod, type PeriodRow, type PostedLineInput } from "./common";
 import { parseAmount, parseDateText, parseTable, pick } from "./import-parse";
+import { submitDraftJournal } from "./manual";
 
 export type AssetRow = typeof fixedAssets.$inferSelect;
 type Category = EnumValue<"asset_category">;
@@ -555,104 +558,196 @@ const estimateSchema = z
     residualValue: zRupiahNonNegative.nullable().optional(),
     acquisitionCost: zRupiahPositive.nullable().optional(),
     reason: z.string().trim().min(5, { error: "Alasan (keputusan akuntan) wajib diisi." }),
+    /** Wajib bila nilai perolehan aset impor diubah (penyesuaian saldo awal, PTB-44). */
+    accountantNote: z.string().trim().min(5, { error: "Catatan akuntan wajib diisi (minimal 5 karakter)." }).nullable().optional(),
+    attachmentId: z.uuid().nullable().optional(),
   })
   .strict();
 
+type AssetEstimate = { usefulLifeMonths: number; residualValue: number; acquisitionCost: number; depreciationMethod: AssetRow["depreciationMethod"] };
+
 /**
- * Ubah umur/nilai aset (keputusan akuntan) → penyusutan dihitung ulang: selisih akumulasi yang seharusnya s.d. periode
- * terakhir yang disusutkan dengan yang sudah terposting dibukukan sebagai jurnal penyesuaian berjejak (US-M11-05 KP-2).
+ * Hitung ulang penyusutan aset dengan parameter baru: selisih akumulasi seharusnya s.d. periode terakhir yang disusutkan
+ * dengan yang sudah terposting dibukukan sebagai jurnal penyesuaian berjejak (US-M11-05 KP-2). Memperbarui aset.
+ */
+async function applyEstimate(tx: Tx, ctx: ActorContext, a: AssetRow, next: AssetEstimate, reason: string): Promise<{ asset: AssetRow; diff: number; journalNumber: string | null }> {
+  if (next.residualValue >= next.acquisitionCost) throw new DomainError("RESIDUAL_TOO_HIGH", "Nilai sisa harus lebih kecil dari nilai perolehan.");
+  const entries = await tx
+    .select({ amount: depreciationEntries.amount, isAdjustment: depreciationEntries.isAdjustment, period: accountingPeriods.period })
+    .from(depreciationEntries)
+    .innerJoin(accountingPeriods, eq(accountingPeriods.id, depreciationEntries.periodId))
+    .where(eq(depreciationEntries.fixedAssetId, a.id))
+    .orderBy(asc(accountingPeriods.period));
+  const regular = entries.filter((e) => !e.isAdjustment);
+  const opening = (await extrasOf(tx, [a.id])).get(a.id)?.openingAccumulated ?? 0;
+  const posted = opening + entries.reduce((s, e) => s + e.amount, 0);
+  // Akumulasi seharusnya: saldo cut-over + penyusutan bulanan dengan parameter baru untuk jumlah bulan yang sudah disusutkan.
+  let expected = opening;
+  for (let i = 0; i < regular.length; i++) expected += monthlyDepreciation(next, expected);
+  const diff = expected - posted;
+  const [updated] = await tx.update(fixedAssets).set({ ...next, updatedAt: new Date() }).where(eq(fixedAssets.id, a.id)).returning();
+  let journalNumber: string | null = null;
+  if (diff !== 0) {
+    const today = ctxBusinessDate(ctx);
+    const period = await ensurePeriod(tx, a.tenantId, monthOf(today));
+    const acc = await accountsForAsset(tx, updated!, today);
+    const dims = { profitCenter: a.profitCenter, outletId: a.outletId, truckId: a.truckId, waterSourceId: a.waterSourceId };
+    const { journal } = await insertJournal(tx, {
+      tenantId: a.tenantId,
+      kind: "depreciation",
+      date: today,
+      description: `Penyesuaian penyusutan ${a.code} (umur/nilai diubah akuntan): ${reason}`,
+      lines:
+        diff > 0
+          ? [
+              { accountId: acc.expense, debit: diff, ...dims },
+              { accountId: acc.accumulated, credit: diff, ...dims },
+            ]
+          : [
+              { accountId: acc.accumulated, debit: -diff, ...dims },
+              { accountId: acc.expense, credit: -diff, ...dims },
+            ],
+      ctx,
+      sourceType: "m11.asset_adjustment",
+      sourceObject: { type: "fixed_asset", id: a.id },
+      periodMode: "strict",
+    });
+    await tx.insert(depreciationEntries).values({ fixedAssetId: a.id, periodId: period.id, amount: diff, accumulatedAfter: expected, bookValueAfter: next.acquisitionCost - expected, journalId: journal.id, isAdjustment: true });
+    journalNumber = journal.number;
+  }
+  return { asset: updated!, diff, journalNumber };
+}
+
+/**
+ * Ubah umur/nilai aset (keputusan akuntan) → penyusutan dihitung ulang (US-M11-05 KP-2). Nilai perolehan ASET IMPOR
+ * adalah saldo awal: perubahannya diajukan sebagai penyesuaian saldo awal (US-M11-09 KP-3, PTB-44 — persetujuan pemilik
+ * `opening_balance_adjustment` + catatan akuntan, hanya ≤ PAR-62 bulan setelah cut-over); nilai perolehan & jurnalnya
+ * baru berlaku setelah pemilik menyetujui. Lewat batas PAR-62 → koreksi lewat jurnal manual biasa (ambang PAR-20).
  */
 export async function updateAssetEstimate(ctx: ActorContext, input: z.input<typeof estimateSchema>, opts: { tx?: Tx } = {}) {
   await authorize(ctx, "m11.fixed_asset.update", { tx: opts.tx });
-  const data = parseInput(estimateSchema, input, { reason: "Alasan" });
+  const data = parseInput(estimateSchema, input, { reason: "Alasan", accountantNote: "Catatan akuntan" });
   return runService(ctx, opts, async (tx) => {
     const [a] = await tx.select().from(fixedAssets).where(and(eq(fixedAssets.id, data.assetId), eq(fixedAssets.tenantId, ctx.tenantId))).for("update").limit(1);
     if (!a) throw new NotFoundError("Aset tidak ditemukan.");
     if (a.status === "disposed") throw new DomainError("ASSET_DISPOSED", "Aset sudah dilepas.");
-    if (data.acquisitionCost && data.acquisitionCost !== a.acquisitionCost && a.source !== "import") {
+    const costChange = !!data.acquisitionCost && data.acquisitionCost !== a.acquisitionCost;
+    if (costChange && a.source !== "import") {
       throw new DomainError("COST_CHANGE", "Koreksi nilai perolehan aset pembelian dilakukan lewat jurnal manual beralasan; di sini hanya aset impor (nilai akuntan/notaris).");
     }
-    const next = {
+    const next: AssetEstimate = {
       usefulLifeMonths: data.usefulLifeMonths ?? a.usefulLifeMonths,
       residualValue: data.residualValue ?? a.residualValue,
-      acquisitionCost: data.acquisitionCost ?? a.acquisitionCost,
+      acquisitionCost: a.acquisitionCost,
       depreciationMethod: a.depreciationMethod,
     };
-    if (next.residualValue >= next.acquisitionCost) throw new DomainError("RESIDUAL_TOO_HIGH", "Nilai sisa harus lebih kecil dari nilai perolehan.");
-    const entries = await tx
-      .select({ amount: depreciationEntries.amount, isAdjustment: depreciationEntries.isAdjustment, period: accountingPeriods.period })
-      .from(depreciationEntries)
-      .innerJoin(accountingPeriods, eq(accountingPeriods.id, depreciationEntries.periodId))
-      .where(eq(depreciationEntries.fixedAssetId, a.id))
-      .orderBy(asc(accountingPeriods.period));
-    const regular = entries.filter((e) => !e.isAdjustment);
-    const opening = (await extrasOf(tx, [a.id])).get(a.id)?.openingAccumulated ?? 0;
-    const posted = opening + entries.reduce((s, e) => s + e.amount, 0);
-    // Akumulasi seharusnya: saldo cut-over + penyusutan bulanan dengan parameter baru untuk jumlah bulan yang sudah disusutkan.
-    let expected = opening;
-    for (let i = 0; i < regular.length; i++) expected += monthlyDepreciation(next, expected);
-    const diff = expected - posted;
-    const [updated] = await tx.update(fixedAssets).set({ ...next, updatedAt: new Date() }).where(eq(fixedAssets.id, a.id)).returning();
-    let journalNumber: string | null = null;
-    const today = ctxBusinessDate(ctx);
-    if (data.acquisitionCost && data.acquisitionCost !== a.acquisitionCost && a.assetAccountId) {
-      const eq0 = await mappingAccounts(tx, ctx.tenantId, "m11.opening_balance", "equity_balancing", today);
-      const delta = data.acquisitionCost - a.acquisitionCost;
-      const { journal } = await insertJournal(tx, {
-        tenantId: ctx.tenantId,
-        kind: "opening_adjustment",
-        date: today,
-        description: `Penyesuaian nilai perolehan ${a.code} (keputusan akuntan): ${data.reason}`,
-        lines: [
-          { accountId: a.assetAccountId, profitCenter: a.profitCenter, outletId: a.outletId, ...(delta > 0 ? { debit: delta } : { credit: -delta }) },
-          { accountId: eq0.debitAccountId, profitCenter: "SHARED", ...(delta > 0 ? { credit: delta } : { debit: -delta }) },
-        ],
-        ctx,
-        sourceType: "m11.asset_adjustment",
-        sourceObject: { type: "fixed_asset", id: a.id },
-        periodMode: "strict",
-      });
-      journalNumber = journal.number;
+    let pendingApprovalId: string | null = null;
+    if (costChange) {
+      if (!a.assetAccountId) throw new DomainError("ASSET_ACCOUNT", "Akun aset belum diatur untuk aset ini.");
+      if (!data.accountantNote) throw new DomainError("ACCOUNTANT_NOTE_REQUIRED", "Perubahan nilai perolehan aset impor adalah penyesuaian saldo awal — isi catatan akuntan (PTB-44).");
+      if ((data.residualValue ?? a.residualValue) >= data.acquisitionCost!) throw new DomainError("RESIDUAL_TOO_HIGH", "Nilai sisa harus lebih kecil dari nilai perolehan.");
+      pendingApprovalId = await submitAssetCostAdjustment(tx, ctx, a, { acquisitionCost: data.acquisitionCost!, reason: data.reason, accountantNote: data.accountantNote, attachmentId: data.attachmentId ?? null });
     }
-    if (diff !== 0) {
-      const period = await ensurePeriod(tx, ctx.tenantId, monthOf(today));
-      const acc = await accountsForAsset(tx, updated!, today);
-      const dims = { profitCenter: a.profitCenter, outletId: a.outletId, truckId: a.truckId, waterSourceId: a.waterSourceId };
-      const { journal } = await insertJournal(tx, {
-        tenantId: ctx.tenantId,
-        kind: "depreciation",
-        date: today,
-        description: `Penyesuaian penyusutan ${a.code} (umur/nilai diubah akuntan): ${data.reason}`,
-        lines:
-          diff > 0
-            ? [
-                { accountId: acc.expense, debit: diff, ...dims },
-                { accountId: acc.accumulated, credit: diff, ...dims },
-              ]
-            : [
-                { accountId: acc.accumulated, debit: -diff, ...dims },
-                { accountId: acc.expense, credit: -diff, ...dims },
-              ],
-        ctx,
-        sourceType: "m11.asset_adjustment",
-        sourceObject: { type: "fixed_asset", id: a.id },
-        periodMode: "strict",
-      });
-      await tx.insert(depreciationEntries).values({ fixedAssetId: a.id, periodId: period.id, amount: diff, accumulatedAfter: expected, bookValueAfter: next.acquisitionCost - expected, journalId: journal.id, isAdjustment: true });
-      journalNumber = journal.number;
-    }
+    const changed = next.usefulLifeMonths !== a.usefulLifeMonths || next.residualValue !== a.residualValue;
+    const res = changed ? await applyEstimate(tx, ctx, a, next, data.reason) : { asset: a, diff: 0, journalNumber: null };
     await auditRecord(tx, {
       ctx,
       objectType: "fixed_asset",
       objectId: a.id,
       action: "update",
       before: { usefulLifeMonths: a.usefulLifeMonths, residualValue: a.residualValue, acquisitionCost: a.acquisitionCost },
-      after: { ...next, adjustment: diff, journal: journalNumber },
+      after: { ...next, adjustment: res.diff, journal: res.journalNumber, acquisitionCostPending: costChange ? data.acquisitionCost : null, approvalId: pendingApprovalId },
       reason: data.reason,
-      rule: "US-M11-05 KP-2",
+      rule: costChange ? "US-M11-05 KP-2, US-M11-09 KP-3, PTB-44" : "US-M11-05 KP-2",
     });
-    return { asset: updated!, adjustment: diff, journalNumber };
+    return { asset: res.asset, adjustment: res.diff, journalNumber: res.journalNumber, pendingApprovalId };
   });
+}
+
+/** Ajukan penyesuaian saldo awal atas nilai perolehan aset impor (jurnal Diajukan + persetujuan pemilik + catatan akuntan). */
+async function submitAssetCostAdjustment(
+  tx: Tx,
+  ctx: ActorContext,
+  a: AssetRow,
+  input: { acquisitionCost: number; reason: string; accountantNote: string; attachmentId: string | null },
+): Promise<string> {
+  const today = ctxBusinessDate(ctx);
+  const cutover = await currentCutover(tx, today);
+  if (!cutover) throw new DomainError("CUTOVER_REQUIRED", "Tanggal cut-over akuntansi belum ditetapkan pemilik — nilai perolehan aset impor belum dapat disesuaikan.");
+  const { max_months_after_cutover } = await params.get(tx, "PAR-62", today);
+  const deadline = addDaysDate(`${shiftPeriod(monthOf(cutover), max_months_after_cutover)}-01`, -1);
+  if (today > deadline) {
+    throw new DomainError(
+      "ADJUSTMENT_WINDOW_CLOSED",
+      `Penyesuaian saldo awal hanya sampai ${deadline} (${max_months_after_cutover} bulan setelah cut-over, PTB-44). Catat koreksi nilai perolehan sebagai jurnal manual biasa (dengan lampiran; di atas ambang perlu persetujuan pemilik).`,
+    );
+  }
+  const open = await tx
+    .select({ id: journals.id })
+    .from(journals)
+    .where(and(eq(journals.tenantId, a.tenantId), eq(journals.kind, "opening_adjustment"), eq(journals.status, "submitted"), eq(journals.sourceObjectType, "fixed_asset"), eq(journals.sourceObjectId, a.id)))
+    .limit(1);
+  if (open[0]) throw new DomainError("ADJUSTMENT_PENDING", "Penyesuaian nilai perolehan aset ini masih menunggu keputusan pemilik.");
+  const eq0 = await mappingAccounts(tx, a.tenantId, "m11.opening_balance", "equity_balancing", today);
+  const delta = input.acquisitionCost - a.acquisitionCost;
+  const { journal } = await insertJournal(tx, {
+    tenantId: a.tenantId,
+    kind: "opening_adjustment",
+    status: "submitted",
+    date: today,
+    description: `Penyesuaian saldo awal — nilai perolehan ${a.code} ${a.name}: ${input.reason}`,
+    lines: [
+      { accountId: a.assetAccountId!, profitCenter: a.profitCenter, outletId: a.outletId, ...(delta > 0 ? { debit: delta, credit: 0 } : { debit: 0, credit: -delta }) },
+      { accountId: eq0.debitAccountId, profitCenter: "SHARED", ...(delta > 0 ? { debit: 0, credit: delta } : { debit: -delta, credit: 0 }) },
+    ],
+    ctx,
+    attachmentId: input.attachmentId,
+    sourceType: "m11.opening_balance",
+    sourceObject: { type: "fixed_asset", id: a.id },
+  });
+  if (input.attachmentId) await linkAttachment(tx, input.attachmentId, { type: "journal", id: journal.id });
+  await tx.insert(manualJournalDetails).values({ tenantId: a.tenantId, journalId: journal.id, accountantNote: input.accountantNote });
+  const req = await approvals.submit(
+    ctx,
+    {
+      type: "opening_balance_adjustment",
+      objectType: "opening_adjustment_journal",
+      objectId: journal.id,
+      amount: journal.totalDebit,
+      reason: `${journal.number}: nilai perolehan ${a.code} ${formatRupiah(a.acquisitionCost)} → ${formatRupiah(input.acquisitionCost)}. ${input.reason}. Catatan akuntan: ${input.accountantNote}`,
+      payload: { number: journal.number, link: `/akuntansi/aset/${a.id}`, assetCost: { assetId: a.id, acquisitionCost: input.acquisitionCost, reason: input.reason } },
+    },
+    { tx },
+  );
+  await tx.update(journals).set({ approvalRequestId: req.id, updatedAt: new Date() }).where(eq(journals.id, journal.id));
+  return req.id;
+}
+
+/**
+ * Penyesuaian nilai perolehan aset impor disetujui pemilik (dipanggil handler `opening_balance_adjustment` setelah
+ * jurnalnya terposting): nilai perolehan aset diperbarui + penyusutan dihitung ulang (NFR-34: daftar aset perlu
+ * ditandatangani ulang — ringkasan tanda tangan kembali Draf).
+ */
+export async function applyApprovedAssetCost(tx: Tx, ctx: ActorContext, info: { assetId: string; acquisitionCost: number; reason: string }): Promise<{ adjustment: number }> {
+  const [a] = await tx.select().from(fixedAssets).where(eq(fixedAssets.id, info.assetId)).for("update").limit(1);
+  if (!a || a.status === "disposed") return { adjustment: 0 };
+  const res = await applyEstimate(tx, ctx, a, { usefulLifeMonths: a.usefulLifeMonths, residualValue: a.residualValue, acquisitionCost: info.acquisitionCost, depreciationMethod: a.depreciationMethod }, info.reason);
+  const reopened = await tx
+    .update(dataSignoffs)
+    .set({ status: "draft", signedBy: null, signedAt: null, notes: `Nilai perolehan ${a.code} disesuaikan setelah tanda tangan — tanda tangani ulang (NFR-34).`, updatedAt: new Date() })
+    .where(and(eq(dataSignoffs.tenantId, a.tenantId), eq(dataSignoffs.group, "fixed_assets"), eq(dataSignoffs.status, "signed")))
+    .returning({ id: dataSignoffs.id });
+  await auditRecord(tx, {
+    ctx,
+    objectType: "fixed_asset",
+    objectId: a.id,
+    action: "update",
+    before: { acquisitionCost: a.acquisitionCost },
+    after: { acquisitionCost: info.acquisitionCost, adjustment: res.diff, journal: res.journalNumber, signoffReopened: reopened.length },
+    reason: info.reason,
+    rule: "US-M11-09 KP-3, PTB-44, NFR-34",
+  });
+  return { adjustment: res.diff };
 }
 
 // --- Pelepasan (US-M11-05 KP-4) --------------------------------------------------------------------------------------
@@ -664,19 +759,38 @@ const disposeSchema = z
     proceeds: zRupiahNonNegative.default(0),
     proceedsAccountId: z.uuid().nullable().optional(),
     reason: z.string().trim().min(5, { error: "Alasan pelepasan wajib diisi." }),
+    /** Bukti pelepasan (bukti jual / berita acara) — wajib (BR-35). */
+    attachmentId: z.uuid({ error: "Lampirkan bukti pelepasan (bukti jual atau berita acara)." }),
   })
   .strict();
 
-/** Lepas/jual aset: akumulasi & nilai perolehan dikeluarkan, laba/rugi pelepasan dihitung otomatis. */
+/**
+ * Lepas/jual aset (US-M11-05 KP-4, BR-35): jurnal pelepasan dibuat sebagai JURNAL MANUAL berlampiran lalu diajukan —
+ * di atas PAR-20 menunggu persetujuan pemilik (`manual_journal`), di bawahnya terposting dan masuk daftar tinjauan
+ * pemilik. Aset ditandai "Dilepas" saat jurnal terposting. Akun penerimaan hanya akun kas/bank/piutang.
+ */
 export async function disposeAsset(ctx: ActorContext, input: z.input<typeof disposeSchema>, opts: { tx?: Tx } = {}) {
   await authorize(ctx, "m11.fixed_asset.dispose", { tx: opts.tx });
-  const data = parseInput(disposeSchema, input, { reason: "Alasan", proceeds: "Hasil penjualan" });
+  const data = parseInput(disposeSchema, input, { reason: "Alasan", proceeds: "Hasil penjualan", attachmentId: "Bukti pelepasan" });
   return runService(ctx, opts, async (tx) => {
     const [a] = await tx.select().from(fixedAssets).where(and(eq(fixedAssets.id, data.assetId), eq(fixedAssets.tenantId, ctx.tenantId))).for("update").limit(1);
     if (!a) throw new NotFoundError("Aset tidak ditemukan.");
     if (a.status === "disposed") throw new DomainError("ASSET_DISPOSED", "Aset sudah dilepas.");
     if (!a.assetAccountId) throw new DomainError("ASSET_ACCOUNT", "Akun aset belum diatur untuk aset ini.");
     if (data.proceeds > 0 && !data.proceedsAccountId) throw new DomainError("PROCEEDS_ACCOUNT", "Pilih akun penerimaan hasil penjualan (kas/bank/piutang).");
+    if (data.proceeds > 0) {
+      const [pa] = await tx.select().from(accounts).where(and(eq(accounts.id, data.proceedsAccountId!), eq(accounts.tenantId, ctx.tenantId))).limit(1);
+      if (!pa || pa.type !== "asset" || !(pa.isCash || pa.code.startsWith("1-14"))) {
+        throw new DomainError("PROCEEDS_ACCOUNT", "Akun penerimaan hasil penjualan harus akun kas, bank, atau piutang.");
+      }
+    }
+    const pending = await tx
+      .select({ id: manualJournalDetails.id })
+      .from(manualJournalDetails)
+      .innerJoin(journals, eq(journals.id, manualJournalDetails.journalId))
+      .where(and(eq(journals.tenantId, ctx.tenantId), inArray(journals.status, ["draft", "submitted"]), sql`${manualJournalDetails.assetDisposal}->>'assetId' = ${a.id}`))
+      .limit(1);
+    if (pending[0]) throw new DomainError("DISPOSAL_PENDING", "Pelepasan aset ini sudah diajukan dan menunggu keputusan pemilik.");
     const accumulated = (await accumulatedUpTo(tx, [a.id], null)).get(a.id) ?? 0;
     const bookValue = a.acquisitionCost - accumulated;
     const gainLoss = data.proceeds - bookValue;
@@ -691,22 +805,28 @@ export async function disposeAsset(ctx: ActorContext, input: z.input<typeof disp
     const { journal } = await insertJournal(tx, {
       tenantId: ctx.tenantId,
       kind: "manual",
+      status: "draft",
       date: data.date,
       description: `Pelepasan aset ${a.code} ${a.name}: ${data.reason}`,
       lines,
       ctx,
+      attachmentId: data.attachmentId,
       sourceType: "m11.asset_disposal",
       sourceObject: { type: "fixed_asset", id: a.id },
-      requiresOwnerReview: true,
-      periodMode: "strict",
     });
-    const [row] = await tx
-      .update(fixedAssets)
-      .set({ status: "disposed", disposedAt: data.date, disposalProceeds: data.proceeds, disposalGainLoss: gainLoss, disposalJournalId: journal.id, updatedAt: new Date() })
-      .where(eq(fixedAssets.id, a.id))
-      .returning();
-    await auditRecord(tx, { ctx, objectType: "fixed_asset", objectId: a.id, action: "dispose", before: { status: "active", bookValue }, after: { status: "disposed", proceeds: data.proceeds, gainLoss, journal: journal.number }, reason: data.reason, rule: "US-M11-05 KP-4" });
-    return { asset: row!, journal, gainLoss, bookValue };
+    await linkAttachment(tx, data.attachmentId, { type: "journal", id: journal.id });
+    await tx.insert(manualJournalDetails).values({ tenantId: ctx.tenantId, journalId: journal.id, assetDisposal: { assetId: a.id, date: data.date, proceeds: data.proceeds, gainLoss, bookValue } });
+    await auditRecord(tx, { ctx, objectType: "fixed_asset", objectId: a.id, action: "request_dispose", before: { status: a.status, bookValue }, after: { proceeds: data.proceeds, gainLoss, journal: journal.number }, reason: data.reason, rule: "US-M11-05 KP-4, BR-35" });
+    const submitted = await submitDraftJournal(tx, ctx, journal.id);
+    const [row] = await tx.select().from(fixedAssets).where(eq(fixedAssets.id, a.id)).limit(1);
+    return {
+      asset: row!,
+      journal: submitted.journal,
+      status: submitted.status,
+      approvalId: submitted.status === "submitted" ? submitted.approvalId : null,
+      gainLoss,
+      bookValue,
+    };
   });
 }
 

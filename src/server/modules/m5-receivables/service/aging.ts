@@ -21,6 +21,8 @@ import { record as auditRecord } from "@/server/core/audit";
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { parseInput } from "@/server/core/errors";
+import { renderPdf, type RenderColumn } from "@/server/core/export";
+import * as params from "@/server/core/params";
 import { notify } from "@/server/core/notifications";
 import { authorize, runService } from "@/server/core/rbac";
 import { buildWaLink, recordWaOpened, renderTemplate } from "@/server/core/wa";
@@ -195,7 +197,7 @@ export async function computeStatement(tx: Tx, customerId: string, input: { from
   for (const i of invs) {
     raw.push({ date: i.issueDate, at: i.createdAt, kind: "invoice", reference: i.number, description: `${label("invoice_kind", i.kind)}${i.description ? ` — ${i.description}` : ""} (jatuh tempo ${formatTanggal(i.dueDate, { weekday: false })})`, debit: i.amount, credit: 0 });
     if (i.writtenOffAmount > 0 && i.writtenOffAt) {
-      raw.push({ date: toBusinessDate(i.writtenOffAt), at: i.writtenOffAt, kind: "write_off", reference: i.number, description: "Penghapusan piutang tak tertagih (PTB-28)", debit: 0, credit: i.writtenOffAmount });
+      raw.push({ date: toBusinessDate(i.writtenOffAt), at: i.writtenOffAt, kind: "write_off", reference: i.number, description: "Penghapusan piutang tak tertagih", debit: 0, credit: i.writtenOffAmount });
     }
   }
   const invIds = invs.map((i) => i.id);
@@ -221,7 +223,7 @@ export async function computeStatement(tx: Tx, customerId: string, input: { from
           credit: a.amount,
         });
       } else {
-        raw.push({ date, at: a.allocatedAt, kind: "payment_reversal", reference: ref, description: "Pembalik / realokasi pelunasan (BR-38)", debit: -a.amount, credit: 0 });
+        raw.push({ date, at: a.allocatedAt, kind: "payment_reversal", reference: ref, description: "Pembalik / realokasi pelunasan", debit: -a.amount, credit: 0 });
       }
     }
     const cns = await tx.select().from(creditNotes).where(and(inArray(creditNotes.invoiceId, invIds), eq(creditNotes.status, "issued")));
@@ -274,6 +276,45 @@ export async function customerStatement(ctx: ActorContext, customerId: string, i
   const to = input.to && isBusinessDate(input.to) ? input.to : today;
   const from = input.from && isBusinessDate(input.from) ? input.from : addDays(to, -rules.statement_default_days);
   return computeStatement(tx, customerId, { from, to, asOf: today });
+}
+
+/**
+ * PDF pernyataan piutang untuk DIKIRIM ke pelanggan (D-12 butir 2, B-77): dibangkitkan internal tanpa otorisasi ekspor
+ * laporan — pemanggil sudah `authorize(ctx, "m5.invoice.send")` dan mencatat jejak audit. Dirender di luar transaksi.
+ */
+export async function renderStatementPdf(ctx: ActorContext, customerId: string, opts: { tx?: Tx } = {}): Promise<{ filename: string; body: Buffer }> {
+  const db = opts.tx ?? getDb();
+  const today = ctxBusinessDate(ctx);
+  const c = await loadCustomer(db, customerId, { ctx });
+  const rules = await receivableRules(db, today, c.tenantId);
+  const st = await computeStatement(db, c.id, { from: addDays(today, -rules.statement_default_days), to: today, asOf: today });
+  const identity = await params.get(db, "company.identity", today, { tenantId: c.tenantId });
+  const columns: RenderColumn[] = [
+    { key: "date", header: "Tanggal", type: "date" },
+    { key: "kind", header: "Jenis", type: "enum", enumName: "statement_entry" },
+    { key: "reference", header: "Nomor", type: "text" },
+    { key: "description", header: "Uraian", type: "text", width: 36 },
+    { key: "debit", header: "Tagihan", type: "rupiah", total: true },
+    { key: "credit", header: "Pembayaran/kredit", type: "rupiah", total: true },
+    { key: "balance", header: "Saldo", type: "rupiah" },
+  ];
+  const entries = [{ date: st.from, kind: "opening", reference: "", description: "Saldo sebelumnya", debit: 0, credit: 0, balance: st.openingBalance }, ...st.entries];
+  const body = await renderPdf({
+    title: "Pernyataan piutang",
+    company: { name: identity.name, legalName: identity.legal_name, address: identity.address, phone: identity.phone },
+    generatedAt: ctx.now,
+    generatedBy: identity.name,
+    filters: [`Pelanggan: ${c.name}${c.code ? ` (${c.code})` : ""}`, `${formatTanggal(st.from, { weekday: false })} – ${formatTanggal(st.to, { weekday: false })}`],
+    columns,
+    rows: entries.map((e) => columns.map((col) => (e as Record<string, unknown>)[col.key])),
+    summary: [
+      { label: "Saldo akhir", value: st.closingBalance, type: "rupiah" },
+      ...(st.unbilled ? [{ label: "Belum ditagih (faktur bulanan)", value: st.unbilled, type: "rupiah" as const }] : []),
+    ],
+    orientation: "portrait",
+    notes: [],
+  });
+  return { filename: `pernyataan-piutang-${(c.code ?? c.id.slice(0, 8)).toLowerCase()}-${today.replace(/-/g, "")}.pdf`, body };
 }
 
 /** Kirim kartu piutang sebagai pernyataan piutang lewat WA (tercatat). */

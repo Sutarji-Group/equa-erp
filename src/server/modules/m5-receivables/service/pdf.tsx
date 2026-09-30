@@ -251,7 +251,7 @@ export async function renderPaymentReceiptPdf(ctx: ActorContext, paymentId: stri
             <Text>{formatRupiah(r.balanceAfter)}</Text>
           </View>
         </View>
-        <Text style={s.note}>Tanpa PPN; bukan faktur pajak (BR-29).</Text>
+        <Text style={s.note}>Tanpa PPN; bukan faktur pajak.</Text>
         {bank ? <Text style={s.note}>Rekening resmi: {bank.text} a.n. {bank.accountName}.</Text> : null}
         <View style={s.footer} fixed>
           <Text>

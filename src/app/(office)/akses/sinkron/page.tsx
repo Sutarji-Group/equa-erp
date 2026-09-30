@@ -13,7 +13,7 @@ import { label } from "@/lib/labels";
 import { formatTanggalJam } from "@/lib/time";
 import { requirePermission } from "@/server/core/auth/office";
 import { can } from "@/server/core/rbac";
-import { listIncidents, listSyncConflicts, listSyncHealth } from "@/server/modules/m10-access";
+import { listIncidents, listSyncConflicts, listSyncHealth, uptimeReport } from "@/server/modules/m10-access";
 
 import { acknowledgeIncidentAction, resolveIncidentAction, setMinVersionAction } from "./actions";
 
@@ -36,6 +36,7 @@ export default async function SinkronPage() {
   const view = await listSyncHealth(ctx);
   const conflicts = can(ctx, "m10.sync_conflict.read") ? await listSyncConflicts(ctx) : [];
   const incidents = can(ctx, "m10.incident.read") ? await listIncidents(ctx, { limit: 50 }) : null;
+  const uptime = can(ctx, "m10.incident.read") ? await uptimeReport(ctx) : null;
   const canIncident = can(ctx, "m10.incident.update");
   const canVersion = can(ctx, "m10.app_version.update");
 
@@ -164,6 +165,43 @@ export default async function SinkronPage() {
               </div>
             ))}
           </div>
+        </SectionCard>
+      ) : null}
+
+      {uptime ? (
+        <SectionCard
+          title={`Uptime bulan ${uptime.month}`}
+          description="Ketersediaan pada jam layanan (NFR-02) dari gangguan yang tercatat otomatis oleh pemantau eksternal & denyut pekerjaan terjadwal. Gangguan di jendela pemeliharaan (PAR-86) dicatat terpisah."
+          actions={<ExportButtons excelHref="/api/export/m10.uptime_monthly?format=xlsx" pdfHref="/api/export/m10.uptime_monthly?format=pdf" />}
+          className="mt-6"
+          flush
+        >
+          <TableScroll>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Layanan</TableHead>
+                  <TableHead className="text-right">Gangguan</TableHead>
+                  <TableHead className="text-right">Menit gangguan</TableHead>
+                  <TableHead className="text-right">Pemeliharaan (menit)</TableHead>
+                  <TableHead className="text-right">Ketersediaan</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {uptime.rows.map((r) => (
+                  <TableRow key={r.service}>
+                    <TableCell>{r.label}</TableCell>
+                    <TableCell className="text-right">{r.outages}</TableCell>
+                    <TableCell className="text-right">{r.downtimeMinutes}</TableCell>
+                    <TableCell className="text-right">{r.maintenanceMinutes}</TableCell>
+                    <TableCell className="text-right">
+                      <ToneBadge tone={r.meetsTarget ? "success" : "danger"}>{`${r.availabilityPct.toLocaleString("id-ID")}% (target ${r.targetPct.toLocaleString("id-ID")}%)`}</ToneBadge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableScroll>
         </SectionCard>
       ) : null}
 

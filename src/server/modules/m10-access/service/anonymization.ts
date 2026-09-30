@@ -10,15 +10,19 @@
  */
 import "server-only";
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
   anonymizationRequests,
+  customerAccountRequests,
   customerAccounts,
   customerAddresses,
+  customerSessions,
   customers,
   employees,
+  otpCodes,
+  phoneChangeRequests,
   trips,
   users,
   waMessageLogs,
@@ -165,6 +169,9 @@ export type AnonymizationOutcome = { executed: boolean; deferred?: string; touch
 /** Anonimkan pelanggan pada seluruh objek; catatan keuangan tetap (tanpa identitas). */
 async function anonymizeCustomer(tx: Tx, customerId: string, now: Date): Promise<Record<string, number>> {
   const short = customerId.slice(-6).toUpperCase();
+  // Identitas aplikasi pelanggan (P2) dibaca SEBELUM disamarkan: nomor WA pelanggan & akun aplikasinya.
+  const [before] = await tx.select({ waPhone: customers.waPhone }).from(customers).where(eq(customers.id, customerId)).limit(1);
+  const appAccounts = await tx.select({ id: customerAccounts.id, phone: customerAccounts.phone }).from(customerAccounts).where(eq(customerAccounts.customerId, customerId));
   const c = await tx
     .update(customers)
     .set({ name: `Pelanggan anonim ${short}`, waPhone: "0", contactName: null, notes: null, anonymizedAt: now, updatedAt: now })
@@ -192,7 +199,56 @@ async function anonymizeCustomer(tx: Tx, customerId: string, now: Date): Promise
       .set({ phone: `anon-${acc.id}`, displayName: null, anonymizedAt: now, deactivatedAt: now, updatedAt: now })
       .where(eq(customerAccounts.id, acc.id));
   }
-  return { customers: c.length, addresses: a.length, trips: t.length, waMessages: w.length, customerAccounts: accounts.length };
+  const app = await anonymizeCustomerAppData(tx, {
+    customerId,
+    accountIds: appAccounts.map((x) => x.id),
+    phones: [before?.waPhone ?? null, ...appAccounts.map((x) => x.phone)],
+    now,
+  });
+  return { customers: c.length, addresses: a.length, trips: t.length, waMessages: w.length + app.waMessages, customerAccounts: accounts.length, ...app.touched };
+}
+
+/**
+ * Data aplikasi pelanggan (P2) yang memuat nomor WA/identitas (NFR-12, US-M10-06 KP-2, US-P2-01 KP-5): kode OTP
+ * (tabel teknis → dihapus), permintaan ganti nomor (nomor lama & baru), catatan permintaan akun (nama/nomor isian),
+ * sesi (IP & peramban; dicabut), dan log WA ke nomor itu — termasuk log OTP yang tidak bertanda pelanggan.
+ */
+async function anonymizeCustomerAppData(
+  tx: Tx,
+  input: { customerId: string; accountIds: string[]; phones: (string | null)[]; now: Date },
+): Promise<{ waMessages: number; touched: Record<string, number> }> {
+  const { accountIds, now } = input;
+  const phoneSet = new Set(input.phones.filter((p): p is string => !!p && p !== "0" && !p.startsWith("anon-")));
+  if (accountIds.length) {
+    const changes = await tx.select({ oldPhone: phoneChangeRequests.oldPhone, newPhone: phoneChangeRequests.newPhone }).from(phoneChangeRequests).where(inArray(phoneChangeRequests.customerAccountId, accountIds));
+    for (const ch of changes) for (const p of [ch.oldPhone, ch.newPhone]) if (p && p !== "0") phoneSet.add(p);
+  }
+  const phones = [...phoneSet];
+  const otp = accountIds.length || phones.length
+    ? await tx
+        .delete(otpCodes)
+        .where(or(accountIds.length ? inArray(otpCodes.customerAccountId, accountIds) : sql`false`, phones.length ? inArray(otpCodes.phone, phones) : sql`false`))
+        .returning({ id: otpCodes.id })
+    : [];
+  const changes = accountIds.length
+    ? await tx.update(phoneChangeRequests).set({ oldPhone: "0", newPhone: "0" }).where(inArray(phoneChangeRequests.customerAccountId, accountIds)).returning({ id: phoneChangeRequests.id })
+    : [];
+  const requests = await tx
+    .update(customerAccountRequests)
+    .set({ detail: null, updatedAt: now })
+    .where(or(eq(customerAccountRequests.candidateCustomerId, input.customerId), accountIds.length ? inArray(customerAccountRequests.customerAccountId, accountIds) : sql`false`))
+    .returning({ id: customerAccountRequests.id });
+  const sessions = accountIds.length
+    ? await tx
+        .update(customerSessions)
+        .set({ ip: null, userAgent: null, revokedAt: sql`coalesce(${customerSessions.revokedAt}, ${now})` })
+        .where(inArray(customerSessions.customerAccountId, accountIds))
+        .returning({ id: customerSessions.id })
+    : [];
+  const wa = phones.length
+    ? await tx.update(waMessageLogs).set({ toPhone: "0", renderedText: "[dianonimkan]", updatedAt: now }).where(inArray(waMessageLogs.toPhone, phones)).returning({ id: waMessageLogs.id })
+    : [];
+  return { waMessages: wa.length, touched: { otpCodes: otp.length, phoneChanges: changes.length, accountRequests: requests.length, appSessions: sessions.length } };
 }
 
 /** Anonimkan karyawan (setelah keluar): nama, panggilan, telepon, lokasi tugas. Akun tetap nonaktif; transaksi tetap. */

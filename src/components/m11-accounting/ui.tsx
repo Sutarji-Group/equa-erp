@@ -187,10 +187,13 @@ export function JournalLinesInput({
   rows = 6,
   defaults = [],
   showOutlet = true,
+  waterSources,
   testId,
 }: {
   accounts: readonly AccountOption[];
   outlets?: readonly { id: string; name: string }[];
+  /** Sumber air per baris (beban produksi air L1 wajib bersumber atau "gabungan", PTB-39). */
+  waterSources?: readonly { id: string; name: string }[];
   rows?: number;
   defaults?: readonly { accountId?: string | null; profitCenter?: ProfitCenter | null; outletId?: string | null; debit?: number; credit?: number; memo?: string | null }[];
   showOutlet?: boolean;
@@ -205,6 +208,7 @@ export function JournalLinesInput({
             <th className="py-1 pr-2">Akun</th>
             <th className="py-1 pr-2">Pusat laba</th>
             {showOutlet ? <th className="py-1 pr-2">Outlet</th> : null}
+            {waterSources ? <th className="py-1 pr-2">Sumber air (L1)</th> : null}
             <th className="py-1 pr-2 text-right">Debit (Rp)</th>
             <th className="py-1 pr-2 text-right">Kredit (Rp)</th>
             <th className="py-1">Memo</th>
@@ -241,6 +245,19 @@ export function JournalLinesInput({
                       {(outlets ?? []).map((o) => (
                         <option key={o.id} value={o.id}>
                           {o.name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                ) : null}
+                {waterSources ? (
+                  <td className="py-1 pr-2">
+                    <select name={`line_source_${i}`} defaultValue="" aria-label={`Sumber air baris ${i + 1}`} className={cn(control, "w-40")}>
+                      <option value="">—</option>
+                      <option value="shared">Gabungan semua sumber</option>
+                      {waterSources.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
                         </option>
                       ))}
                     </select>

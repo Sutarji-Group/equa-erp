@@ -1013,6 +1013,29 @@ export const incidents = pgTable(
   (t) => [index("incidents_status_idx").on(t.status, t.detectedAt)],
 );
 
+/**
+ * (Tambahan S5-B) Gangguan layanan tercatat otomatis dengan durasinya (NFR-02, NFR-28, US-M10-07 KP-2): `app` = denyut
+ * job pemantauan (mulai = denyut sukses terakhir, pulih = tick sukses pertama), `web`/`sync` = pemantau eksternal
+ * (GitHub Actions) melaporkan mulai & pulih. Dasar laporan uptime bulanan; di dalam jendela pemeliharaan PAR-86 ditandai.
+ */
+export const serviceOutages = pgTable(
+  "service_outages",
+  {
+    id: pk(),
+    /** app | web | sync */
+    service: text("service").notNull(),
+    /** heartbeat | external_monitor */
+    source: text("source").notNull(),
+    startedAt: tstz("started_at").notNull(),
+    endedAt: tstz("ended_at").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    inMaintenanceWindow: boolean("in_maintenance_window").notNull().default(false),
+    note: text("note"),
+    ...createdAtOnly(),
+  },
+  (t) => [uniqueIndex("service_outages_service_start_uq").on(t.service, t.startedAt), index("service_outages_started_idx").on(t.startedAt)],
+);
+
 /** Tinjauan hak akses kuartalan (US-M10-01 KP-6, PAR-47). */
 export const accessReviews = pgTable(
   "access_reviews",

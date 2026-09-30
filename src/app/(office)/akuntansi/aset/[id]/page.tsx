@@ -118,10 +118,16 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                 {a.source === "import" ? <FormInput label="Nilai perolehan (Rp)" name="acquisitionCost" inputMode="numeric" defaultValue={a.acquisitionCost} /> : null}
               </div>
               <FormInput label="Alasan (keputusan akuntan)" name="reason" required />
+              {a.source === "import" ? (
+                <>
+                  <FormInput label="Catatan akuntan (wajib bila nilai perolehan diubah — penyesuaian saldo awal, perlu persetujuan pemilik)" name="accountantNote" />
+                  <FormInput label="Lampiran (opsional)" name="evidence" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" />
+                </>
+              ) : null}
             </M11ActionForm>
           </SectionCard>
           {can(ctx, "m11.fixed_asset.dispose") ? (
-            <SectionCard title="Lepas / jual aset" description="Nilai perolehan & akumulasi dikeluarkan; laba/rugi pelepasan dihitung otomatis.">
+            <SectionCard title="Lepas / jual aset" description="Nilai perolehan & akumulasi dikeluarkan; laba/rugi pelepasan dihitung otomatis. Jurnal pelepasan wajib berlampiran; di atas ambang jurnal manual perlu persetujuan pemilik.">
               <M11ActionForm action={disposeAssetAction} submitLabel="Lepas aset" variant="destructive" testId="lepas-aset">
                 <input type="hidden" name="assetId" value={a.id} />
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -130,6 +136,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                   <FormSelect label="Akun penerimaan" name="proceedsAccountId" options={cashAccounts.map((x) => ({ value: x.id, label: `${x.code} ${x.name}` }))} emptyLabel="—" className="sm:col-span-2" />
                 </div>
                 <FormInput label="Alasan" name="reason" required />
+                <FormInput label="Bukti pelepasan (bukti jual / berita acara)" name="evidence" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required />
               </M11ActionForm>
             </SectionCard>
           ) : null}

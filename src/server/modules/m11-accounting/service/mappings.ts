@@ -6,7 +6,7 @@
  */
 import "server-only";
 
-import { and, asc, desc, eq, lte } from "drizzle-orm";
+import { and, desc, eq, lte } from "drizzle-orm";
 import { z } from "zod";
 
 import { accounts, eventAccountMappings } from "@/db/schema";
@@ -21,7 +21,9 @@ import * as flags from "@/server/core/flags";
 import { authorize, runService } from "@/server/core/rbac";
 
 import { REQUIRED_MAPPINGS, SKIPPED_EVENTS, type RequiredMapping } from "../constants";
-import { m11Active } from "./common";
+import { accountingActivation, mappingCompleteness, mappingRows } from "./common";
+
+export { mappingCompleteness };
 import { retryPendingQueue, type RetrySummary } from "./queue";
 
 export type MappingRow = typeof eventAccountMappings.$inferSelect;
@@ -31,42 +33,6 @@ export type MappingView = RequiredMapping & {
   history: MappingRow[];
   status: "ok" | "missing" | "inactive_account";
 };
-
-async function mappingRows(tx: Tx, tenantId: string, date: BusinessDate) {
-  const rows = await tx
-    .select()
-    .from(eventAccountMappings)
-    .where(and(eq(eventAccountMappings.tenantId, tenantId), lte(eventAccountMappings.effectiveFrom, "9999-12-31")))
-    .orderBy(asc(eventAccountMappings.eventKey), asc(eventAccountMappings.entryKey), desc(eventAccountMappings.effectiveFrom));
-  const accs = await tx.select().from(accounts).where(eq(accounts.tenantId, tenantId));
-  const byId = new Map(accs.map((a) => [a.id, a]));
-  const current = new Map<string, MappingRow>();
-  const history = new Map<string, MappingRow[]>();
-  for (const r of rows) {
-    const key = `${r.eventKey}|${r.entryKey}`;
-    history.set(key, [...(history.get(key) ?? []), r]);
-    if (!current.has(key) && r.isActive && r.effectiveFrom <= date) current.set(key, r);
-  }
-  return { current, history, byId };
-}
-
-/** Status pemetaan wajib per tanggal (layar pemetaan & syarat aktivasi). */
-export async function mappingCompleteness(tx: Tx, tenantId: string, date: BusinessDate): Promise<{ total: number; missing: RequiredMapping[]; inactive: RequiredMapping[] }> {
-  const { current, byId } = await mappingRows(tx, tenantId, date);
-  const missing: RequiredMapping[] = [];
-  const inactive: RequiredMapping[] = [];
-  for (const req of REQUIRED_MAPPINGS) {
-    const cur = current.get(`${req.event}|${req.entry}`);
-    if (!cur) {
-      missing.push(req);
-      continue;
-    }
-    const d = byId.get(cur.debitAccountId);
-    const c = byId.get(cur.creditAccountId);
-    if (!d?.isActive || !c?.isActive || !d.isPostable || !c.isPostable) inactive.push(req);
-  }
-  return { total: REQUIRED_MAPPINGS.length, missing, inactive };
-}
 
 /** Daftar pemetaan wajib + versi berlaku + riwayat. Izin `m11.journal_mapping.read`. */
 export async function listMappings(ctx: ActorContext, filter: { date?: BusinessDate | null } = {}, opts: { tx?: Tx } = {}) {
@@ -90,9 +56,11 @@ export async function listMappings(ctx: ActorContext, filter: { date?: BusinessD
     };
   });
   const extra = [...current.values()].filter((r) => !REQUIRED_MAPPINGS.some((q) => q.event === r.eventKey && q.entry === r.entryKey));
+  const activation = await accountingActivation(tx, ctx.tenantId, date);
   return {
     date,
-    active: await m11Active(tx, ctx.tenantId),
+    active: activation.active,
+    activation,
     mappings: views,
     extra,
     skipped: SKIPPED_EVENTS,
@@ -202,7 +170,7 @@ export async function setAccountingActive(ctx: ActorContext, input: z.input<type
           "MAPPING_INCOMPLETE",
           `M11 belum dapat diaktifkan: ${problems.length} pemetaan wajib belum lengkap (${problems
             .slice(0, 5)
-            .map((p) => `${p.event}/${p.entry}`)
+            .map((p) => p.label)
             .join(", ")}${problems.length > 5 ? ", …" : ""}). Lengkapi di Akuntansi > Pemetaan jurnal otomatis.`,
         );
       }

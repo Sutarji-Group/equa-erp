@@ -3,13 +3,14 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { auditLogs, dataSignoffs, depreciationEntries, fixedAssets, journals } from "@/db/schema";
 import { EQUA_TENANT_ID, outletId, truckId, waterSourceId } from "@/db/seed";
+import * as approvals from "@/server/core/approvals";
 import { ForbiddenError } from "@/server/core/errors";
 import { exportReport } from "@/server/core/export";
 import * as m11 from "@/server/modules/m11-accounting";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
 import { useTestDb } from "../helpers/db";
-import { THIS_PERIOD, TODAY, acc, accountant, at, finance, linesOf, manualJournal, notificationsOf, owner, pair, periodRow, setPeriod, shiftMonth } from "./helpers";
+import { THIS_PERIOD, TODAY, acc, accountant, at, evidence, finance, linesOf, manualJournal, notificationsOf, owner, pair, periodRow, setPeriod, shiftMonth } from "./helpers";
 
 const PREV = shiftMonth(THIS_PERIOD, -1);
 const NEXT = shiftMonth(THIS_PERIOD, 1);
@@ -134,16 +135,20 @@ describe("M11 aset tetap & penyusutan otomatis (US-M11-05)", () => {
 
     // Jual mesin RO D01: nilai buku = 36jt − (5jt saldo awal + 2 × 500rb) = 30jt; dijual 32jt → laba 2jt.
     const [ro] = await t.db.select().from(fixedAssets).where(eq(fixedAssets.code, "AST-D01"));
-    await expect(m11.disposeAsset(fa, { assetId: ro!.id, date: TODAY, proceeds: 32_000_000, reason: "Dijual ke mitra" })).rejects.toThrow(/akun penerimaan/);
-    const sold = await m11.disposeAsset(fa, { assetId: ro!.id, date: TODAY, proceeds: 32_000_000, proceedsAccountId: acc("1-1201"), reason: "Dijual ke mitra" });
-    expect(sold).toMatchObject({ bookValue: 30_000_000, gainLoss: 2_000_000 });
+    const bukti = await evidence(fa);
+    await expect(m11.disposeAsset(fa, { assetId: ro!.id, date: TODAY, proceeds: 32_000_000, reason: "Dijual ke mitra", attachmentId: bukti })).rejects.toThrow(/akun penerimaan/);
+    // BR-35: jurnal pelepasan = jurnal manual berlampiran; > PAR-20 menunggu persetujuan pemilik, aset dilepas setelahnya.
+    const sold = await m11.disposeAsset(fa, { assetId: ro!.id, date: TODAY, proceeds: 32_000_000, proceedsAccountId: acc("1-1201"), reason: "Dijual ke mitra", attachmentId: bukti });
+    expect(sold).toMatchObject({ bookValue: 30_000_000, gainLoss: 2_000_000, status: "submitted" });
+    expect((await t.db.select().from(fixedAssets).where(eq(fixedAssets.id, ro!.id)))[0]!.status).toBe("active");
+    await approvals.decide(owner(), sold.approvalId!, "approve", "Penjualan disetujui");
     expect((await linesOf(t.db, sold.journal.id)).map((l) => [l.code, l.debit, l.credit])).toEqual([
       ["1-2301", 0, 36_000_000],
       ["1-2302", 6_000_000, 0],
       ["1-1201", 32_000_000, 0],
       ["4-9201", 0, 2_000_000],
     ]);
-    await expect(m11.disposeAsset(fa, { assetId: ro!.id, date: TODAY, reason: "Lepas lagi" })).rejects.toThrow(/sudah dilepas/);
+    await expect(m11.disposeAsset(fa, { assetId: ro!.id, date: TODAY, reason: "Lepas lagi", attachmentId: await evidence(fa) })).rejects.toThrow(/sudah dilepas/);
     const detail = await m11.assetDetail(accountant(), ro!.id);
     expect(detail.asset).toMatchObject({ status: "disposed", disposalGainLoss: 2_000_000 });
     expect(detail.entries.length).toBe(2);

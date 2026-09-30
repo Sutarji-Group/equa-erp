@@ -9,20 +9,21 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { employees, exportLogs } from "@/db/schema";
+import { attachments, employees, exportLogs } from "@/db/schema";
 import { label } from "@/lib/labels";
 import { toWibParts } from "@/lib/time";
 
 import { logAccess } from "../access-log";
 import { ensureBootstrapped } from "../bootstrap";
-import { ctxBusinessDate, type ActorContext } from "../context";
+import { ctxBusinessDate, systemContext, type ActorContext } from "../context";
 import { getDb, withTx } from "../db";
 import { DomainError, NotFoundError, parseInput } from "../errors";
 import { get as getParam } from "../params-read";
 import { authorize, can } from "../rbac/authorize";
+import { put, storageDriver } from "../storage";
 import { renderCsv, renderExcel } from "./excel";
 import { renderPdf } from "./pdf";
 import { getReport } from "./registry";
@@ -138,12 +139,35 @@ export async function exportReport(
     orientation: def.orientation ?? (columns.length > 7 ? "landscape" : "portrait"),
     notes: stripPii ? ["Versi tanpa nomor WA dan alamat lengkap (BR-39). Data pribadi hanya dapat diekspor pemilik/Admin Keuangan dengan tujuan tercatat."] : [],
   };
-  const body = format === "xlsx" ? await renderExcel(input) : format === "pdf" ? await renderPdf(input) : renderCsv(input);
+  // (Tambahan S5-B) Versi Final: berkas pertama per (laporan, versi Final, format, filter, varian data pribadi) disimpan
+  // lalu dikirim ulang apa adanya — ekspor ulang identik (US-M9-03 KP-4, US-M11-04 KP-2). Metadata cetak = waktu Final.
+  const finalRef = result.final ?? null;
+  const finalKey = finalRef
+    ? createHash("sha256").update(JSON.stringify([key, format, finalRef.key, stripPii, sortedEntries(parsedFilters as Record<string, unknown>)])).digest("hex").slice(0, 40)
+    : null;
+  const stored = finalKey ? await storedFinalExport(db, ctx.tenantId, finalKey, format) : null;
+  let body: Buffer;
+  if (stored) body = stored.body;
+  else if (finalRef) {
+    const fixed = { ...input, generatedAt: finalRef.at, generatedBy: "Laporan Final" };
+    body = format === "xlsx" ? await renderExcel(fixed, { fixedTimestamp: finalRef.at }) : format === "pdf" ? await renderPdf(fixed) : renderCsv(fixed);
+  } else body = format === "xlsx" ? await renderExcel(input) : format === "pdf" ? await renderPdf(input) : renderCsv(input);
   const sha256 = createHash("sha256").update(body).digest("hex");
 
-  const w = toWibParts(now);
+  const w = toWibParts(finalRef ? finalRef.at : now);
   const stamp = `${w.businessDate.replace(/-/g, "")}-${w.time.replace(":", "")}`;
-  const filename = `${slug(def.title) || slug(key)}-${stamp}.${format}`;
+  const filename = stored?.name ?? `${slug(def.title) || slug(key)}-${finalRef ? "final-" : ""}${stamp}.${format}`;
+  if (finalKey && !stored) {
+    await withTx(async (tx) => {
+      await put(tx, systemContext({ tenantId: ctx.tenantId, now }), {
+        blob: body,
+        contentType: CONTENT_TYPES[format].split(";")[0]!,
+        kind: `report_final_${format}`,
+        originalName: filename,
+        objectRef: { type: FINAL_EXPORT_OBJECT, id: finalKey },
+      });
+    });
+  }
 
   const exportLogId = await withTx(async (tx) => {
     const [log] = await tx
@@ -185,6 +209,28 @@ export async function exportReport(
     sha256,
     exportLogId,
   };
+}
+
+/** (Tambahan S5-B) Objek lampiran berkas ekspor versi Final. */
+const FINAL_EXPORT_OBJECT = "report_final_export";
+
+function sortedEntries(filters: Record<string, unknown>): [string, unknown][] {
+  return Object.entries(filters)
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** Berkas ekspor versi Final yang sudah tersimpan (dibaca langsung dari penyimpanan — otorisasi laporan sudah lolos). */
+async function storedFinalExport(db: ReturnType<typeof getDb>, tenantId: string, finalKey: string, format: ExportFormat): Promise<{ body: Buffer; name: string | null } | null> {
+  const [row] = await db
+    .select()
+    .from(attachments)
+    .where(and(eq(attachments.objectType, FINAL_EXPORT_OBJECT), eq(attachments.objectId, finalKey), eq(attachments.kind, `report_final_${format}`), eq(attachments.tenantId, tenantId), isNull(attachments.archivedAt)))
+    .orderBy(asc(attachments.createdAt))
+    .limit(1);
+  if (!row) return null;
+  const body = await storageDriver().get(row.storageKey, row.url);
+  return body ? { body, name: row.originalName } : null;
 }
 
 function describeGeneric(filters: Record<string, unknown>): string[] {

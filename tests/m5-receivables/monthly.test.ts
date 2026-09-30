@@ -74,9 +74,10 @@ describe("US-M5-06 Faktur bulanan untuk pelanggan tagihan bulanan", () => {
     // Uang muka pelanggan (kelebihan bayar sebelumnya) dialokasikan otomatis ke faktur bulanan.
     await withTx((tx) => createAdvance(tx, system(w.date), { tenantId: EQUA_TENANT_ID, customerId: w.customer.id, amount: 100_000, notes: "Kelebihan transfer bulan lalu (uji)", notify: false }));
     const issueDay = nextMonthFirst(w.date);
-    // Bukan tanggal terbit → job dilewati.
-    const skipped = await runJobNow("m5.monthly_invoices", noonOf(addDays(issueDay, 1)));
-    expect(skipped).toMatchObject({ status: "succeeded", result: { skipped: expect.any(String) } });
+    // Sebelum tanggal terbit periode layanan ini (akhir bulan layanan) → rit bulan ini belum ditagih.
+    const before = await runJobNow("m5.monthly_invoices", noonOf(addDays(issueDay, -1)));
+    expect(before.status).toBe("succeeded");
+    expect(await t.db.select().from(invoices).where(and(eq(invoices.customerId, w.customer.id), eq(invoices.kind, "monthly")))).toHaveLength(0);
     const res = await runJobNow("m5.monthly_invoices", noonOf(issueDay));
     expect(res.status).toBe("succeeded");
     const monthly = await t.db.select().from(invoices).where(and(eq(invoices.customerId, w.customer.id), eq(invoices.kind, "monthly")));

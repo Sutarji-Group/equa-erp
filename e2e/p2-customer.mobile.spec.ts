@@ -75,9 +75,14 @@ async function orderSteps(page: Page): Promise<void> {
   await expect(page.getByTestId("order-total")).toContainText(/Total Rp\s?[\d.]+/);
 }
 
-async function expectNoHorizontalScroll(page: Page): Promise<void> {
-  const { scrollWidth, innerWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
-  expect(scrollWidth).toBeLessThanOrEqual(innerWidth + 1);
+/**
+ * NFR-19: bandingkan dengan lebar VIEWPORT tetap (bukan `window.innerWidth` — pada emulasi ponsel ikut melebar mengikuti
+ * konten sehingga asersi lama selalu lulus).
+ */
+async function expectNoHorizontalScroll(page: Page, what = page.url()): Promise<void> {
+  const viewport = page.viewportSize()!.width;
+  const scrollWidth = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
+  expect(scrollWidth, `${what}: lebar halaman ${scrollWidth}px > layar ${viewport}px`).toBeLessThanOrEqual(viewport + 1);
 }
 
 test.describe("P2 — Aplikasi Pelanggan (ponsel)", () => {

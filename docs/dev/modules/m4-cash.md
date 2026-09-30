@@ -197,3 +197,33 @@ pada payload §3.1), `notifications/catalog.ts` (`deposit.result`, `discrepancy.
   sementara). Uji `tests/integration/seed-m4-m5.test.ts`.
 - **B-55** rincian setoran `/kas/setoran/[id]`: tautan "Lihat jurnal". **B-18/B-24**: unggah 4 MB + kompresi foto;
   `useFlashActionState` di `ActionForm`/`ReceiveForm`.
+
+## 11. S5-B perbaikan temuan audit (tim B)
+
+- **Hari kas terkunci (US-M4-06 KP-7, BR-38).** `openCashDate(from)` kini = hari setelah hari kas TERAKHIR yang sudah
+  ditutup ≥ `from` (saldo kas kantor kumulatif: mutasi bertanggal lebih awal dari hari yang ditutup juga ditolak);
+  `assertCashDayOpen` menolak tanggal yang ≤ hari kas tertutup mana pun. `decisionCashDate(orig, today)` dipakai jalur
+  keputusan/pembalik: `decidePettyCash` (tanggal berlaku kas kecil dipindah ke hari kas terbuka, saldo kas kantor/kas
+  kecil diperiksa ulang; kurang → keputusan ditolak dengan pesan), `applyBankDepositReversal`, `applySettlementReversal`
+  (deskripsi "(setelah kas ditutup)").
+- **Pembalik setor bank vs pencocokan.** `applyBankDepositReversal` → `null` (tidak diterapkan + notifikasi Admin
+  Keuangan) bila setor bank sudah `matched`; outcome persetujuan `{ applied: false }`. `matchCore` membatalkan
+  persetujuan `correction` terbuka atas setor bank yang dicocokkan (systemContext) + memberi tahu pemohon.
+- **PAR-01 per sopir/outlet per hari (6.2a).** `formDiscrepancy` menjumlahkan selisih sumber yang sama pada tanggal itu
+  (sopir: `employeeId`/`userId`, sumber `driver`; shift: `outletId` + sumber). Total ≥ PAR-01 → selisih baru & selisih
+  lain hari itu `requiresOwnerDecision`; yang sudah ditutup di bawah ambang dibuka kembali (`reopenReason`), yang
+  dijelaskan diajukan `cash_discrepancy`. `pending_deposit` tidak dijumlahkan.
+- **Setoran tertunda yang akhirnya diterima (US-M4-06 KP-2).** `resolveExceptionsForDeposit` → `resolvePendingDepositDiscrepancy`
+  untuk `convertedDiscrepancyId`: selisih "setoran tertunda" Selesai (catatan "kas diterima", `locksTrips=false`),
+  persetujuan terbuka dibatalkan; bila sudah Ditolak + ganti rugi → ganti rugi gugur (status `settled`, audit `void`) dan
+  `discrepancy.reopened` (M11 membalik jurnal piutang karyawan).
+- **SoD "dicatat kantor" (US-M4-02 KP-9, FR-M10-03).** `receiveDepositCore` & `closeDeposit` menolak (`SOD-02`) bila
+  `trip_payments`/`customer_payments`/`trip_expenses` tertaut dibuat pelaku (`created_by`); rincian setoran
+  menampilkan alasan blokir.
+- **Tutup kas tertunda (7.4.6).** Setoran diterima dibukukan ke hari kas terbuka paling awal ≥ tanggal setoran
+  (bukan hari ini). Tutup kas tanggal lampau membandingkan fisik dengan saldo sampai saat ini
+  (`officeCashForClose` → `system`, `throughDate`, `laterNet`; layar: `officeCashThroughDate`, `officeCashLaterNet`).
+- **Layar tutup kas (D-12 butir 7).** `discrepanciesOn` → `DiscrepancyDayRow` (`sourceLabel`, `outletLabel`,
+  `truckCode`, `employeeName`, satu kueri join); `/kas/tutup` menampilkan outlet/truk & nama karyawan.
+- **Impor mutasi.** `StatementFormatError` (pesan Indonesia); galat pustaka (.xlsx rusak) tidak diteruskan.
+- Uji: `tests/m4-cash/audit-s5b.test.ts`.

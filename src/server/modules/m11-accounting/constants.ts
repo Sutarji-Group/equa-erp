@@ -237,3 +237,13 @@ export const INTERNAL_TRANSFER_SOURCES = new Set(["water_supply.confirmed", "int
 
 export const PROFIT_CENTERS: readonly ProfitCenter[] = ["L1", "L2", "L3", "L4", "L5", "SHARED"];
 export const LINE_PROFIT_CENTERS: readonly ProfitCenter[] = ["L2", "L3", "L4", "L5"];
+
+/**
+ * Pesan "pemetaan hilang" dengan nama peristiwa yang dipahami pengguna (label `REQUIRED_MAPPINGS`) + tindakannya —
+ * kunci teknis (`trip.completed/credit`) hanya disimpan di payload (aturan #1).
+ */
+export function mappingMissingMessage(eventKey: string, entryKey: string): string {
+  const req = REQUIRED_MAPPINGS.find((r) => r.event === eventKey && r.entry === entryKey);
+  const what = req ? `"${req.label}"` : "peristiwa ini";
+  return `Pemetaan akun untuk ${what} belum ada. Lengkapi di Akuntansi > Pemetaan jurnal otomatis, lalu coba ulang.`;
+}

@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { generate } from "otplib";
 
+import { allNavItems } from "../src/components/shared/nav/registry";
+
 /** M9 — H+0 & kotak masuk terbaca di ponsel pemilik tanpa gulir mendatar (US-M9-01 KP-5, NFR-19). */
 
 const PASSWORD = "equa-demo-2026";
@@ -26,9 +28,14 @@ async function loginOwner(page: Page): Promise<void> {
   throw new Error("Gagal masuk sebagai pemilik");
 }
 
-async function expectNoHorizontalScroll(page: Page): Promise<void> {
-  const { scrollWidth, innerWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
-  expect(scrollWidth).toBeLessThanOrEqual(innerWidth + 1);
+/**
+ * NFR-19: bandingkan dengan lebar VIEWPORT tetap (bukan `window.innerWidth` — pada emulasi ponsel ikut melebar mengikuti
+ * konten sehingga asersi lama selalu lulus).
+ */
+async function expectNoHorizontalScroll(page: Page, what = page.url()): Promise<void> {
+  const viewport = page.viewportSize()!.width;
+  const scrollWidth = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
+  expect(scrollWidth, `${what}: lebar halaman ${scrollWidth}px > layar ${viewport}px`).toBeLessThanOrEqual(viewport + 1);
 }
 
 test("US-M9-01 KP-5 H+0, laporan bulanan & kotak masuk terbaca di ponsel pemilik tanpa gulir mendatar; muat ≤ 2 detik (dihitung server)", async ({ page }) => {
@@ -48,4 +55,26 @@ test("US-M9-01 KP-5 H+0, laporan bulanan & kotak masuk terbaca di ponsel pemilik
   await page.goto("/laporan/bulanan");
   await expect(page.getByTestId("monthly-lines")).toBeVisible();
   await expectNoHorizontalScroll(page);
+});
+
+/**
+ * Semua rute menu web kantor (registri navigasi, tanpa halaman rincian/dinamis) — dibuka pemilik di ponsel. Temuan audit
+ * S5-B: halaman melebar karena tabel di dalam kartu yang menjadi anak grid (`min-width: auto`).
+ */
+const OWNER_MOBILE_ROUTES = allNavItems()
+  .filter((item) => !item.hidden && !item.href.includes("["))
+  .map((item) => item.href);
+
+test("NFR-19 US-M9-01 KP-5 semua halaman menu kantor di ponsel pemilik tidak melebar melewati layar (tabel menggulir di dalam kartu)", async ({ page }) => {
+  test.setTimeout(600_000);
+  await loginOwner(page);
+  const viewport = page.viewportSize()!.width;
+  const failures: string[] = [];
+  for (const route of OWNER_MOBILE_ROUTES) {
+    await page.goto(route, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load", { timeout: 15_000 }).catch(() => undefined);
+    const width = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
+    if (width > viewport + 1) failures.push(`${route}: ${width}px`);
+  }
+  expect(failures, `Halaman melebar melewati ${viewport}px`).toEqual([]);
 });

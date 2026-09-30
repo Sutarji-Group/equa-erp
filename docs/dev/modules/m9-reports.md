@@ -158,3 +158,15 @@ log ekspor yang sama). `pendingKeys` tidak lagi dipakai katalog (tipe tetap untu
   jumlah nilai ≤ 2) dan keluhan bulan itu (`p2.complaintMonthlyReport`) per truk + ringkasan `CustomerFeedbackSummary`
   di `/laporan/kinerja`. Uji `tests/m9-reports/performance.test.ts`.
 - **B-24** kontrol tindakan kotak masuk memakai `useFlashActionState`.
+
+## 11. S5-B perbaikan temuan audit (tim B)
+
+- **Konsolidasi satu definisi dengan M11 (US-M9-02 KP-1/KP-2, BR-33).** `accountAggregates` menandai baris jurnal bersumber
+  transfer internal (`m11.INTERNAL_TRANSFER_SOURCES`, mis. HPP toko atas barang yang dikirim ke depot) → ikut dieliminasi
+  seperti akun internal; `consolidate(lines, markupRealized)` mengurangkan markup harga mitra yang terpakai sebagai beban
+  bahan depot (`m11.computeInternalMarkup(...).realized`) dari biaya gabungan (`eliminatedCost` ikut bertambah). Laba
+  gabungan (laba kotor − beban operasional) = laba bersih konsolidasi M11.
+- **Biaya per liter per sumber dari jurnal manual (KP-6).** Jurnal manual M11 kini membawa `waterSourceId` per baris
+  (wajib/“gabungan” untuk beban L1) — `costBySource` M9 tidak lagi hanya pembagian liter untuk biaya manual.
+- **Ekspor Final laporan keuangan M11 identik** lewat inti ekspor (lihat hand-off M11 §13).
+- Uji: `tests/m11-accounting/audit-s5b.test.ts` (`US-M9-02 KP-2 …`, `US-M9-02 KP-6 …`).

@@ -145,3 +145,6 @@ export {
 } from "./service/anonymization";
 export { ARCHIVABLE_ATTACHMENT_KINDS, retentionOverview, retentionPolicy, runRetention, type RetentionPolicy, type RetentionResult } from "./service/retention";
 export { backupOverview, recordBackupStatus, type BackupOverview, type BackupRow } from "./service/backup";
+
+// Gangguan layanan & uptime bulanan (S5-B: NFR-02, NFR-28, PAR-86)
+export { MONITORED_SERVICES, recordServiceOutage, uptimeReport, withinMaintenanceWindow, type MonitoredService, type UptimeRow } from "./service/uptime";

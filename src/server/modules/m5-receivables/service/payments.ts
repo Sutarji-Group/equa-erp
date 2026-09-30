@@ -18,12 +18,14 @@ import { z } from "zod";
 
 import {
   approvalRequests,
+  auditLogs,
   bankAccounts,
   customerAdvances,
   customerPayments,
   customers,
   invoices,
   paymentAllocations,
+  paymentIntents,
   tripPayments,
   trips,
 } from "@/db/schema";
@@ -237,17 +239,45 @@ export async function applyPaymentEffects(tx: Tx, ctx: ActorContext, payment: Pa
   if (payment.advanceAmount > 0 && !payment.reversalOfId) {
     const [existing] = await tx.select({ id: customerAdvances.id }).from(customerAdvances).where(eq(customerAdvances.sourcePaymentId, payment.id)).limit(1);
     if (!existing) {
+      // B-81 / D-12 butir 1: pembayaran di muka pesanan (P2) → uang muka bertanda pesanan itu.
+      const orderId = payment.paymentIntentId
+        ? ((await tx.select({ orderId: paymentIntents.orderId }).from(paymentIntents).where(eq(paymentIntents.id, payment.paymentIntentId)).limit(1))[0]?.orderId ?? null)
+        : null;
       await createAdvance(tx, ctx, {
         tenantId: payment.tenantId,
         customerId: payment.customerId,
         amount: payment.advanceAmount,
         sourcePaymentId: payment.id,
+        orderId,
         notes: payment.notes ?? `Kelebihan pelunasan ${formatRupiah(payment.amount)} (${label("payment_channel", payment.channel)}).`,
         notify: opts.notifyAdvance,
       });
     }
   }
   await afterReceivablesChanged(tx, ctx, [payment.customerId]);
+}
+
+/**
+ * B-81 / D-12 butir 1: pesanan dibatalkan → tanda pesanan pada uang muka dilepas (uang muka menjadi umum: dipakai faktur
+ * berikutnya atau dikembalikan lewat persetujuan pemilik) dan tercatat di jejak audit. Idempoten.
+ */
+export async function releaseOrderAdvances(tx: Tx, ctx: ActorContext, event: DomainEvent<"order.status_changed">): Promise<number> {
+  if (event.payload.to !== "cancelled") return 0;
+  const tagged = await tx.select().from(customerAdvances).where(and(eq(customerAdvances.orderId, event.payload.orderId), eq(customerAdvances.status, "open"))).for("update");
+  for (const adv of tagged) {
+    await tx.update(customerAdvances).set({ orderId: null, updatedAt: ctx.now }).where(eq(customerAdvances.id, adv.id));
+    await auditRecord(tx, {
+      ctx,
+      objectType: "customer_advance",
+      objectId: adv.id,
+      action: "release_order",
+      before: { orderId: adv.orderId },
+      after: { orderId: null, remainingAmount: adv.remainingAmount },
+      reason: `Pesanan ${event.payload.number} dibatalkan — uang muka menjadi uang muka umum pelanggan.`,
+      rule: "D-12 butir 1",
+    });
+  }
+  return tagged.length;
 }
 
 /** Handler `collection.recorded` (M3 sopir, kasir toko, kantor): alokasi diterapkan tanpa input ulang (KP-2, B-16). */
@@ -417,7 +447,8 @@ export async function reallocateCustomerPayment(ctx: ActorContext, input: unknow
     await assertReversible(tx, payment);
     const plan = await planReallocation(tx, payment, data.allocations);
     const threshold = await correctionThreshold(tx, ctxBusinessDate(ctx));
-    if (plan.moved > threshold) {
+    // BR-38: realokasi berulang tanpa persetujuan atas pelunasan yang sama ikut dijumlahkan (ambang tidak dapat dipecah).
+    if (plan.moved + (await priorUnapprovedMoved(tx, payment.id)) > threshold) {
       const open = await openCorrection(tx, "customer_payment", payment.id);
       if (open) throw new ConflictError("APPROVAL_ALREADY_OPEN", `Koreksi pelunasan ini sudah diajukan (${open.number}); tunggu keputusan pemilik.`);
       const customer = await loadCustomer(tx, payment.customerId);
@@ -438,6 +469,22 @@ export async function reallocateCustomerPayment(ctx: ActorContext, input: unknow
     await applyReallocation(tx, ctx, payment.id, data.allocations, data.reason, null);
     return { status: "reallocated" };
   });
+}
+
+/** Σ nilai yang dipindah realokasi sebelumnya atas pelunasan ini tanpa persetujuan pemilik (jejak audit `reallocate`). */
+async function priorUnapprovedMoved(tx: Tx, paymentId: string): Promise<number> {
+  const rows = await tx
+    .select({ before: auditLogs.before, after: auditLogs.after, rule: auditLogs.rule })
+    .from(auditLogs)
+    .where(and(eq(auditLogs.objectType, "customer_payment"), eq(auditLogs.objectId, paymentId), eq(auditLogs.action, "reallocate")));
+  let moved = 0;
+  for (const r of rows) {
+    if ((r.rule ?? "").includes("6.2a")) continue;
+    const before = (r.before ?? {}) as Record<string, number>;
+    const after = (r.after ?? {}) as Record<string, number>;
+    for (const [id, amount] of Object.entries(before)) moved += Math.max(0, Number(amount) - Number(after[id] ?? 0));
+  }
+  return moved;
 }
 
 async function planReallocation(tx: Tx, payment: PaymentRow, requested: { invoiceId: string; amount: number }[]) {

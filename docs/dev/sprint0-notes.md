@@ -235,3 +235,18 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
   berdiri sendiri & idempoten di sekitar panggilan jaringan push — tidak dibungkus transaksi agar tidak menahan koneksi
   selama I/O luar), `core.audit.checkpoint` (tanpa tulisan DB). `core.approvals.expire_due` sudah per permintaan
   `withTx`. Uji runner: `tests/core/jobs-tx.test.ts`.
+
+## S5-B perbaikan temuan audit (tim B) — tambahan inti (hanya tambah, dilaporkan)
+
+- `ReportResult.final?: { key, at } | null` (`src/server/core/export/types.ts`): laporan berstatus Final memberi identitas
+  versi (mis. `periode|dasar|r<revisi>`) + waktu Final. `exportReport` (`service.ts`) untuk hasil `final`: kunci berkas =
+  sha256(laporan, format, versi Final, varian data pribadi, filter terurut); berkas pertama dirender dengan waktu cetak =
+  `final.at`, pembuat "Laporan Final", Excel `fixedTimestamp`, lalu disimpan sebagai lampiran (`objectType
+  "report_final_export"`, `kind "report_final_<format>"`, lewat `put` + `systemContext`); ekspor berikutnya mengirim berkas
+  tersimpan apa adanya (sha & nama sama). Log ekspor tetap satu baris per unduhan. Laporan non-Final tidak berubah.
+- `src/lib/reasons.ts` (baru, isomorfik): `formatUnderpaymentReason(raw)` — label Indonesia alasan kurang bayar (M3/M5).
+- (NFR) Tabel `service_outages` di `src/db/schema/core.ts` (tambahan, setelah `incidents`); parameter baru di
+  `params-registry.ts`: `monitoring.availability_target`, `p2.data_retention`, `p2.otp_request_limits`. Rute baru
+  `/api/health/sync` (GET, tanpa autentikasi, cek DB) dan `/api/monitor/outage` (POST, Bearer `CRON_SECRET`). Berkas baru
+  `src/db/mask.ts`, `scripts/db-mask.ts` (`pnpm db:mask`), `scripts/uptime-monitor.sh`; job `monitor` di
+  `.github/workflows/cron.yml`.

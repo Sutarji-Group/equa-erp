@@ -140,7 +140,7 @@ export {
   setCustomerWaProviderForTests,
   WA_TEMPLATE_NAMES,
 } from "./service/messaging";
-export { listMyNotifications, markMyNotificationsRead, registerPushSubscription, unreadNotificationCount } from "./service/inbox";
+export { isAllowedPushEndpoint, listMyNotifications, markMyNotificationsRead, registerPushSubscription, unreadNotificationCount } from "./service/inbox";
 export type { CustomerNotificationView } from "./service/inbox";
 export { handleWaStatusWebhook, signWaWebhook, verifyWaSignature, verifyWaWebhookChallenge, waCostForMonth, waCostSummary } from "./service/wa-cloud";
 export type { WaCostSummary, WaMonthCost, WaWebhookOutcome } from "./service/wa-cloud";

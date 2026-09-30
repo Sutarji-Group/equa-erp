@@ -29,6 +29,9 @@ import { insertJournal, isOpenStatus, loadPeriod, mappingAccounts, type PeriodRo
 
 type Kind = "l1_allocation" | "shared_costs";
 
+/** Pesan pengguna (tanpa kunci teknis pemetaan — CLAUDE.md aturan 1). */
+const MAPPING_MISSING_MESSAGE = "Akun jurnal alokasi biaya belum dipetakan. Lengkapi di Akuntansi > Pemetaan jurnal otomatis (Alokasi biaya).";
+
 /** Biaya bersih (debit − kredit) akun beban pada pusat laba dalam periode posting, tanpa akun alokasi. */
 async function costOf(tx: Tx, tenantId: string, periodId: string, profitCenter: ProfitCenter, excludeAccountIds: readonly string[]): Promise<number> {
   const rows = await tx
@@ -81,6 +84,10 @@ export type AllocationPreview = {
   l3ByOutlet: { outletId: string; code: string; name: string; liters: number; amount: number }[];
   required: boolean;
   posted: { id: string; journalId: string | null } | null;
+  /** Biaya yang sudah dialokasikan run terposting periode ini (kumulatif). */
+  allocated: number;
+  /** Sisa biaya belum dialokasikan = total biaya pusat biaya saat ini − `allocated` (biaya susulan, penyusutan). */
+  remaining: number;
   message: string | null;
 };
 
@@ -108,7 +115,10 @@ export async function previewL1Allocation(tx: Tx, period: PeriodRow): Promise<Al
     customerL += f.customerL;
     depotL += f.depotL;
   }
-  const shares = splitByWeights(total, { L2: Math.max(0, customerL), L3: Math.max(0, depotL) });
+  const run = await postedRun(tx, period.id, "l1_allocation");
+  const allocated = run?.totalAmount ?? 0;
+  const remaining = total - allocated;
+  const shares = splitByWeights(remaining, { L2: Math.max(0, customerL), L3: Math.max(0, depotL) });
   // B-56: bagian L3 dibagi per outlet depot menurut volume pasokan (diisi di sumber) bulan itu.
   const supply = summarizeSupply(await supplyRows(tx, period.tenantId, { from: period.startDate, to: period.endDate }), "month").filter((s) => s.filledL > 0);
   const l3Split = shares.L3 ? splitByWeights(shares.L3, Object.fromEntries(supply.map((s) => [s.outletId, s.filledL]))) : {};
@@ -116,7 +126,6 @@ export async function previewL1Allocation(tx: Tx, period: PeriodRow): Promise<Al
     .filter((s) => (l3Split[s.outletId] ?? 0) !== 0)
     .map((s) => ({ outletId: s.outletId, code: s.outletCode, name: s.outletName, liters: s.filledL, amount: l3Split[s.outletId]! }))
     .sort((a, b) => a.code.localeCompare(b.code));
-  const run = await postedRun(tx, period.id, "l1_allocation");
   return {
     kind: "l1_allocation",
     period: period.period,
@@ -124,9 +133,11 @@ export async function previewL1Allocation(tx: Tx, period: PeriodRow): Promise<Al
     total,
     shares,
     l3ByOutlet,
-    required: total !== 0,
+    required: remaining !== 0,
     posted: run ? { id: run.id, journalId: run.journalId } : null,
-    message: !map ? "Pemetaan m11.allocation / l1_allocation belum ada." : total !== 0 && customerL + depotL <= 0 ? "Belum ada volume pengisian bulan ini — alokasi tidak dapat dihitung." : null,
+    allocated,
+    remaining,
+    message: !map ? MAPPING_MISSING_MESSAGE : remaining !== 0 && customerL + depotL <= 0 ? "Belum ada volume pengisian bulan ini — alokasi tidak dapat dihitung. Catat pengisian truk/pasokan depot di Produksi dulu." : null,
   };
 }
 
@@ -146,16 +157,20 @@ export async function previewSharedAllocation(tx: Tx, period: PeriodRow): Promis
     weights = { ...(key.fixed_percents ?? {}) } as Record<string, number>;
   }
   const run = await postedRun(tx, period.id, "shared_costs");
+  const allocated = run?.totalAmount ?? 0;
+  const remaining = key.basis === "none" ? 0 : total - allocated;
   return {
     kind: "shared_costs",
     period: period.period,
     basis: { rule: key.basis, weights },
     total,
-    shares: splitByWeights(total, weights),
+    shares: splitByWeights(remaining, weights),
     l3ByOutlet: [],
-    required: key.basis !== "none" && total !== 0,
+    required: key.basis !== "none" && remaining !== 0,
     posted: run ? { id: run.id, journalId: run.journalId } : null,
-    message: key.basis === "none" ? "Kunci pemilik: biaya bersama dibiarkan di pusat biaya bersama." : !map ? "Pemetaan m11.allocation / shared_costs belum ada." : null,
+    allocated,
+    remaining,
+    message: key.basis === "none" ? "Kunci pemilik: biaya bersama dibiarkan di pusat biaya bersama." : !map ? MAPPING_MISSING_MESSAGE : null,
   };
 }
 
@@ -168,48 +183,60 @@ export async function allocationStatus(ctx: ActorContext, input: { periodId: str
 
 const runSchema = z.object({ periodId: z.uuid(), kind: z.enum(["l1_allocation", "shared_costs"]) }).strict();
 
-/** Posting alokasi (Admin Keuangan) — satu kali per periode & jenis. */
-export async function runCostAllocation(ctx: ActorContext, input: z.input<typeof runSchema>, opts: { tx?: Tx } = {}) {
-  await authorize(ctx, "m11.cost_allocation.run", { tx: opts.tx });
-  const data = parseInput(runSchema, input);
-  return runService(ctx, opts, async (tx) => {
-    const period = await loadPeriod(tx, ctx.tenantId, data.periodId, { forUpdate: true });
-    if (!isOpenStatus(period.status)) throw new DomainError("PERIOD_NOT_OPEN", `Periode ${period.period} sudah ditutup/dikunci.`);
-    const preview = data.kind === "l1_allocation" ? await previewL1Allocation(tx, period) : await previewSharedAllocation(tx, period);
-    if (preview.posted) throw new DomainError("ALLOCATION_POSTED", "Alokasi periode ini sudah terposting.");
-    if (!preview.required) throw new DomainError("ALLOCATION_NOT_REQUIRED", preview.message ?? "Tidak ada biaya untuk dialokasikan.");
-    if (preview.message) throw new DomainError("ALLOCATION_BLOCKED", preview.message);
-    const map = await mappingAccounts(tx, ctx.tenantId, "m11.allocation", data.kind, period.endDate);
-    const from: ProfitCenter = data.kind === "l1_allocation" ? "L1" : "SHARED";
-    const l3Total = preview.l3ByOutlet.reduce((s, o) => s + o.amount, 0);
-    const splitL3 = preview.l3ByOutlet.length > 0 && l3Total === (preview.shares.L3 ?? 0);
-    const lines = [
-      ...Object.entries(preview.shares)
-        .filter(([pc, v]) => v > 0 && !(pc === "L3" && splitL3))
-        .map(([pc, v]) => ({ accountId: map.debitAccountId, profitCenter: pc as ProfitCenter, debit: v, memo: `Alokasi ${from} → ${pc}` })),
-      // B-56: L3 per outlet depot (dimensi outlet pada baris jurnal).
-      ...(splitL3 ? preview.l3ByOutlet.map((o) => ({ accountId: map.debitAccountId, profitCenter: "L3" as ProfitCenter, outletId: o.outletId, debit: o.amount, memo: `Alokasi ${from} → L3 ${o.code} (${o.liters.toLocaleString("id-ID")} L)` })) : []),
-      { accountId: map.creditAccountId, profitCenter: from, credit: preview.total, memo: `Alokasi keluar ${from}` },
-    ];
-    const { journal } = await insertJournal(tx, {
-      tenantId: ctx.tenantId,
-      kind: "allocation",
-      date: period.endDate,
-      description: data.kind === "l1_allocation" ? `Alokasi biaya produksi air L1 ${period.period} (volume pengisian)` : `Alokasi biaya bersama ${period.period}`,
-      lines,
-      ctx,
-      sourceType: "m11.allocation",
-      sourceObject: { type: "accounting_period", id: period.id },
-      periodMode: "strict",
-    });
-    const [run] = await tx
+/**
+ * Posting alokasi (inti). Run pertama membuat baris `cost_allocation_runs`; biaya yang terposting SESUDAH alokasi
+ * (tagihan susulan, jurnal manual susulan, penyusutan saat tutup periode) dialokasikan lewat run TAMBAHAN sebesar
+ * sisanya (US-M11-01 KP-3, US-M11-10 KP-1) — baris run diperbarui kumulatif, tiap tambahan berjurnal sendiri.
+ */
+export async function postCostAllocation(tx: Tx, ctx: ActorContext, period: PeriodRow, kind: Kind) {
+  const preview = kind === "l1_allocation" ? await previewL1Allocation(tx, period) : await previewSharedAllocation(tx, period);
+  if (!preview.required) throw new DomainError("ALLOCATION_NOT_REQUIRED", preview.posted ? "Alokasi periode ini sudah mencakup seluruh biaya — tidak ada sisa untuk dialokasikan." : (preview.message ?? "Tidak ada biaya untuk dialokasikan."));
+  if (preview.message) throw new DomainError("ALLOCATION_BLOCKED", preview.message);
+  const map = await mappingAccounts(tx, ctx.tenantId, "m11.allocation", kind, period.endDate);
+  const from: ProfitCenter = kind === "l1_allocation" ? "L1" : "SHARED";
+  const amount = preview.remaining;
+  const l3Total = preview.l3ByOutlet.reduce((s, o) => s + o.amount, 0);
+  const splitL3 = preview.l3ByOutlet.length > 0 && l3Total === (preview.shares.L3 ?? 0);
+  // Sisa negatif (biaya berkurang setelah alokasi) → arah jurnal dibalik.
+  const side = (v: number) => (v >= 0 ? { debit: v } : { credit: -v });
+  const lines = [
+    ...Object.entries(preview.shares)
+      .filter(([pc, v]) => v !== 0 && !(pc === "L3" && splitL3))
+      .map(([pc, v]) => ({ accountId: map.debitAccountId, profitCenter: pc as ProfitCenter, ...side(v), memo: `Alokasi ${from} → ${pc}` })),
+    // B-56: L3 per outlet depot (dimensi outlet pada baris jurnal).
+    ...(splitL3 ? preview.l3ByOutlet.map((o) => ({ accountId: map.debitAccountId, profitCenter: "L3" as ProfitCenter, outletId: o.outletId, ...side(o.amount), memo: `Alokasi ${from} → L3 ${o.code} (${o.liters.toLocaleString("id-ID")} L)` })) : []),
+    { accountId: map.creditAccountId, profitCenter: from, ...(amount >= 0 ? { credit: amount } : { debit: -amount }), memo: `Alokasi keluar ${from}` },
+  ];
+  const supplement = !!preview.posted;
+  const { journal } = await insertJournal(tx, {
+    tenantId: ctx.tenantId,
+    kind: "allocation",
+    date: period.endDate,
+    description: `${kind === "l1_allocation" ? `Alokasi biaya produksi air L1 ${period.period} (volume pengisian)` : `Alokasi biaya bersama ${period.period}`}${supplement ? " — tambahan atas biaya susulan" : ""}`,
+    lines,
+    ctx,
+    sourceType: "m11.allocation",
+    sourceObject: { type: "accounting_period", id: period.id },
+    periodMode: "strict",
+  });
+  let run;
+  if (preview.posted) {
+    const [prev] = await tx.select().from(costAllocationRuns).where(eq(costAllocationRuns.id, preview.posted.id)).limit(1);
+    const supplements = [...(((prev?.result as { supplements?: unknown[] } | null)?.supplements ?? []) as unknown[]), { journalId: journal.id, amount, shares: preview.shares, at: ctx.now.toISOString() }];
+    [run] = await tx
+      .update(costAllocationRuns)
+      .set({ totalAmount: preview.allocated + amount, result: { ...((prev?.result as Record<string, unknown>) ?? {}), supplements }, updatedAt: new Date() })
+      .where(eq(costAllocationRuns.id, preview.posted.id))
+      .returning();
+  } else {
+    [run] = await tx
       .insert(costAllocationRuns)
       .values({
         tenantId: ctx.tenantId,
         periodId: period.id,
-        kind: data.kind,
+        kind,
         basis: preview.basis,
-        totalAmount: preview.total,
+        totalAmount: amount,
         result: preview.shares,
         journalId: journal.id,
         status: "posted",
@@ -218,8 +245,26 @@ export async function runCostAllocation(ctx: ActorContext, input: z.input<typeof
         createdBy: ctx.userId,
       })
       .returning();
-    await auditRecord(tx, { ctx, objectType: "cost_allocation_run", objectId: run!.id, action: "post", after: { kind: data.kind, period: period.period, total: preview.total, shares: preview.shares, journal: journal.number }, rule: data.kind === "l1_allocation" ? "PTB-39, PAR-65" : "US-M11-01 KP-5" });
-    return { run: run!, journal };
+  }
+  await auditRecord(tx, {
+    ctx,
+    objectType: "cost_allocation_run",
+    objectId: run!.id,
+    action: supplement ? "post_supplement" : "post",
+    after: { kind, period: period.period, amount, allocatedTotal: preview.allocated + amount, shares: preview.shares, journal: journal.number },
+    rule: kind === "l1_allocation" ? "PTB-39, PAR-65" : "US-M11-01 KP-5",
+  });
+  return { run: run!, journal };
+}
+
+/** Posting alokasi (Admin Keuangan): run pertama, atau run tambahan untuk sisa biaya susulan. */
+export async function runCostAllocation(ctx: ActorContext, input: z.input<typeof runSchema>, opts: { tx?: Tx } = {}) {
+  await authorize(ctx, "m11.cost_allocation.run", { tx: opts.tx });
+  const data = parseInput(runSchema, input);
+  return runService(ctx, opts, async (tx) => {
+    const period = await loadPeriod(tx, ctx.tenantId, data.periodId, { forUpdate: true });
+    if (!isOpenStatus(period.status)) throw new DomainError("PERIOD_NOT_OPEN", `Periode ${period.period} sudah ditutup/dikunci.`);
+    return postCostAllocation(tx, ctx, period, data.kind);
   });
 }
 

@@ -24,7 +24,7 @@ import { markActionedForObject, notify } from "@/server/core/notifications";
 import { authorize, runService, sod } from "@/server/core/rbac";
 
 import { restitutionActiveSchema, reverseSettlementSchema, settleRestitutionSchema } from "../schemas";
-import { assertCashDayOpen, cashRules, officeCashOf, postOfficeCash, userIdOfEmployee } from "./common";
+import { assertCashDayOpen, cashRules, decisionCashDate, officeCashOf, postOfficeCash, userIdOfEmployee } from "./common";
 
 export type RestitutionRow = typeof restitutions.$inferSelect;
 export type RestitutionSettlementRow = typeof restitutionSettlements.$inferSelect;
@@ -139,7 +139,10 @@ export async function applySettlementReversal(tx: Tx, ctx: ActorContext, settlem
   const already = await tx.select({ id: restitutionSettlements.id }).from(restitutionSettlements).where(eq(restitutionSettlements.reversalOfId, s.id)).limit(1);
   if (already[0]) throw new DomainError("ALREADY_REVERSED", "Pelunasan ini sudah dibalik.");
   const rest = (await tx.select().from(restitutions).where(eq(restitutions.id, s.restitutionId)).for("update").limit(1))[0]!;
-  const date = ctxBusinessDate(ctx);
+  // Pelunasan tunai: kas kantor keluar pada hari kas terbuka ≥ hari ini — hari yang sudah ditutup tetap terkunci
+  // (US-M4-06 KP-7, BR-38), baik lewat jalur langsung maupun persetujuan koreksi.
+  const cashDate = s.method === "cash" ? await decisionCashDate(tx, rest.tenantId, s.settledOn, ctxBusinessDate(ctx)) : null;
+  const date = cashDate?.date ?? ctxBusinessDate(ctx);
   const [rev] = await tx
     .insert(restitutionSettlements)
     .values({ restitutionId: s.restitutionId, amount: -s.amount, method: s.method, settledOn: date, reference: `Pembalik: ${reason}`, reversalOfId: s.id, createdBy: ctx.userId })
@@ -154,7 +157,7 @@ export async function applySettlementReversal(tx: Tx, ctx: ActorContext, settlem
       amount: s.amount,
       sourceObjectType: "restitution_settlement",
       sourceObjectId: rev!.id,
-      description: `Pembalik pelunasan ganti rugi: ${reason}`,
+      description: `Pembalik pelunasan ganti rugi: ${reason}${cashDate?.afterClose ? " (setelah kas ditutup)" : ""}`,
       reversalOfId: orig?.id ?? null,
     });
   }

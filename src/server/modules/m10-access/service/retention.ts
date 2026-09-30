@@ -6,15 +6,17 @@
  *   yang diizinkan trigger pengerasan);
  * - foto/berkas bukti (bukti kirim, meter, nota, slip, tanda tangan) lebih tua dari PAR-29 `photo_years` → ditandai
  *   arsip (`archived_at`), TETAP dapat dibuka dari rit/jurnal terkait;
- * - posisi GPS mentah lebih tua dari PAR-52 bulan → dihapus lewat M12 `purgeExpiredPositions` (ringkasan rit/hari
- *   dipastikan dulu, US-M12-01 KP-6).
+ * - posisi GPS mentah (PAR-52) DIMILIKI M12 (B-42): job `m12.gps.retention` memastikan ringkasan per rit/hari lalu
+ *   menghapus — job ini TIDAK menghapus posisi GPS (hindari hapus sebelum ringkasan terbentuk saat tick susulan);
+ * - data aplikasi pelanggan (NFR-12): kode OTP lebih tua dari `p2.data_retention.otp_days` → dihapus (tabel teknis);
+ *   nomor pada permintaan ganti nomor lebih tua dari `phone_change_days` → disamarkan.
  * Data akuntansi & transaksi (≥ PAR-29 `accounting_years`) serta jejak audit TIDAK PERNAH dihapus.
  */
 import "server-only";
 
-import { and, inArray, isNull, lt } from "drizzle-orm";
+import { and, inArray, isNull, lt, ne } from "drizzle-orm";
 
-import { accessLogs, attachments } from "@/db/schema";
+import { accessLogs, attachments, otpCodes, phoneChangeRequests } from "@/db/schema";
 import { withRetentionPurge } from "@/db/hardening";
 import { toBusinessDate, wibToUtc } from "@/lib/time";
 import { query as auditQuery, record as auditRecord } from "@/server/core/audit";
@@ -43,7 +45,12 @@ export type RetentionResult = {
   cutoffs: { accessLogs: string; photos: string; gps: string };
   accessLogsPurged: number;
   photosArchived: number;
+  /** Selalu 0 sejak B-42 — posisi GPS dihapus job M12 `m12.gps.retention` (dipertahankan untuk riwayat lama). */
   gpsPurged: number;
+  /** Kode OTP aplikasi pelanggan yang dihapus (NFR-12). */
+  otpPurged: number;
+  /** Permintaan ganti nomor yang nomornya disamarkan (NFR-12). */
+  phoneChangesMasked: number;
 };
 
 function yearsAgo(date: string, years: number): string {
@@ -83,11 +90,23 @@ export async function runRetention(now: Date = new Date(), db?: Db): Promise<Ret
     const rows = await tx.delete(accessLogs).where(lt(accessLogs.occurredAt, accessCut)).returning({ id: accessLogs.id });
     return rows.length;
   });
-  // US-M12-01 KP-6, PTB-33 (S5B): posisi GPS mentah dihapus lewat jalur M12 yang MEMASTIKAN ringkasan rit/hari dulu —
-  // job M10 berjalan sebelum M12 pada tick yang sama (registri), jadi M10 tidak boleh menghapus tanpa ringkasan.
-  // Impor dinamis: M12 mengimpor M10 (insiden perangkat) — hindari siklus saat modul dimuat.
-  const { purgeExpiredPositions } = await import("@/server/modules/m12-fleet");
-  const gpsPurged = (await purgeExpiredPositions(now, database)).purged;
+  // B-42: posisi GPS mentah dihapus M12 setelah ringkasan dipastikan (`m12.gps.retention`), bukan di sini.
+  const gpsPurged = 0;
+  const appRetention = await params.get(database, "p2.data_retention", today);
+  const otpCut = new Date(now.getTime() - appRetention.otp_days * 86_400_000);
+  const phoneCut = new Date(now.getTime() - appRetention.phone_change_days * 86_400_000);
+  const { otpPurged, phoneChangesMasked } = await withTx(
+    async (tx) => {
+      const otp = await tx.delete(otpCodes).where(lt(otpCodes.createdAt, otpCut)).returning({ id: otpCodes.id });
+      const phones = await tx
+        .update(phoneChangeRequests)
+        .set({ oldPhone: "0", newPhone: "0" })
+        .where(and(lt(phoneChangeRequests.createdAt, phoneCut), ne(phoneChangeRequests.oldPhone, "0")))
+        .returning({ id: phoneChangeRequests.id });
+      return { otpPurged: otp.length, phoneChangesMasked: phones.length };
+    },
+    { db: database },
+  );
   const photosArchived = await withTx(
     async (tx) => {
       const rows = await tx
@@ -95,13 +114,13 @@ export async function runRetention(now: Date = new Date(), db?: Db): Promise<Ret
         .set({ archivedAt: now, updatedAt: now })
         .where(and(isNull(attachments.archivedAt), lt(attachments.createdAt, photoCut), inArray(attachments.kind, [...ARCHIVABLE_ATTACHMENT_KINDS])))
         .returning({ id: attachments.id });
-      const result = { policy, cutoffs, accessLogsPurged, photosArchived: rows.length, gpsPurged };
-      await auditRecord(tx, { ctx: systemContext({ tenantId: EQUA_TENANT_ID, now }), objectType: "retention_run", objectId: today, action: "create", after: result, rule: "PAR-29, PAR-52" });
+      const result = { policy, cutoffs, accessLogsPurged, photosArchived: rows.length, gpsPurged, otpPurged, phoneChangesMasked };
+      await auditRecord(tx, { ctx: systemContext({ tenantId: EQUA_TENANT_ID, now }), objectType: "retention_run", objectId: today, action: "create", after: result, rule: "PAR-29, PAR-52, NFR-12" });
       return rows.length;
     },
     { db: database },
   );
-  return { policy, cutoffs, accessLogsPurged, photosArchived, gpsPurged };
+  return { policy, cutoffs, accessLogsPurged, photosArchived, gpsPurged, otpPurged, phoneChangesMasked };
 }
 
 /** Riwayat jalannya retensi (dari jejak audit) — untuk halaman Data pribadi. */

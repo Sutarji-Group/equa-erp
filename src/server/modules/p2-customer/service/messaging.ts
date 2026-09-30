@@ -21,6 +21,8 @@ import { DomainError } from "@/server/core/errors";
 import { sendWebPush } from "@/server/core/notifications";
 import { assertWaNumber, cloudApiProvider, getWhatsAppProvider, type TemplateVars, type WhatsAppProvider } from "@/server/core/wa";
 
+import { isAppEnabled } from "./common";
+
 type PushPayload = Parameters<typeof sendWebPush>[1];
 type PushResult = Awaited<ReturnType<typeof sendWebPush>>;
 
@@ -198,8 +200,13 @@ async function activeAccountsOf(tx: Tx, customerId: string, accountId?: string |
   return accountId ? rows.filter((r) => r.id === accountId) : rows;
 }
 
-/** Catat notifikasi pelanggan (idempoten per `dedupeKey`), jadwalkan push setelah commit, kirim WA bila aktif. */
+/**
+ * Catat notifikasi pelanggan (idempoten per `dedupeKey`), jadwalkan push setelah commit, kirim WA bila aktif.
+ * Gerbang Tahap 2 (D-02 butir 3, US-P2-08): selama flag `phase2.customer_app` mati TIDAK ada notifikasi/WA otomatis
+ * Tahap 2 — walau WA Cloud API sudah aktif untuk kebutuhan Tahap 1 (handler event & job P2 memanggil fungsi ini).
+ */
 export async function notifyCustomer(tx: Tx, input: NotifyCustomerInput): Promise<NotifyCustomerResult> {
+  if (!(await isAppEnabled(tx, input.tenantId))) return { inApp: 0, wa: null };
   const accounts = await activeAccountsOf(tx, input.customerId, input.accountId);
   const inserted: { id: string; accountId: string }[] = [];
   for (const acc of accounts) {
