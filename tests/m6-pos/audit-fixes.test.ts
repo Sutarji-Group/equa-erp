@@ -6,7 +6,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { customerAddresses, deposits, domainEvents, outlets, posSales, productPrices, shifts, waterSupplyReceipts } from "@/db/schema";
+import { customerAddresses, deposits, domainEvents, outlets, posSales, productPrices, products, shifts, waterSupplyReceipts } from "@/db/schema";
 import { EQUA_TENANT_ID, internalCustomerId, outletId, userIdByUsername } from "@/db/seed";
 import { addDays, toBusinessDate } from "@/lib/time";
 import { systemContext } from "@/server/core/context";
@@ -18,7 +18,7 @@ import { bootstrapForTests } from "../helpers/bootstrap";
 import { seededContext } from "../helpers/context";
 import { useTestDb } from "../helpers/db";
 import { createCustomer, createOrder, createScheduledTrip, createTruck, today } from "../helpers/fixtures";
-import { closeVia, expectApplied, isi, notificationsFor, openShiftVia, P, posFor, PRICE, sellVia } from "./helpers";
+import { closeVia, exactClosingStock, expectApplied, isi, notificationsFor, openShiftVia, P, posFor, PRICE, sellVia } from "./helpers";
 
 describe("M6 — perbaikan audit S5-B", () => {
   const t = useTestDb({ seed: true });
@@ -124,6 +124,39 @@ describe("M6 — perbaikan audit S5-B", () => {
       .filter((d) => (d.summarySnapshot as { kind?: string } | null)?.kind === "late_cash_after_close");
     expect(extra).toHaveLength(1);
     expect(extra[0]).toMatchObject({ status: "submitted", expectedCash: PRICE.ISI, shiftId: null });
+  });
+
+  it("US-M6-02 KP-3 US-M6-04 KP-3 tutup shift ditolak server tanpa stok fisik semua bahan utama; bahan baru setelah shift dibuka → konflik", async () => {
+    const pos = await posFor("D04");
+    const { shiftId } = await openShiftVia(pos);
+    expectApplied((await sellVia(pos, shiftId, [isi(1)])).res);
+    const counted = 200_000 + PRICE.ISI;
+    // Tanpa stok sama sekali → ditolak dengan tindakan.
+    const none = await closeVia(pos, shiftId, { counted, stock: [] });
+    expect(none.status).toBe("rejected");
+    expect(none.message).toMatch(/Isi stok fisik semua bahan utama/);
+    // Sebagian bahan → ditolak, menyebut bahan yang belum diisi.
+    const full = await exactClosingStock(shiftId);
+    const partial = await closeVia(pos, shiftId, { counted, stock: full.filter((l) => l.productId !== P.TISU) });
+    expect(partial.status).toBe("rejected");
+    expect(partial.message).toMatch(/Tisu segel galon/);
+    expect((await t.db.select().from(shifts).where(eq(shifts.id, shiftId)))[0]!.status).toBe("open");
+    // Bahan baru ditambahkan master setelah shift dibuka (belum ada di perangkat) → tutup diterima sebagai konflik.
+    await t.db.insert(products).values({
+      tenantId: EQUA_TENANT_ID,
+      code: "UJI-SEGEL-BARU",
+      name: "Segel plastik baru",
+      line: "depot",
+      unit: "pcs",
+      category: "bahan_habis_pakai",
+      isConsumable: true,
+      status: "active",
+      sortOrder: 99,
+    });
+    const res = await closeVia(pos, shiftId, { counted, stock: full });
+    expect(res.status, res.message ?? "").toBe("conflict");
+    expect(res.message).toMatch(/Segel plastik baru/);
+    expect((await t.db.select().from(shifts).where(eq(shifts.id, shiftId)))[0]!.status).toBe("closed");
   });
 
   it("US-M6-05 KP-5 BR-33 harga transfer internal tidak dapat ditentukan → Admin Keuangan diberi tahu & event membawa penanda (tidak hilang diam-diam)", async () => {

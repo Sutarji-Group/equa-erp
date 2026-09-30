@@ -128,6 +128,16 @@ describe("US-P3-09 Tagihan langganan sistem bulanan untuk mitra (RL-7)", () => {
     expect(credit).toMatchObject({ profitCenter: "L5", credit: 150_000, accountId: accountId("4-1401") });
   });
 
+  it("US-P3-09 KP-3 US-M9-02 KP-1 pendapatan L5 dijurnal pada bulan LAYANAN (akhir September), bukan tanggal terbit faktur 1 Oktober", async () => {
+    const p = await setupPartner(t.db);
+    const run = await runSubscriptionBilling(T_OCT1);
+    const mine = run.issued.find((i) => i.tenantId === p.tenantId)!;
+    const [inv] = await t.db.select().from(invoices).where(eq(invoices.id, mine.invoiceId));
+    expect(inv).toMatchObject({ issueDate: "2026-10-01", periodMonth: "2026-09-01" });
+    const [j] = await t.db.select().from(journals).where(and(eq(journals.sourceObjectType, "invoice"), eq(journals.sourceObjectId, mine.invoiceId)));
+    expect(j).toMatchObject({ journalDate: "2026-09-30", status: "posted" });
+  });
+
   it("US-P3-09 KP-4 faktur tidak dapat dihapus (DB menolak); koreksi lewat nota kredit beralasan (BR-38)", async () => {
     const p = await setupPartner(t.db);
     const run = await runSubscriptionBilling(T_OCT1);

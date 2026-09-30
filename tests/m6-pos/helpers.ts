@@ -14,6 +14,11 @@ import { outletId, productId, SEED_DEMO_PIN, userIdByUsername } from "@/db/seed"
 import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
 import type { FieldLoginResult } from "@/server/core/auth";
+import { getDb } from "@/server/core/db";
+import { loadShift } from "@/server/modules/m6-pos/service/common";
+import { computeShiftFigures } from "@/server/modules/m6-pos/service/figures";
+import { consumablesOf, stockBalancesOf } from "@/server/modules/m6-pos/service/inventory";
+import { posKindPolicy } from "@/server/modules/m6-pos/service/policy";
 import type { PushResult } from "@/server/core/sync";
 
 import { seededContext } from "../helpers/context";
@@ -116,6 +121,30 @@ export async function stockUp(pos: Pos, qty: { tutup?: number; tisu?: number; ga
   return res;
 }
 
+/**
+ * Stok fisik "pas" untuk semua bahan utama shift (stok fisik = seharusnya menurut server). Saldo sistem negatif (uji
+ * tanpa stok awal) → fisik 0 dengan alasan. Server mewajibkan stok fisik semua bahan saat tutup (US-M6-02 KP-3).
+ */
+export async function exactClosingStock(shiftId: string): Promise<{ productId: string; physicalQty: number; reason?: string | null }[]> {
+  const db = getDb();
+  const shift = await loadShift(db, shiftId);
+  if (!shift) return [];
+  const [outlet] = await db.select().from(outlets).where(eq(outlets.id, shift.outletId)).limit(1);
+  if (!outlet) return [];
+  const materials = await consumablesOf(db, outlet.tenantId, posKindPolicy(outlet.kind).productLine);
+  if (!materials.length) return [];
+  const figures = await computeShiftFigures(db, shift);
+  const bal = await stockBalancesOf(
+    db,
+    outlet.id,
+    materials.map((m) => m.id),
+  );
+  return materials.map((m) => {
+    const system = (bal.get(m.id)?.quantity ?? 0) - (figures.usage.get(m.id) ?? 0);
+    return system >= 0 ? { productId: m.id, physicalQty: system } : { productId: m.id, physicalQty: 0, reason: "Uji: stok awal bahan tidak diisi" };
+  });
+}
+
 /** Tutup shift dengan hitung fisik "pas" (stok fisik = seharusnya bila tidak diberikan). */
 export async function closeVia(
   pos: Pos,
@@ -129,7 +158,7 @@ export async function closeVia(
       shiftId,
       closingCashCounted: input.counted,
       cashDifferenceReason: input.reason ?? null,
-      stock: input.stock ?? [],
+      stock: input.stock ?? (await exactClosingStock(shiftId)),
       saleIds: input.saleIds ?? [],
       voidedSaleIds: input.voidedSaleIds ?? [],
       ...(input.deviceExpectedDrawer !== undefined ? { deviceExpectedDrawer: input.deviceExpectedDrawer } : {}),

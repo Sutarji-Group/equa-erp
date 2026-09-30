@@ -343,6 +343,17 @@ export async function closeShift(ctx: ActorContext, input: z.output<typeof close
     materials.map((m) => m.id),
   );
   const byProduct = new Map(input.stock.map((s) => [s.productId, s]));
+  // US-M6-02 KP-3 / US-M6-04 KP-3: stok fisik SELURUH bahan utama wajib diisi saat tutup shift (bukan hanya di UI).
+  // Bahan yang baru ditambahkan master SETELAH shift dibuka mungkin belum ada di perangkat → diterima sebagai konflik.
+  const uncounted = materials.filter((m) => !byProduct.has(m.id));
+  const unknownToDevice = uncounted.filter((m) => m.createdAt.getTime() > shift.openedAt.getTime());
+  const mustCount = uncounted.filter((m) => !unknownToDevice.includes(m));
+  if (mustCount.length) {
+    throw new DomainError("STOCK_COUNT_REQUIRED", `Isi stok fisik semua bahan utama sebelum tutup shift. Belum diisi: ${mustCount.map((m) => m.name).join(", ")}.`);
+  }
+  if (unknownToDevice.length) {
+    conflicts.push(`Bahan ${unknownToDevice.map((m) => m.name).join(", ")} baru ditambahkan setelah shift dibuka dan belum dihitung; Admin Keuangan meninjau.`);
+  }
   const stockRows = materials.map((m) => {
     const expectedUsage = figures.usage.get(m.id) ?? 0;
     const systemQty = (bal.get(m.id)?.quantity ?? 0) - expectedUsage;
