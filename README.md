@@ -1,6 +1,6 @@
 # EQUA ERP — Program Digitalisasi Terpadu EQUA
 
-**Versi 1.0.0** · [Catatan rilis](docs/RELEASE_NOTES_v1.0.md) · [CHANGELOG](CHANGELOG.md) ·
+**Versi 1.0.1** · [Catatan rilis](docs/RELEASE_NOTES_v1.0.md) · [CHANGELOG](CHANGELOG.md) ·
 [Status implementasi per user story](docs/prd/status.md)
 
 Satu platform, satu data untuk seluruh usaha EQUA di Cianjur: **air truk** (pesanan, jadwal, rit, setoran sopir),

@@ -1,12 +1,45 @@
 # Catatan Rilis EQUA ERP versi 1.0
 
-**Tanggal rilis:** 30 September 2026 · **Untuk:** pemilik, Admin Keuangan, Dispatcher, sopir & kernet, operator depot,
-kasir toko, operator produksi, akuntan, admin sistem, dan mitra depot.
+**Tanggal rilis:** 30 September 2026 (versi 1.0.0 dan pembaruan 1.0.1) · **Untuk:** pemilik, Admin Keuangan,
+Dispatcher, sopir & kernet, operator depot, kasir toko, operator produksi, akuntan, admin sistem, dan mitra depot.
 
 Mulai versi ini, seluruh usaha EQUA — air truk, 10 depot isi ulang, toko, dan dua sumber air — dicatat di **satu
 sistem**. Setiap transaksi dicatat sekali oleh orang yang mengerjakannya, di tempat kejadian, lalu otomatis masuk ke kas,
 piutang, laporan, dan pembukuan. Pemilik dapat melihat ringkasan hari itu (**H+0**) paling lambat 30 menit setelah kas
 ditutup, dari ponsel.
+
+---
+
+## Pembaruan 1.0.1 (30 September 2026)
+
+Pembaruan kecil setelah uji beban dengan volume tiga kali lipat. **Cara kerja tidak berubah** dan tidak ada data yang
+perlu diisi ulang. Aplikasi di ponsel dan tablet memperbarui dirinya sendiri saat dibuka dan terhubung internet.
+
+### Sopir & kernet, operator produksi, operator depot, kasir toko
+- **Lebih hemat kuota data.** Foto bukti kirim dan foto nota kini diperkecil sampai paling besar 150 KB — tetap jelas
+  terbaca. Perkiraan pemakaian data ponsel truk turun dari ±81 MB menjadi ±40 MB per bulan, tablet POS dari ±140 MB
+  menjadi ±13 MB per bulan. Angka nyata diukur selama pilot.
+- Saat tidak ada yang perlu dikirim, aplikasi memeriksa data baru **tiap 5 menit**, dan langsung saat aplikasi dibuka
+  kembali, setelah masuk dengan PIN, atau saat sinyal kembali. Transaksi baru tetap **langsung dikirim**; tombol
+  **Kirim sekarang** tetap ada.
+- Hanya data yang berubah yang diunduh. Koreksi dari kantor atas rit atau transaksi Anda tetap sampai ke aplikasi.
+
+### Pemilik
+- Batas ukuran foto (**PAR-38**) kini bawaannya **150 KB** dan dapat diubah di **Pengaturan › Parameter** tanpa
+  menunggu tim IT. Bila di pilot pemakaian data sopir masih di atas 40 MB per bulan, batas ini dapat diturunkan
+  (mis. 120 KB).
+- **Laporan H+0 untuk rentang sebulan** tampil sekitar dua kali lebih cepat. Isi laporan tidak berubah.
+
+### Admin Keuangan & akuntan
+- **Nomor jurnal kini 6 angka** di belakang (contoh `J-2610-001235`), cukup untuk 999.999 jurnal per bulan. Nomor
+  lama tidak berubah; di bulan peralihan buku besar dan daftar jurnal tetap urut sesuai urutan terbit (nomor
+  `J-2610-01234` diikuti `J-2610-001235`).
+
+### Admin sistem (tim IT)
+- Tidak ada perubahan basis data. Setelah deploy, jalankan sekali `pnpm db:seed:prod -- --no-accounts` agar batas foto
+  150 KB berlaku (nilai yang sudah diubah pemilik tidak disentuh) — rincian di [`CHANGELOG.md`](../CHANGELOG.md).
+- Ponsel dan tablet versi 1.0.0 tetap dapat sinkron; versi minimal aplikasi tidak perlu dinaikkan. Pantau kolom
+  **Versi** di **Akses › Perangkat & sinkron** sampai semua perangkat memakai 1.0.1.
 
 ---
 

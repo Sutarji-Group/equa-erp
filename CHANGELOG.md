@@ -8,6 +8,58 @@ dan penomoran [Semantic Versioning](https://semver.org/lang/id/). Catatan rilis 
 
 - (kosong)
 
+## [1.0.1] — 2026-09-30
+
+Rilis perbaikan atas hasil uji beban 3× volume S5-C ([`docs/qa/uji-beban.md`](docs/qa/uji-beban.md) §10) sesuai
+`docs/DECISIONS.md` D-14. Tanpa perubahan skema basis data; aplikasi lapangan versi 1.0.0 tetap dilayani (protokol
+sinkron kompatibel mundur).
+
+### Diubah
+
+- **Nomor jurnal 6 digit** `J-YYMM-NNNNNN` (B-87, D-14 butir 1): kapasitas 99.999 → 999.999 jurnal per bulan per
+  tenant. Nomor yang sudah terbit tidak diubah; penghitung bulan berjalan dilanjutkan (`J-2610-01234` →
+  `J-2610-001235`). Buku besar, daftar tinjauan pemilik, ekspor templat pajak, dan rincian laporan bulanan M9
+  diurutkan menurut urutan terbit sehingga bulan peralihan tetap berurutan. D-04 diperbarui; risiko RP-23 ditutup.
+- **Foto lebih hemat kuota** (B-88, D-14 butir 2): bawaan PAR-38 300 → **150 KB**, sisi panjang foto 1.600 → 1.280 px,
+  kualitas awal 0,7. Aplikasi lapangan dan formulir kas kantor membaca PAR-38 dari server (pemilik dapat mengubahnya
+  di Pengaturan › Parameter tanpa rilis).
+- **Sinkron latar adaptif** (B-88): antrean kosong → pull tiap 5 menit (dalam batas PAR-30) hanya selama aplikasi
+  terlihat; ada antrean → push tiap 60 detik; antrean berubah → push segera lalu pull; login PIN/ganti pengguna,
+  kembali online, dan aplikasi terlihat lagi → segera. Tombol **Kirim sekarang** tetap.
+
+### Ditambahkan
+
+- **Pull bersyarat** (B-89, D-14 butir 3): `GET /api/sync/pull?v=2&c.<kunci>=<kursor>` — kursor = sidik isi per
+  penyedia; penyedia yang tidak berubah dijawab tanpa isi, koleksi yang tumbuh (penjualan shift POS & toko, rit &
+  pembayaran sopir, stok) dikirim sebagai delta. Koreksi kantor, void, dan pembalik atas data lama pasti terkirim.
+  Klien tanpa `v=2` menerima respons v1 persis.
+- Tambahan platform inti (hanya tambah, dilaporkan di `docs/dev/sprint0-notes.md`): `docNumberOrder`
+  (`numbering.ts`), `params.cached(tx)` / `ParamCache` / `invalidateParamCaches` (`params-read.ts`), protokol pull v2
+  (`src/lib/pull-delta.ts`, `src/server/core/sync/conditional.ts`, opsi `collections` di `registerPullProvider`),
+  `m12.fleetRangeSummary`.
+
+### Kinerja
+
+- Dashboard H+0 rentang sebulan: **662 → 197 kueri** (−70 %), 0,94 → 0,46 dtk di DB uji; perkiraan di Neon pada
+  3 ms/kueri ±2,9 → ±1,05 dtk (NFR-03). Keluaran 19/19 kasus pengukuran identik dengan sebelum perbaikan.
+- Pull tanpa perubahan: sopir 21,7 → 0,9 KB, POS 28,2 → 0,8 KB; pull setelah 1 transaksi POS 1,6 KB dan tidak lagi
+  tumbuh dengan ukuran shift. Perkiraan kuota data bulanan: sopir ±81 → **±40 MB** (NFR-17 ≤ 50 MB), tablet POS
+  ±140 → **±13 MB**.
+
+### Diperbaiki
+
+- Urutan kejadian armada pada ringkasan H+0 kini tetap (waktu mulai, lalu id) untuk kejadian berwaktu sama.
+
+### Catatan rilis teknis
+
+- Tanpa migrasi baru: baseline `drizzle/0000_baseline_v1` tetap; `pnpm db:migrate` → `pnpm db:verify` IDENTIK.
+- DB yang sudah di-seed v1.0.0: setelah deploy jalankan sekali `pnpm db:seed:prod -- --no-accounts` → PAR-38 mendapat
+  versi baru 150 KB berlaku hari itu bila nilainya masih bawaan 300 KB (nilai yang sudah diubah pemilik dan riwayat
+  tidak disentuh). DB baru langsung memakai 150 KB.
+- Versi minimal aplikasi tidak perlu dinaikkan; penghematan kuota berlaku setelah perangkat memperbarui ke 1.0.1
+  (otomatis saat aplikasi dibuka dan terhubung). Versi per perangkat terlihat di Akses › Perangkat & sinkron.
+- Masih terbuka: kuota nyata di pilot (NFR-17, B-88/B-96), pengukuran Neon & render halaman produksi (B-90, B-95).
+
 ## [1.0.0] — 2026-09-30
 
 Rilis pertama untuk go-live Tahap 1 (RL-1/RL-2), stabilisasi RL-6, dan Paket Minimum Mitra Fase 1 (RL-7) sesuai
@@ -127,4 +179,5 @@ di balik *feature flag* yang mati secara bawaan (D-02).
 - Setiap perubahan skema setelah v1.0 WAJIB disertai `pnpm db:generate` (migrasi baru di `drizzle/`).
 
 [Belum dirilis]: #belum-dirilis
+[1.0.1]: #101--2026-09-30
 [1.0.0]: #100--2026-09-30

@@ -1,7 +1,7 @@
 # Status implementasi EQUA ERP v1.0 — per user story, PTB, dan CR
 
-Tanggal: 30 September 2026 · Rilis: **v1.0.0** · Baseline kebutuhan: `docs/prd/PRD_EQUA_v1_1.md` · Keputusan:
-`docs/DECISIONS.md` (D-01 s.d. D-13).
+Tanggal: 30 September 2026 · Rilis: **v1.0.1** · Baseline kebutuhan: `docs/prd/PRD_EQUA_v1_1.md` · Keputusan:
+`docs/DECISIONS.md` (D-01 s.d. D-14).
 
 Kolom **KP teruji** diambil dari `pnpm trace` (rincian per KP dan jumlah uji: [`docs/dev/traceability.md`](../dev/traceability.md)).
 Kolom **Status** adalah status implementasi di rilis v1.0. Konsistensi dokumen ini dengan PRD dan hasil `pnpm trace`
