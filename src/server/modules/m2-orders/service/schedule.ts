@@ -186,7 +186,6 @@ export type Board = {
   canPublish: boolean;
 };
 
-/** Papan jadwal per tanggal (US-M2-03 KP-1..KP-7). */
 /**
  * Posisi valid terakhir per truk untuk papan (satu kueri LATERAL — indeks `gps_positions_truck_time_idx` mundur, berhenti
  * di baris pertama per truk). Pengganti `DISTINCT ON (truck_id)` yang memindai seluruh riwayat posisi (uji beban NFR-05:
@@ -215,6 +214,7 @@ async function lastValidPositions(tx: Tx, truckIds: string[]): Promise<{ truckId
   }));
 }
 
+/** Papan jadwal per tanggal (US-M2-03 KP-1..KP-7). */
 export async function getBoard(ctx: ActorContext, date: string, opts: { tx?: Tx } = {}): Promise<Board> {
   await authorize(ctx, "m2.schedule.read", { tx: opts.tx });
   const tx = opts.tx ?? getDb();

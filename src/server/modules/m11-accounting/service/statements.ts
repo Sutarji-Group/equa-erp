@@ -501,6 +501,50 @@ function classify(a: AccountRow, byId: Map<string, AccountRow>): CashFlowCategor
   return "other";
 }
 
+/**
+ * Arus kas per akun lawan (periode posting `fromPeriod`..`toPeriod`): untuk setiap jurnal terposting yang menyentuh akun
+ * kas/bank, kas bersih = debit - kredit baris akun kas; akun lawan = baris non-kas dengan debit+kredit terbesar (seri ->
+ * nomor baris terkecil; tanpa baris non-kas -> `null`). Kas bersih positif = masuk, negatif = keluar; dijumlahkan per akun
+ * lawan di SQL — sebelumnya seluruh baris jurnal kas dimuat ke memori (1,2 dtk pada uji beban NFR-05).
+ */
+export async function cashMovementsByCounterAccount(
+  tx: Tx,
+  tenantId: string,
+  cashIds: readonly string[],
+  fromPeriod: string,
+  toPeriod: string,
+): Promise<{ counterAccountId: string | null; inflow: number; outflow: number }[]> {
+  if (!cashIds.length) return [];
+  const cashList = sql.join(
+    cashIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  const res = await tx.execute<{ counter_account_id: string | null; inflow: string; outflow: string }>(sql`
+    with lines as (
+      select l.journal_id, l.account_id, l.debit, l.credit, l.line_no, (l.account_id in (${cashList})) as is_cash
+      from ${journalLines} l
+      join ${journals} j on j.id = l.journal_id
+      join ${accountingPeriods} p on p.id = j.period_id
+      where j.tenant_id = ${tenantId} and j.status = 'posted' and p.period >= ${fromPeriod} and p.period <= ${toPeriod}
+    ),
+    per_journal as (
+      select journal_id, sum(case when is_cash then debit - credit else 0 end) as net
+      from lines group by journal_id having bool_or(is_cash)
+    ),
+    counter as (
+      select distinct on (journal_id) journal_id, account_id
+      from lines where not is_cash
+      order by journal_id, (debit + credit) desc, line_no asc
+    )
+    select c.account_id as counter_account_id,
+           coalesce(sum(case when pj.net > 0 then pj.net else 0 end), 0) as inflow,
+           coalesce(sum(case when pj.net < 0 then -pj.net else 0 end), 0) as outflow
+    from per_journal pj left join counter c on c.journal_id = pj.journal_id
+    where pj.net <> 0
+    group by c.account_id`);
+  return res.rows.map((r) => ({ counterAccountId: r.counter_account_id, inflow: Number(r.inflow), outflow: Number(r.outflow) }));
+}
+
 export async function computeCashFlow(tx: Tx, tenantId: string, period: string, basis: Basis, src: AggSource = directAggregates(tx, tenantId)) {
   const { fromPeriod, toPeriod } = rangeOf(period, basis);
   const byId = await tenantAccounts(tx, tenantId);
@@ -515,43 +559,11 @@ export async function computeCashFlow(tx: Tx, tenantId: string, period: string, 
     financing: { inflow: 0, outflow: 0 },
     other: { inflow: 0, outflow: 0 },
   };
-  if (cashIds.length) {
-    // Per jurnal yang menyentuh akun kas/bank: kas bersih (debit - kredit akun kas) dan akun lawan terbesar (debit+kredit
-    // terbesar di antara baris non-kas; seri -> nomor baris terkecil) yang menentukan kategori. Dihitung di SQL lalu
-    // dijumlahkan per akun lawan — sebelumnya seluruh baris jurnal kas dimuat ke memori (1,2 dtk pada uji beban NFR-05).
-    const cashList = sql.join(
-      cashIds.map((id) => sql`${id}::uuid`),
-      sql`, `,
-    );
-    const res = await tx.execute<{ counter_account_id: string | null; inflow: string; outflow: string }>(sql`
-      with lines as (
-        select l.journal_id, l.account_id, l.debit, l.credit, l.line_no, (l.account_id in (${cashList})) as is_cash
-        from ${journalLines} l
-        join ${journals} j on j.id = l.journal_id
-        join ${accountingPeriods} p on p.id = j.period_id
-        where j.tenant_id = ${tenantId} and j.status = 'posted' and p.period >= ${fromPeriod} and p.period <= ${toPeriod}
-      ),
-      per_journal as (
-        select journal_id, sum(case when is_cash then debit - credit else 0 end) as net
-        from lines group by journal_id having bool_or(is_cash)
-      ),
-      counter as (
-        select distinct on (journal_id) journal_id, account_id
-        from lines where not is_cash
-        order by journal_id, (debit + credit) desc, line_no asc
-      )
-      select c.account_id as counter_account_id,
-             coalesce(sum(case when pj.net > 0 then pj.net else 0 end), 0) as inflow,
-             coalesce(sum(case when pj.net < 0 then -pj.net else 0 end), 0) as outflow
-      from per_journal pj left join counter c on c.journal_id = pj.journal_id
-      where pj.net <> 0
-      group by c.account_id`);
-    for (const r of res.rows) {
-      const counter = r.counter_account_id ? byId.get(r.counter_account_id) : undefined;
-      const cat = counter ? classify(counter, byId) : "other";
-      cats[cat].inflow += Number(r.inflow);
-      cats[cat].outflow += Number(r.outflow);
-    }
+  for (const r of await cashMovementsByCounterAccount(tx, tenantId, cashIds, fromPeriod, toPeriod)) {
+    const counter = r.counterAccountId ? byId.get(r.counterAccountId) : undefined;
+    const cat = counter ? classify(counter, byId) : "other";
+    cats[cat].inflow += r.inflow;
+    cats[cat].outflow += r.outflow;
   }
   const netChange = Object.values(cats).reduce((s, c) => s + c.inflow - c.outflow, 0);
   const section = (keys: CashFlowCategory[]) => keys.reduce((s, k) => s + cats[k].inflow - cats[k].outflow, 0);
