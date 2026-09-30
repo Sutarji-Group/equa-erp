@@ -127,6 +127,21 @@ test.describe("P-03 toko — penerimaan, penjualan mitra/umum/tempo, opname, tra
       await count("TK-TISU", "Tisu segel galon", -2);
       await count("TK-SIKAT", "Sikat galon", 0);
       await count("TK-POMPA", "Pompa galon manual", 0);
+      // US-M7-05 KP-1 / BR-27: opname wajib mencakup SELURUH barang toko — sisa barang dihitung tanpa selisih
+      // (opname sebagian ditolak saat diajukan Admin Keuangan).
+      const rows = sheet.locator("li");
+      const total = await rows.count();
+      for (let i = 0; i < total; i++) {
+        const row = rows.nth(i);
+        const result = row.locator('[data-testid^="hasil-hitung-"]');
+        if (!((await result.textContent()) ?? "").includes("Saldo tampil setelah dihitung")) continue;
+        await row.getByLabel("Jumlah fisik").fill("0");
+        await expect(result).toContainText("Sistem");
+        const system = Number(/Sistem (-?\d+)/.exec((await result.textContent()) ?? "")?.[1]);
+        expect(Number.isFinite(system)).toBe(true);
+        await row.getByLabel("Jumlah fisik").fill(String(system));
+        await expect(result).toContainText("selisih 0");
+      }
       await sheet.getByRole("button", { name: "Simpan hitungan" }).click();
       await expect(sheet.getByText(/Hitungan tersimpan/)).toBeVisible();
       await waitSynced(s);
