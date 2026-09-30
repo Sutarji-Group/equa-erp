@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { Amount, FilterForm, FilterSelect, JournalLink, PROFIT_CENTER_OPTIONS, exportHref, periodOptions } from "@/components/m11-accounting/ui";
+import { Amount, FilterForm, FilterSelect, JournalLink, PROFIT_CENTER_OPTIONS, exportHref, hrefWith, periodOptions } from "@/components/m11-accounting/ui";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButtons } from "@/components/shared/export-buttons";
 import { PageHeader } from "@/components/shared/page-header";
@@ -15,11 +15,12 @@ import * as m11 from "@/server/modules/m11-accounting";
 
 export const metadata: Metadata = { title: "Buku besar" };
 
-type Search = Promise<{ akun?: string; lini?: string; dari?: string; sampai?: string }>;
+type Search = Promise<{ akun?: string; lini?: string; dari?: string; sampai?: string; hal?: string }>;
 
 /**
  * Buku besar per akun & pusat laba (US-M11-04 KP-1/KP-3): saldo awal, mutasi, saldo berjalan; setiap baris menurun ke
- * jurnal dan transaksi sumbernya.
+ * jurnal dan transaksi sumbernya. Baris dipaginasi di server (`?hal=`, `m11.LEDGER_PAGE_SIZE` baris) — mutasi & saldo
+ * akhir tetap atas seluruh rentang (uji beban NFR-05: akun kas depot 50 ribu baris/bulan).
  */
 export default async function LedgerPage({ searchParams }: { searchParams: Search }) {
   const { ctx } = await requirePermission("m11.ledger.read");
@@ -28,7 +29,15 @@ export default async function LedgerPage({ searchParams }: { searchParams: Searc
   const accounts = await m11.accountOptions(ctx);
   const from = sp.dari || current;
   const to = sp.sampai || from;
-  const ledger = sp.akun ? await m11.getLedger(ctx, { accountId: sp.akun, profitCenter: (sp.lini as never) ?? null, fromPeriod: from, toPeriod: to }) : null;
+  const pageNo = Math.max(1, Math.trunc(Number(sp.hal) || 1));
+  const ledger = sp.akun
+    ? await m11.getLedger(ctx, { accountId: sp.akun, profitCenter: (sp.lini as never) ?? null, fromPeriod: from, toPeriod: to, offset: (pageNo - 1) * m11.LEDGER_PAGE_SIZE, limit: m11.LEDGER_PAGE_SIZE })
+    : null;
+  const shownFrom = ledger && ledger.lines.length ? ledger.page.offset + 1 : 0;
+  const shownTo = ledger ? ledger.page.offset + ledger.lines.length : 0;
+  const currentPage = ledger ? Math.floor(ledger.page.offset / m11.LEDGER_PAGE_SIZE) + 1 : 1;
+  const lastPage = ledger ? Math.max(1, Math.ceil(ledger.page.total / m11.LEDGER_PAGE_SIZE)) : 1;
+  const pageHref = (n: number) => hrefWith("/akuntansi/buku-besar", { akun: sp.akun, lini: sp.lini, dari: from, sampai: to, hal: n > 1 ? n : null });
   const periods = periodOptions(current, 24, 1);
 
   return (
@@ -66,10 +75,10 @@ export default async function LedgerPage({ searchParams }: { searchParams: Searc
                 <TableBody>
                   <TableRow>
                     <TableCell colSpan={7} className="text-sm text-muted-foreground">
-                      Saldo awal
+                      {ledger.page.offset > 0 ? `Saldo sebelum baris ${shownFrom.toLocaleString("id-ID")}` : "Saldo awal"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Amount value={ledger.opening} />
+                      <Amount value={ledger.pageOpening} />
                     </TableCell>
                   </TableRow>
                   {ledger.lines.map((l, i) => (
@@ -106,13 +115,32 @@ export default async function LedgerPage({ searchParams }: { searchParams: Searc
                 </TableBody>
                 <TableFooter>
                   <TableRow>
-                    <TableCell colSpan={5}>Mutasi</TableCell>
+                    <TableCell colSpan={5}>{lastPage > 1 ? "Mutasi seluruh rentang" : "Mutasi"}</TableCell>
                     <TableCell className="text-right">{formatRupiah(ledger.debit)}</TableCell>
                     <TableCell className="text-right">{formatRupiah(ledger.credit)}</TableCell>
                     <TableCell className="text-right font-semibold">{formatRupiah(ledger.closing)}</TableCell>
                   </TableRow>
                 </TableFooter>
               </Table>
+              {lastPage > 1 ? (
+                <nav className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 text-sm" aria-label="Halaman buku besar" data-testid="halaman-buku-besar">
+                  <span className="text-muted-foreground">
+                    Menampilkan baris {shownFrom.toLocaleString("id-ID")}–{shownTo.toLocaleString("id-ID")} dari {ledger.page.total.toLocaleString("id-ID")} · halaman {currentPage} dari {lastPage}
+                  </span>
+                  <span className="flex gap-2">
+                    {currentPage > 1 ? (
+                      <Link href={pageHref(currentPage - 1)} className="rounded-md border px-3 py-1.5 font-medium hover:bg-accent">
+                        Sebelumnya
+                      </Link>
+                    ) : null}
+                    {currentPage < lastPage ? (
+                      <Link href={pageHref(currentPage + 1)} className="rounded-md border px-3 py-1.5 font-medium hover:bg-accent">
+                        Berikutnya
+                      </Link>
+                    ) : null}
+                  </span>
+                </nav>
+              ) : null}
             </div>
           ) : (
             <EmptyState title="Tidak ada mutasi pada rentang ini" compact />

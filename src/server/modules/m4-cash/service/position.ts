@@ -192,6 +192,11 @@ export async function buildCashPosition(tx: Tx, ctx: ActorContext, date: Busines
         .where(and(inArray(deposits.outletId, outletIds), lte(deposits.businessDate, date), inArray(deposits.status, ["running", "submitted"]), eq(deposits.isPartial, false)))
     : [];
   const operatorNames = await userNames(tx, [...dayShifts, ...openShifts].map((s) => s.operatorUserId));
+  // Satu agregat untuk semua shift terbuka (sebelumnya `computeShiftFigures` per shift — N+1, uji beban NFR-05).
+  const openTotals = await m6.computeShiftCashTotals(
+    tx,
+    openShifts.filter((s) => !s.syncConflict),
+  );
   for (const o of outletRows) {
     const line: CashLine = o.kind === "store" ? "store" : "depot";
     const deps = dayDeposits.filter((d) => d.outletId === o.id);
@@ -213,7 +218,7 @@ export async function buildCashPosition(tx: Tx, ctx: ActorContext, date: Busines
     }
     for (const s of myShifts) if (s.status === "closed") qris += s.qrisSales ?? 0;
     for (const s of open) {
-      const f = await m6.computeShiftFigures(tx, s);
+      const f = openTotals.get(s.id)!;
       if (s.businessDate === date) {
         expected += f.depositAmount;
         qris += f.qrisSales;

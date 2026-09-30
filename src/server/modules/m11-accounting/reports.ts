@@ -22,7 +22,7 @@ import { payablesView } from "./service/payables";
 import { listPeriods } from "./service/periods";
 import { listJournalQueue } from "./service/queue";
 import { reconciliationHistory } from "./service/reconciliation";
-import { getLedger, getStatements, type Basis } from "./service/statements";
+import { getLedger, getStatements, LEDGER_MAX_ROWS, type Basis } from "./service/statements";
 import { monthlyRevenueReport, taxOverview } from "./service/tax";
 
 const periodField = z
@@ -138,13 +138,20 @@ export function registerReports(): void {
     ],
     fetch: async (ctx, f: z.infer<typeof ledgerFilters>, { tx }) => {
       const from = f.from ?? currentPeriod(ctx.now);
-      const res = await getLedger(ctx, { accountId: f.accountId, fromPeriod: from, toPeriod: f.to ?? from, profitCenter: (f.profitCenter as never) ?? null }, { tx });
+      const res = await getLedger(ctx, { accountId: f.accountId, fromPeriod: from, toPeriod: f.to ?? from, profitCenter: (f.profitCenter as never) ?? null, limit: LEDGER_MAX_ROWS }, { tx });
+      const truncated = res.page.total > res.lines.length;
       return {
         rows: res.lines,
         summary: [
           { label: "Akun", value: `${res.account.code} ${res.account.name}` },
           { label: "Saldo awal", value: res.opening, type: "rupiah" },
+          // Mutasi & saldo akhir atas seluruh rentang (baris berkas dibatasi LEDGER_MAX_ROWS).
+          { label: "Mutasi debit", value: res.debit, type: "rupiah" },
+          { label: "Mutasi kredit", value: res.credit, type: "rupiah" },
           { label: "Saldo akhir", value: res.closing, type: "rupiah" },
+          ...(truncated
+            ? [{ label: "Catatan", value: `Berkas memuat ${res.lines.length.toLocaleString("id-ID")} dari ${res.page.total.toLocaleString("id-ID")} baris. Persempit rentang periode atau saring per pusat laba untuk baris lengkap.` }]
+            : []),
         ],
       };
     },

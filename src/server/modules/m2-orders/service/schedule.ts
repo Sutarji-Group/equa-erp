@@ -187,6 +187,34 @@ export type Board = {
 };
 
 /** Papan jadwal per tanggal (US-M2-03 KP-1..KP-7). */
+/**
+ * Posisi valid terakhir per truk untuk papan (satu kueri LATERAL — indeks `gps_positions_truck_time_idx` mundur, berhenti
+ * di baris pertama per truk). Pengganti `DISTINCT ON (truck_id)` yang memindai seluruh riwayat posisi (uji beban NFR-05:
+ * ±0,9 dtk pada 730 rb posisi; docs/qa/uji-beban.md).
+ */
+async function lastValidPositions(tx: Tx, truckIds: string[]): Promise<{ truckId: string; lat: number; lng: number; at: Date; speedKmh: number | null }[]> {
+  const res = await tx.execute<{ truck_id: string; lat: number; lng: number; device_time: Date | string; speed_kmh: number | null }>(sql`
+    select p.truck_id, p.lat, p.lng, p.device_time, p.speed_kmh
+    from (values ${sql.join(
+      truckIds.map((id) => sql`(${id}::uuid)`),
+      sql`, `,
+    )}) as t(id)
+    cross join lateral (
+      select g.truck_id, g.lat, g.lng, g.device_time, g.speed_kmh
+      from ${gpsPositions} g
+      where g.truck_id = t.id and g.is_valid
+      order by g.device_time desc
+      limit 1
+    ) p`);
+  return res.rows.map((r) => ({
+    truckId: r.truck_id,
+    lat: Number(r.lat),
+    lng: Number(r.lng),
+    at: r.device_time instanceof Date ? r.device_time : new Date(r.device_time),
+    speedKmh: r.speed_kmh === null ? null : Number(r.speed_kmh),
+  }));
+}
+
 export async function getBoard(ctx: ActorContext, date: string, opts: { tx?: Tx } = {}): Promise<Board> {
   await authorize(ctx, "m2.schedule.read", { tx: opts.tx });
   const tx = opts.tx ?? getDb();
@@ -287,13 +315,7 @@ export async function getBoard(ctx: ActorContext, date: string, opts: { tx?: Tx 
   };
 
   // US-M12-02 KP-4: posisi truk hanya untuk peran berizin peta armada (pemilik & Dispatcher), bukan semua pembaca papan.
-  const lastPositions = truckRows.length && can(ctx, "m12.position.read")
-    ? await tx
-        .selectDistinctOn([gpsPositions.truckId], { truckId: gpsPositions.truckId, lat: gpsPositions.lat, lng: gpsPositions.lng, at: gpsPositions.deviceTime, speedKmh: gpsPositions.speedKmh })
-        .from(gpsPositions)
-        .where(and(inArray(gpsPositions.truckId, truckRows.map((t) => t.id)), eq(gpsPositions.isValid, true)))
-        .orderBy(gpsPositions.truckId, desc(gpsPositions.deviceTime))
-    : [];
+  const lastPositions = truckRows.length && can(ctx, "m12.position.read") ? await lastValidPositions(tx, truckRows.map((t) => t.id)) : [];
 
   const lanes: BoardLane[] = [];
   let capacity = 0;

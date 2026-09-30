@@ -35,7 +35,7 @@ import {
   type PosSaleRow,
   type ShiftRow,
 } from "./common";
-import { computeShiftFigures, type ShiftFigures } from "./figures";
+import { computeShiftDrawer, computeShiftFigures, type ShiftFigures } from "./figures";
 import { consumablesOf, stockBalancesOf } from "./inventory";
 import { posKindPolicy } from "./policy";
 
@@ -169,7 +169,8 @@ export async function openShift(ctx: ActorContext, input: z.output<typeof openSh
  */
 export async function checkCashLimit(tx: Tx, ctx: ActorContext, outlet: OutletRow, shiftId: string, date: BusinessDate): Promise<{ runningCash: number; overLimit: boolean; alerted: boolean }> {
   const shift = (await loadShift(tx, shiftId, { forUpdate: true }))!;
-  const figures = await computeShiftFigures(tx, shift);
+  // Agregat SQL (bukan `computeShiftFigures`): dipanggil per transaksi tunai — lihat `computeShiftDrawer`.
+  const figures = { expectedDrawer: await computeShiftDrawer(tx, shift) };
   const settings = await outletPosSettings(tx, outlet, date);
   const over = figures.expectedDrawer > settings.cashLimit;
   if (!over || shift.cashLimitAlertAt || shift.status !== "open") return { runningCash: figures.expectedDrawer, overLimit: over, alerted: false };

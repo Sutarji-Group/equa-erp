@@ -8,9 +8,10 @@
  * `.data/perf-hasil-<label>.json`. Metodologi & tafsiran: docs/qa/uji-beban.md.
  *
  * Opsi: `--label sebelum|sesudah` (nama berkas hasil), `--ulang N` (bawaan 5), `--kasus a,b` (subset), `--profil`
- * (cetak 5 kueri terlama per kasus — perkiraan dari jeda antar-kueri).
+ * (cetak 5 kueri terlama per kasus — perkiraan dari jeda antar-kueri), `--keluaran DIR` (simpan keluaran tiap kasus
+ * sebagai `DIR/<kasus>.json` — bandingkan sebelum/sesudah perbaikan untuk membuktikan perilaku tidak berubah).
  */
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 
 import { PGlite } from "@electric-sql/pglite";
@@ -25,6 +26,7 @@ import { EQUA_TENANT_ID, outletId, truckId } from "@/db/seed/org";
 import { productId } from "@/db/seed/catalog";
 import { newId } from "@/lib/ids";
 import { addDays, monthOf, toBusinessDate } from "@/lib/time";
+import { queryForActor } from "@/server/core/audit";
 import { ensureBootstrapped } from "@/server/core/bootstrap";
 import * as m2 from "@/server/modules/m2-orders";
 import * as m4 from "@/server/modules/m4-cash";
@@ -51,7 +53,7 @@ class QueryLog implements Logger {
   }
   slowest(end: number, n = 5): { ms: number; sql: string }[] {
     return this.entries
-      .map((e, i) => ({ ms: Math.round(((this.entries[i + 1]?.t ?? end) - e.t) * 10) / 10, sql: e.sql.replace(/\s+/g, " ").slice(0, 220) }))
+      .map((e, i) => ({ ms: Math.round(((this.entries[i + 1]?.t ?? end) - e.t) * 10) / 10, sql: e.sql.replace(/\s+/g, " ").slice(0, process.env.PERF_SQL_LEN ? Number(process.env.PERF_SQL_LEN) : 220) }))
       .sort((a, b) => b.ms - a.ms)
       .slice(0, n);
   }
@@ -73,6 +75,8 @@ async function main(): Promise<void> {
   const repeat = numberArg(process.argv, "ulang", 5);
   const only = arg("kasus")?.split(",");
   const profile = process.argv.includes("--profil");
+  const outputDir = arg("keluaran");
+  if (outputDir) mkdirSync(outputDir, { recursive: true });
   const now = new Date(meta.anchorNow);
   const today = meta.anchorDate;
   const yesterday = addDays(today, -1);
@@ -109,6 +113,8 @@ async function main(): Promise<void> {
 
   type Def = { key: string; label: string; kind: CaseResult["kind"]; targetMs: number; run: () => Promise<unknown>; setup?: () => Promise<void> };
   let pushRound = 0;
+  let kasLastOffset = 0;
+  const ledgerPage = (accountId: string, offset: number) => m11.getLedger(accountant, { accountId, fromPeriod: month, offset, limit: m11.LEDGER_PAGE_SIZE });
   const defs: Def[] = [
     { key: "m4.kas_hari_ini", label: "M4 Kas hari ini (getCashPosition)", kind: "web", targetMs: 2_000, run: () => m4.getCashPosition(finance, { date: today }) },
     { key: "m2.papan_jadwal", label: "M2 Papan jadwal per tanggal (getBoard)", kind: "web", targetMs: 2_000, run: () => m2.getBoard(dispatcher, today) },
@@ -120,9 +126,20 @@ async function main(): Promise<void> {
     { key: "m12.posisi_terakhir", label: "M12 Peta — posisi GPS terakhir (getFleetSnapshot)", kind: "web", targetMs: 2_000, run: () => m12.getFleetSnapshot(dispatcher, {}) },
     { key: "m12.riwayat_hari", label: "M12 Riwayat hari semua truk (listTruckDays kemarin)", kind: "web", targetMs: 2_000, run: () => m12.listTruckDays(dispatcher, { date: yesterday }) },
     { key: "m12.riwayat_truk", label: "M12 Rincian truk-hari (getTruckDay T3 kemarin)", kind: "web", targetMs: 2_000, run: () => m12.getTruckDay(dispatcher, { truckId: t3, date: yesterday }) },
-    { key: "m11.buku_besar_kas", label: "M11 Buku besar Kas outlet depot (bulan berjalan)", kind: "web", targetMs: 2_000, run: () => m11.getLedger(accountant, { accountId: kasDepot, fromPeriod: month }) },
-    { key: "m11.buku_besar_pendapatan", label: "M11 Buku besar Pendapatan depot (bulan berjalan)", kind: "web", targetMs: 2_000, run: () => m11.getLedger(accountant, { accountId: pendapatanDepot, fromPeriod: month }) },
+    // Halaman buku besar: halaman pertama (`?hal=` bawaan) & halaman terakhir (saldo berjalan diteruskan dari baris sebelumnya).
+    { key: "m11.buku_besar_kas", label: "M11 Buku besar Kas outlet depot (bulan berjalan, halaman 1)", kind: "web", targetMs: 2_000, run: () => ledgerPage(kasDepot, 0) },
+    { key: "m11.buku_besar_kas_akhir", label: "M11 Buku besar Kas outlet depot (halaman terakhir)", kind: "web", targetMs: 2_000, setup: async () => {
+        const first = await ledgerPage(kasDepot, 0);
+        kasLastOffset = Math.max(0, Math.floor((first.page.total - 1) / m11.LEDGER_PAGE_SIZE) * m11.LEDGER_PAGE_SIZE);
+      }, run: () => ledgerPage(kasDepot, kasLastOffset) },
+    { key: "m11.buku_besar_pendapatan", label: "M11 Buku besar Pendapatan depot (bulan berjalan, halaman 1)", kind: "web", targetMs: 2_000, run: () => ledgerPage(pendapatanDepot, 0) },
+    { key: "m11.buku_besar_ekspor", label: "M11 Buku besar Kas — data ekspor (maks. LEDGER_MAX_ROWS baris)", kind: "web", targetMs: 10_000, run: () => m11.getLedger(accountant, { accountId: kasDepot, fromPeriod: month, limit: m11.LEDGER_MAX_ROWS }) },
     { key: "m11.laba_rugi", label: "M11 Laporan keuangan + laba rugi per lini (getStatements)", kind: "web", targetMs: 2_000, run: () => m11.getStatements(accountant, { period: month }) },
+    { key: "m2.daftar_pesanan", label: "M2 Daftar pesanan (listOrders bawaan)", kind: "web", targetMs: 2_000, run: () => m2.listOrders(dispatcher, {}) },
+    { key: "m4.daftar_setoran", label: "M4 Daftar setoran hari ini (listDeposits)", kind: "web", targetMs: 2_000, run: () => m4.listDeposits(finance, {}) },
+    { key: "m5.daftar_faktur", label: "M5 Faktur belum lunas (listInvoices)", kind: "web", targetMs: 2_000, run: () => m5.listInvoices(finance, { status: "unpaid" }) },
+    { key: "m11.daftar_jurnal", label: "M11 Daftar jurnal periode berjalan (listJournals)", kind: "web", targetMs: 2_000, run: () => m11.listJournals(accountant, { period: month }) },
+    { key: "m10.jejak_audit", label: "M10 Jejak audit terbaru (queryForActor)", kind: "web", targetMs: 2_000, run: () => queryForActor(owner, {}) },
     {
       key: "sync.pull_sopir",
       label: "Pull sinkron sopir (HP-T3, semua penyedia)",
@@ -138,6 +155,22 @@ async function main(): Promise<void> {
       targetMs: 2_000,
       setup: field,
       run: () => pos!.pull(posSession!, {}, { now }),
+    },
+    {
+      key: "sync.pull_sopir_delta",
+      label: "Pull sinkron sopir — delta (since = kursor terakhir, tanpa perubahan)",
+      kind: "pull",
+      targetMs: 2_000,
+      setup: field,
+      run: () => hp!.pull(driverSession!, { since: now.toISOString() }, { now }),
+    },
+    {
+      key: "sync.pull_pos_delta",
+      label: "Pull sinkron POS — delta (since = kursor terakhir, tanpa perubahan)",
+      kind: "pull",
+      targetMs: 2_000,
+      setup: field,
+      run: () => pos!.pull(posSession!, { since: now.toISOString() }, { now }),
     },
     {
       key: "sync.push_50",
@@ -182,6 +215,7 @@ async function main(): Promise<void> {
         const json = JSON.stringify(out) ?? "";
         samples.push({ ms: Math.round((t1 - t0) * 10) / 10, queries: log.entries.length, bytes: Buffer.byteLength(json), gzip: gzipSync(json).length });
         if (profile && i === repeat - 1) slowest = log.slowest(t1);
+        if (outputDir && i === repeat - 1) writeFileSync(`${outputDir}/${d.key}.json`, `${JSON.stringify(out, null, 1)}\n`);
       }
       const ms = samples.map((s) => s.ms);
       const r: CaseResult = {
