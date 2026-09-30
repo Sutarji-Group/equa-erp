@@ -232,6 +232,9 @@ test.describe("P-06 tutup kas harian — setoran, transfer, selisih, tutup, H+0,
           // Selisih hari ini tampil di layar tutup kas (KP-3), termasuk selisih D01 yang diteruskan ke pemilik.
           const disc = fa.page.getByTestId("selisih-hari-ini").getByRole("row").filter({ hasText: "Shift depot" }).filter({ hasText: /-Rp\s?50\.000/ });
           await expect(disc).toContainText("Salah kembalian");
+          // D-12 butir 7: tiap baris menyebut outlet/truk & nama karyawan, bukan hanya jenis sumber.
+          await expect(disc.getByTestId("selisih-sumber")).toContainText("D01");
+          await expect(disc.getByTestId("selisih-sumber")).toContainText("·");
           // Langkah 2: cocokkan transfer terbuka (QRIS shift D01, transfer rit, pelunasan) dengan mutasi internet banking.
           await fa.page.goto(`/kas/transfer?dari=${today}&sampai=${today}`);
           const qris = fa.page.getByTestId("daftar-transfer").getByRole("row").filter({ hasText: "QRIS shift" }).filter({ hasText: "D01" });
