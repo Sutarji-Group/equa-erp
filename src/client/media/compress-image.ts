@@ -1,23 +1,46 @@
 /**
  * Kompresi foto di perangkat sebelum masuk antrean sinkron (docs/ARCHITECTURE.md §7; PRD US-M3-03 KP-6, PAR-38):
- * target ≤ 300 KB JPEG. Kode PERAMBAN (canvas); inti algoritme `compressWithEncoder` murni & dapat diuji tanpa canvas.
+ * target ≤ PAR-38 (bawaan 150 KB, sisi panjang 1.280 px — D-14 butir 2 / NFR-17). Kode PERAMBAN (canvas); inti
+ * algoritme `compressWithEncoder` murni & dapat diuji tanpa canvas.
+ *
+ * Batas ukuran WAJIB dibaca dari parameter PAR-38 (bukan konstanta): aplikasi lapangan memakai `params.photoMaxKb`
+ * hasil pull (`fieldPhotoMaxBytes()` di `@/client/offline`) atau aturan modul dari data referensi
+ * (`rules.maxPhotoKb`/`settings.maxPhotoKb`); web kantor menerima nilai PAR-38 dari server. `DEFAULT_MAX_PHOTO_BYTES`
+ * hanya cadangan bila parameter belum pernah diunduh (= bawaan PAR-38).
  *
  * Strategi: skala sisi terpanjang ≤ `maxDimension` → encode JPEG mulai `initialQuality`, turunkan kualitas bertahap
  * hingga `minQuality`; bila masih terlalu besar, perkecil dimensi (× `scaleStep`) dan ulangi, sampai ≤ `maxBytes` atau
  * sisi terpanjang < `minDimension` (hasil terkecil dikembalikan dengan `withinLimit: false`).
  */
 
-/** Batas bawaan 300 KB (PAR-38). Nilai sebenarnya diambil dari parameter oleh pemanggil bila tersedia. */
-export const DEFAULT_MAX_PHOTO_BYTES = 300 * 1024;
+/** Bawaan PAR-38 (KB) — cadangan bila parameter belum tersedia di perangkat (D-14 butir 2). */
+export const DEFAULT_PHOTO_MAX_KB = 150;
+
+/** Batas bawaan = bawaan PAR-38 (150 KB). Nilai sebenarnya diambil dari parameter oleh pemanggil bila tersedia. */
+export const DEFAULT_MAX_PHOTO_BYTES = DEFAULT_PHOTO_MAX_KB * 1024;
+
+/** Sisi terpanjang foto lapangan setelah kompresi (px, D-14 butir 2). */
+export const DEFAULT_MAX_PHOTO_DIMENSION = 1280;
+
+/** Kualitas JPEG awal bawaan (0,7 — hasil umum ±100–140 KB pada 1.280 px, di bawah PAR-38). */
+export const DEFAULT_INITIAL_QUALITY = 0.7;
+
+/**
+ * Batas byte dari nilai PAR-38 (KB). Nilai tidak sah/kosong → bawaan. Dipakai semua pemanggil agar konversi KB → byte
+ * seragam.
+ */
+export function photoMaxBytes(maxKb: number | null | undefined): number {
+  return typeof maxKb === "number" && Number.isFinite(maxKb) && maxKb > 0 ? Math.round(maxKb * 1024) : DEFAULT_MAX_PHOTO_BYTES;
+}
 
 export type CompressOptions = {
-  /** Ukuran maksimum hasil (byte). Bawaan 300 KB. */
+  /** Ukuran maksimum hasil (byte) = PAR-38. Bawaan 150 KB (`DEFAULT_MAX_PHOTO_BYTES`). */
   maxBytes?: number;
-  /** Sisi terpanjang maksimum (px). Bawaan 1600. */
+  /** Sisi terpanjang maksimum (px). Bawaan 1.280 (`DEFAULT_MAX_PHOTO_DIMENSION`). */
   maxDimension?: number;
   /** Sisi terpanjang minimum sebelum menyerah (px). Bawaan 480. */
   minDimension?: number;
-  /** Kualitas JPEG awal (0–1). Bawaan 0,82. */
+  /** Kualitas JPEG awal (0–1). Bawaan 0,7. */
   initialQuality?: number;
   /** Kualitas JPEG minimum. Bawaan 0,45. */
   minQuality?: number;
@@ -54,10 +77,10 @@ export function fitWithin(width: number, height: number, maxDimension: number): 
 }
 
 function resolveOptions(options: CompressOptions) {
-  const initialQuality = options.initialQuality ?? 0.82;
+  const initialQuality = options.initialQuality ?? DEFAULT_INITIAL_QUALITY;
   return {
     maxBytes: options.maxBytes ?? DEFAULT_MAX_PHOTO_BYTES,
-    maxDimension: options.maxDimension ?? 1600,
+    maxDimension: options.maxDimension ?? DEFAULT_MAX_PHOTO_DIMENSION,
     minDimension: options.minDimension ?? 480,
     initialQuality,
     minQuality: Math.min(options.minQuality ?? 0.45, initialQuality),
@@ -145,7 +168,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
 }
 
 /**
- * Kompres berkas foto menjadi JPEG ≤ `maxBytes` (bawaan 300 KB) memakai canvas.
+ * Kompres berkas foto menjadi JPEG ≤ `maxBytes` (PAR-38; bawaan 150 KB, sisi 1.280 px) memakai canvas.
  * Galat dilempar dengan pesan tindakan berbahasa Indonesia.
  */
 export async function compressImage(file: Blob, options: CompressOptions = {}, deps: CompressDeps = {}): Promise<CompressResult> {

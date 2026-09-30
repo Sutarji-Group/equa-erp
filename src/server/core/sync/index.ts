@@ -11,7 +11,9 @@ import "server-only";
 
 export * from "./registry";
 export { processPush, MAX_PUSH_BATCH, allowedBusinessDates, computeClockSkewMs, type PushResult, type PushResponse, type PushResultStatus } from "./push";
-export { processPull, compareVersions, offlineParams, minSupportedVersion, type PullResponse, type OfflineParams } from "./pull";
+export { processPull, compareVersions, offlineParams, minSupportedVersion, type PullResponse, type OfflineParams, type PullQuery } from "./pull";
+// Tambahan v1.0.1 (D-14 butir 3): pull bersyarat — sidik isi & delta koleksi.
+export { compareWithCursor, versionOf, type ConditionalResult, type ProviderVersion, type PullCollections } from "./conditional";
 export { processUpload, MAX_FIELD_UPLOAD_BYTES, FIELD_UPLOAD_TYPES, type UploadResult } from "./upload";
 export { recordHealth, healthReportSchema, type HealthReport } from "./health";
 export { registerCoreSync } from "./core-sync";

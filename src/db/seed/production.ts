@@ -114,8 +114,9 @@ export async function hasDemoData(tx: DbOrTx): Promise<boolean> {
 }
 
 /** Data acuan produksi (tanpa akun). Idempoten. */
-export async function seedProductionReference(tx: DbOrTx): Promise<number> {
-  const parameters = await seedBaseSettings(tx);
+export async function seedProductionReference(tx: DbOrTx, opts: { now?: Date } = {}): Promise<number> {
+  // Bawaan yang berubah setelah rilis (CHANGED_DEFAULTS, mis. PAR-38 v1.0.1) berlaku mulai tanggal seed dijalankan.
+  const parameters = await seedBaseSettings(tx, { today: toBusinessDate(opts.now ?? new Date()) });
   await seedEquaTenant(tx);
   await seedAccounting(tx, { demoBankAccount: false });
   await seedM11AccountingDefaults(tx);
@@ -243,7 +244,7 @@ export async function runProductionSeed(
         "Basis data berisi data demo (pnpm db:seed). Seed produksi hanya untuk DB produksi yang kosong — buat DB/branch Neon baru lalu jalankan pnpm db:migrate.",
       );
     }
-    const parameters = await seedProductionReference(tx);
+    const parameters = await seedProductionReference(tx, { now: options.now });
     const created = await createInitialAccounts(tx, accounts, { now: options.now });
     return { parameters, accounts: created, counts: await countRows(tx) };
   });

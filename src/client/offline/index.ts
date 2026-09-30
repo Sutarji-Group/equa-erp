@@ -49,7 +49,21 @@ export {
   type EnqueueAttachment,
   type EnqueueCommand,
 } from "./outbox";
-export { getSyncState, isFinalUploadError, startSyncWorker, syncNow, PUSH_BATCH_SIZE, SYNC_INTERVAL_MS, type SyncState, type SyncSummary } from "./sync";
+export { getSyncState, idlePullIntervalMs, isFinalUploadError, startSyncWorker, syncNow, PUSH_BATCH_SIZE, SYNC_INTERVAL_MS, type SyncState, type SyncSummary } from "./sync";
+// Tambahan v1.0.1 (D-14 butir 2/3): penjadwal pull adaptif, parameter offline (PAR-38/PAR-30), pull bersyarat.
+export {
+  createSyncScheduler,
+  idleIntervalFor,
+  BUSY_SYNC_INTERVAL_MS,
+  IDLE_PULL_INTERVAL_MS,
+  VISIBLE_PULL_MIN_GAP_MS,
+  type PullMode,
+  type SyncScheduler,
+  type SyncSchedulerDeps,
+  type SyncTrigger,
+} from "./scheduler";
+export { fieldOfflineParams, fieldPhotoMaxBytes, fieldPhotoMaxKb, syncMaxMinutesOf, DEFAULT_SYNC_MAX_MINUTES } from "./params";
+export { applyPullResponse, pullQueryString, type ApplyPullResult } from "./pull";
 export { useOnline, useOutbox, useReference, useSyncStatus, type SyncStatus } from "./hooks";
 export { nextDeviceSeq, seedDeviceSeqFloors } from "./numbering";
 export { moduleStore, type ModuleStore } from "./module-store";

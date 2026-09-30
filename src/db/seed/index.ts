@@ -8,7 +8,9 @@
  *
  * Pakai: `await runSeed(db)` (skrip `pnpm db:seed`, atau di uji lewat `createTestDb({ seed: true })`).
  */
-import { sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, sql } from "drizzle-orm";
+
+import { toBusinessDate } from "@/lib/time";
 
 import type { Db, DbOrTx } from "../client";
 import { featureFlags, parameters } from "../schema";
@@ -32,12 +34,12 @@ import { seedDemoP3Partner } from "./demo-p3-partner";
 import { seedDemoP2Customer } from "./demo-p2-customer";
 import { seedId } from "./ids";
 import { seedOrganization } from "./org";
-import { DEFAULT_FEATURE_FLAGS, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS, PARAMETER_EFFECTIVE_FROM } from "./parameters";
+import { CHANGED_DEFAULTS, DEFAULT_FEATURE_FLAGS, EXTRA_SETTINGS, LAMPIRAN_B_PARAMETERS, PARAMETER_EFFECTIVE_FROM } from "./parameters";
 import { seedWaTemplates } from "./templates";
 
 export { seedId } from "./ids";
 export * from "./constants";
-export { LAMPIRAN_B_PARAMETERS, EXTRA_SETTINGS, DEFAULT_FEATURE_FLAGS } from "./parameters";
+export { LAMPIRAN_B_PARAMETERS, EXTRA_SETTINGS, DEFAULT_FEATURE_FLAGS, CHANGED_DEFAULTS } from "./parameters";
 export { EQUA_TENANT_ID, EMPLOYEE_SEEDS, OUTLET_SEEDS, TRUCK_SEEDS, WATER_SOURCE_SEEDS } from "./org";
 export {
   employeeId,
@@ -71,7 +73,7 @@ export type SeedSummary = {
  * Parameter Lampiran B + pengaturan non-PAR + feature flag bawaan (idempoten). Dipakai seed demo (`runSeed`) dan seed
  * produksi (`runProductionSeed`, `src/db/seed/production.ts`). Mengembalikan jumlah parameter BARU.
  */
-export async function seedBaseSettings(tx: DbOrTx): Promise<number> {
+export async function seedBaseSettings(tx: DbOrTx, opts: { today?: string } = {}): Promise<number> {
   const paramRows = await tx
     .insert(parameters)
     .values(
@@ -103,7 +105,63 @@ export async function seedBaseSettings(tx: DbOrTx): Promise<number> {
       })),
     )
     .onConflictDoNothing();
+  await upgradeChangedDefaults(tx, opts.today);
   return paramRows.length;
+}
+
+function sameJson(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown): unknown =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([x], [y]) => x.localeCompare(y)).map(([k, x]) => [k, norm(x)]))
+      : Array.isArray(v)
+        ? v.map(norm)
+        : v;
+  return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
+}
+
+/**
+ * Mutakhirkan bawaan Lampiran B yang berubah setelah rilis (`CHANGED_DEFAULTS`) pada DB yang di-seed versi lama:
+ * versi baru global berlaku `today` HANYA bila nilai global yang berlaku masih baris seed bernilai lama dan tidak ada
+ * jadwal perubahan global ke depan. Idempoten (ID deterministik per rilis). Mengembalikan kunci yang dimutakhirkan.
+ */
+export async function upgradeChangedDefaults(tx: DbOrTx, today: string = toBusinessDate(new Date())): Promise<string[]> {
+  const upgraded: string[] = [];
+  const global = and(isNull(parameters.tenantId), isNull(parameters.outletId));
+  for (const change of CHANGED_DEFAULTS) {
+    const current = LAMPIRAN_B_PARAMETERS.find((p) => p.key === change.key) ?? EXTRA_SETTINGS.find((p) => p.key === change.key);
+    if (!current) continue;
+    const [effective] = await tx
+      .select({ id: parameters.id, value: parameters.value })
+      .from(parameters)
+      .where(and(eq(parameters.key, change.key), global, lte(parameters.effectiveFrom, today)))
+      .orderBy(desc(parameters.effectiveFrom))
+      .limit(1);
+    if (!effective || effective.id !== seedId(`parameter:${change.key}:global:${PARAMETER_EFFECTIVE_FROM}`)) continue;
+    if (!sameJson(effective.value, change.previous)) continue;
+    const [scheduled] = await tx
+      .select({ id: parameters.id })
+      .from(parameters)
+      .where(and(eq(parameters.key, change.key), global, gt(parameters.effectiveFrom, today)))
+      .limit(1);
+    if (scheduled) continue;
+    const rows = await tx
+      .insert(parameters)
+      .values({
+        id: seedId(`parameter:${change.key}:global:${change.release}`),
+        key: change.key,
+        name: current.name,
+        value: current.value,
+        unit: current.unit,
+        reference: current.reference,
+        description: current.description ?? null,
+        effectiveFrom: today,
+        reason: change.reason,
+      })
+      .onConflictDoNothing()
+      .returning({ id: parameters.id });
+    if (rows.length) upgraded.push(change.key);
+  }
+  return upgraded;
 }
 
 /** Jalankan seed lengkap dalam satu transaksi. */

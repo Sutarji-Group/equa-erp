@@ -11,6 +11,7 @@ import { formatRupiah, parseRupiah } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 import type { CashActionState } from "./action-state";
+import { useCashPhotoMaxBytes } from "./photo-limit";
 import { prepareCashFormData } from "./prepare-form-data";
 
 export type PendingExpense = { id: string; label: string; amount: number; fundingSource: "cash_on_hand" | "personal" };
@@ -43,10 +44,11 @@ export function ReceiveDepositForm({
 }) {
   const [state, formAction, pending] = useFlashActionState(action, {} as CashActionState);
   const [preparing, startPreparing] = useTransition();
+  const photoMaxBytes = useCashPhotoMaxBytes();
   const busy = pending || preparing;
   const submit = (fd: FormData) => {
     startPreparing(async () => {
-      const prepared = await prepareCashFormData(fd);
+      const prepared = await prepareCashFormData(fd, photoMaxBytes);
       startPreparing(() => formAction(prepared));
     });
   };

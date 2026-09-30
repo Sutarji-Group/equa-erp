@@ -6,25 +6,35 @@
  * 2. Kirim perintah antrean SEMUA pengguna di perangkat dalam batch ≤ 50 (`POST /api/sync/push`) + laporan kesehatan
  *    (jumlah antrean, versi, baterai, kejadian login offline). Hasil per item: terkirim / ditolak (pesan) /
  *    konflik / perlu login / dicoba ulang dengan backoff.
- * 3. Tarik data referensi pengguna aktif (`GET /api/sync/pull`) → `refs`.
+ * 3. Tarik data referensi pengguna aktif (`GET /api/sync/pull`, BERSYARAT — D-14 butir 3) → `refs`: kursor per
+ *    penyedia dikirim (`cursors`), penyedia yang tidak berubah dijawab "tidak berubah" tanpa isi, koleksi yang tumbuh
+ *    (penjualan shift, rit) datang sebagai delta (`applyPullPatch`). Pull dapat dilewati (`pull: "auto"`) bila tidak
+ *    ada yang terkirim dan pull terakhir belum jatuh tempo (jeda idle PAR-30, maks. 5 menit).
  * 4. Pangkas penyimpanan ponsel (`pruneOutbox`): Blob lampiran terkirim & riwayat antrean terkirim yang lama.
  *
  * Galat unggah lampiran: hanya penolakan final atas BERKAS itu (`isFinalUploadError`) yang menolak perintahnya
  * (`ATTACHMENT_FAILED`, dapat "Kirim ulang" lewat `retryOutboxItem`); galat server/perangkat/sesi bersifat sementara.
  *
- * Pemicu (`startSyncWorker`): kejadian `online`, interval 60 detik, perubahan antrean, tab kembali terlihat, dan
- * tombol "Kirim sekarang" (`syncNow({ force: true })`).
+ * Pemicu (`startSyncWorker`, penjadwal adaptif `./scheduler.ts` — D-14 butir 2): antrean kosong → pull latar tiap
+ * 5 menit (≤ PAR-30) selama aplikasi terlihat; ada antrean → push tiap 60 dtk (coba ulang); perubahan antrean → push
+ * segera lalu pull bila terkirim; kembali online/terlihat → segera; tombol "Kirim sekarang" (`syncNow({ force: true })`).
  */
 import { activeSession, clearAuthEvents, SYNC_REQUEST_EVENT, takeAuthEvents } from "./auth";
 import { APP_VERSION, deviceFetch, FieldApiError, isOnline, loadDevice, OFFLINE_MESSAGE } from "./api";
 import { fieldDb, getMeta, PENDING_STATUSES, setMeta, type OutboxItem } from "./db";
 import { seedDeviceSeqFloors } from "./numbering";
 import { ATTACHMENT_FAILED_CODE, OUTBOX_CHANGED_EVENT, pendingByUser, pruneOutbox } from "./outbox";
+import { syncMaxMinutesOf } from "./params";
+import { applyPullResponse, pullQueryString } from "./pull";
+import { BUSY_SYNC_INTERVAL_MS, createSyncScheduler, idleIntervalFor, type PullMode, type SyncScheduler } from "./scheduler";
 import type { PullResponse, PushResult } from "./types";
 
 export const PUSH_BATCH_SIZE = 50;
-export const SYNC_INTERVAL_MS = 60_000;
+/** Jeda putaran saat antrean berisi (push/coba ulang). Pull latar saat antrean kosong: `idleIntervalFor(PAR-30)`. */
+export const SYNC_INTERVAL_MS = BUSY_SYNC_INTERVAL_MS;
 const MAX_BACKOFF_MS = 5 * 60_000;
+/** Toleransi jatuh tempo pull "auto" (timer peramban dapat terlambat/lebih awal beberapa detik). */
+const PULL_DUE_SLACK_MS = 5_000;
 
 export type SyncState = {
   syncing: boolean;
@@ -32,6 +42,8 @@ export type SyncState = {
   lastAttemptAt: number | null;
   lastError: string | null;
   offline: boolean;
+  /** Pull berhasil terakhir (ms epoch) — dasar jadwal pull latar (D-14 butir 2). */
+  lastPullAt?: number | null;
 };
 
 export type SyncSummary = {
@@ -42,6 +54,15 @@ export type SyncSummary = {
   retry: number;
   pulled: boolean;
 };
+
+/** Jeda pull latar saat antrean kosong dari parameter perangkat (PAR-30; maks. 5 menit). */
+export async function idlePullIntervalMs(): Promise<number> {
+  try {
+    return idleIntervalFor(syncMaxMinutesOf((await loadDevice())?.params));
+  } catch {
+    return idleIntervalFor(null);
+  }
+}
 
 const META_STATE = "syncState";
 
@@ -226,11 +247,10 @@ async function pullReferences(): Promise<boolean> {
   const session = await activeSession();
   if (!session) return false;
   const db = fieldDb();
-  const cursorKey = `pullCursor:${session.userId}`;
-  const since = await getMeta<string>(cursorKey);
+  const stored = await db.refs.where("userId").equals(session.userId).toArray();
   let res: PullResponse;
   try {
-    res = await deviceFetch<PullResponse>(`/api/sync/pull${since ? `?since=${encodeURIComponent(since)}` : ""}`, { session });
+    res = await deviceFetch<PullResponse>(`/api/sync/pull?${pullQueryString(stored)}`, { session });
   } catch (error) {
     if (error instanceof FieldApiError && error.code === "SESSION_EXPIRED") {
       await db.credentials.update(session.userId, { sessionExpiresAt: new Date(0).toISOString() });
@@ -238,20 +258,33 @@ async function pullReferences(): Promise<boolean> {
     }
     throw error;
   }
-  const now = Date.now();
-  await db.transaction("rw", db.refs, db.device, db.meta, async () => {
-    for (const [key, data] of Object.entries(res.data)) await db.refs.put({ userId: session.userId, key, data, updatedAt: now });
-    await db.device.update("device", { device: res.device, params: res.params, minVersion: res.minVersion, updateRequired: res.updateRequired });
-    await db.meta.put({ key: cursorKey, value: res.cursor });
-  });
+  const { failed } = await applyPullResponse(session.userId, res);
+  if (failed.length) {
+    // Delta tidak dapat diterapkan (data lokal tidak cocok dengan kursor) → tarik penuh kunci itu sekali lagi.
+    const retry = await deviceFetch<PullResponse>(`/api/sync/pull?${pullQueryString([], failed)}`, { session });
+    await applyPullResponse(session.userId, retry);
+  }
+  // Kursor waktu protokol lama (v1) tidak dipakai lagi.
+  await db.meta.delete(`pullCursor:${session.userId}`).catch(() => undefined);
   await seedDeviceSeqFloors(res.deviceSeq);
   return true;
 }
 
+/** Keputusan pull satu putaran (D-14 butir 2): segera setelah ada yang terkirim, atau bila jeda idle terlewati. */
+async function shouldPull(mode: PullMode, delivered: number): Promise<boolean> {
+  if (mode !== "auto") return mode;
+  if (delivered > 0) return true;
+  const last = (await getSyncState()).lastPullAt ?? null;
+  return last === null || Date.now() - last >= (await idlePullIntervalMs()) - PULL_DUE_SLACK_MS;
+}
+
 let running: Promise<SyncSummary> | null = null;
 
-/** Satu putaran sinkron (single-flight per tab). */
-export function syncNow(opts: { force?: boolean } = {}): Promise<SyncSummary> {
+/**
+ * Satu putaran sinkron (single-flight per tab). `pull`: `true` (bawaan) selalu menarik data; `"auto"` hanya bila ada
+ * yang terkirim/diunggah di putaran ini atau pull terakhir sudah melewati jeda idle; `false` tanpa pull.
+ */
+export function syncNow(opts: { force?: boolean; pull?: PullMode } = {}): Promise<SyncSummary> {
   if (running) return running;
   running = (async (): Promise<SyncSummary> => {
     const empty: SyncSummary = { uploaded: 0, sent: 0, rejected: 0, retry: 0, pulled: false };
@@ -265,10 +298,12 @@ export function syncNow(opts: { force?: boolean } = {}): Promise<SyncSummary> {
     try {
       const uploaded = await uploadAttachments(!!opts.force);
       const pushed = await pushQueue(!!opts.force);
-      const pulled = await pullReferences();
+      const pullMode: PullMode = opts.force ? true : (opts.pull ?? true);
+      const pulled = (await shouldPull(pullMode, uploaded + pushed.sent + pushed.rejected)) ? await pullReferences() : false;
       // NFR-17: pangkas Blob lampiran terkirim & riwayat antrean lama (galat pemangkasan tidak menggagalkan sinkron).
       await pruneOutbox().catch(() => undefined);
-      await patchState({ syncing: false, lastSyncAt: Date.now(), lastError: null, offline: false });
+      const done = Date.now();
+      await patchState({ syncing: false, lastSyncAt: done, lastError: null, offline: false, ...(pulled ? { lastPullAt: done } : {}) });
       return { uploaded, ...pushed, pulled };
     } catch (error) {
       const offline = error instanceof FieldApiError && error.network;
@@ -285,40 +320,53 @@ export function syncNow(opts: { force?: boolean } = {}): Promise<SyncSummary> {
   return running;
 }
 
-/** Mulai worker sinkron (panggil sekali di layout lapangan). Mengembalikan fungsi penghenti. */
+/** Jumlah item antrean yang masih harus dikirim (semua pengguna di perangkat, termasuk menunggu coba ulang). */
+async function pendingTotal(): Promise<number> {
+  const db = fieldDb();
+  let n = 0;
+  for (const status of ["queued", "sending"] as const) n += await db.outbox.where("status").equals(status).count();
+  return n;
+}
+
+/**
+ * Mulai worker sinkron (panggil sekali di layout lapangan). Penjadwal adaptif (`createSyncScheduler`): pull latar tiap
+ * 5 menit bila antrean kosong (≤ PAR-30), push 60 dtk bila ada antrean, segera saat antrean berubah / online / aplikasi
+ * terlihat lagi. `intervalMs` (uji) mengganti jeda idle. Mengembalikan fungsi penghenti.
+ */
 export function startSyncWorker(opts: { intervalMs?: number } = {}): () => void {
   if (typeof window === "undefined") return () => undefined;
-  let debounce: ReturnType<typeof setTimeout> | null = null;
-  const run = () => void syncNow();
-  const soon = () => {
-    if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(run, 500);
-  };
+  const scheduler: SyncScheduler = createSyncScheduler({
+    run: ({ pull }) => syncNow({ pull }),
+    pendingCount: pendingTotal,
+    lastPullAt: async () => (await getSyncState()).lastPullAt ?? null,
+    idleIntervalMs: opts.intervalMs ? () => opts.intervalMs! : idlePullIntervalMs,
+    isVisible: () => typeof document === "undefined" || document.visibilityState !== "hidden",
+  });
+  const onOnline = () => scheduler.trigger("online");
+  const onChange = () => scheduler.trigger("outbox");
   const onVisible = () => {
-    if (document.visibilityState === "visible") run();
+    if (document.visibilityState === "visible") scheduler.trigger("visible");
   };
   const onOffline = () => void patchState({ offline: true, syncing: false });
-  window.addEventListener("online", run);
+  window.addEventListener("online", onOnline);
   window.addEventListener("offline", onOffline);
-  window.addEventListener(OUTBOX_CHANGED_EVENT, soon);
-  window.addEventListener(SYNC_REQUEST_EVENT, soon);
+  window.addEventListener(OUTBOX_CHANGED_EVENT, onChange);
+  window.addEventListener(SYNC_REQUEST_EVENT, onChange);
   document.addEventListener("visibilitychange", onVisible);
-  const timer = setInterval(run, opts.intervalMs ?? SYNC_INTERVAL_MS);
-  // Item "sending" yang tertinggal (tab ditutup saat mengirim) kembali ke antrean, lalu kirim.
+  // Item "sending" yang tertinggal (tab ditutup saat mengirim) kembali ke antrean, lalu mulai (push + pull).
   void fieldDb()
     .outbox.where("status")
     .equals("sending")
     .modify({ status: "queued" })
     .catch(() => undefined)
-    .finally(run);
+    .finally(() => scheduler.start());
   return () => {
-    window.removeEventListener("online", run);
+    window.removeEventListener("online", onOnline);
     window.removeEventListener("offline", onOffline);
-    window.removeEventListener(OUTBOX_CHANGED_EVENT, soon);
-    window.removeEventListener(SYNC_REQUEST_EVENT, soon);
+    window.removeEventListener(OUTBOX_CHANGED_EVENT, onChange);
+    window.removeEventListener(SYNC_REQUEST_EVENT, onChange);
     document.removeEventListener("visibilitychange", onVisible);
-    clearInterval(timer);
-    if (debounce) clearTimeout(debounce);
+    scheduler.stop();
   };
 }
 

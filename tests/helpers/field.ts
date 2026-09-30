@@ -30,7 +30,7 @@ import {
   type FieldLoginResult,
 } from "@/server/core/auth";
 import type { ActorContext } from "@/server/core/context";
-import { processPull, processPush, processUpload, type PullResponse, type PushResponse, type UploadResult } from "@/server/core/sync";
+import { processPull, processPush, processUpload, type PullQuery, type PullResponse, type PushResponse, type UploadResult } from "@/server/core/sync";
 
 import { seededContext } from "./context";
 
@@ -105,7 +105,8 @@ export type FieldDevice = {
   login: (user: string, opts?: { pin?: string; now?: Date }) => Promise<FieldLoginResult>;
   command: (owner: CommandOwner, type: string, payload: unknown, opts?: SignedCommandOptions) => SignedCommand;
   push: (commands: unknown[], opts?: { sentAt?: Date; now?: Date; health?: Record<string, unknown> }) => Promise<PushResponse>;
-  pull: (owner: Pick<FieldLoginResult, "sessionId">, query?: { since?: string | null; keys?: string | null }, opts?: { now?: Date }) => Promise<PullResponse>;
+  /** Pull (v1: `since`/`keys`; pull bersyarat v2: `cursors` — `{}` = klien v2 tanpa data tersimpan). */
+  pull: (owner: Pick<FieldLoginResult, "sessionId">, query?: PullQuery, opts?: { now?: Date }) => Promise<PullResponse>;
   upload: (
     owner: CommandOwner,
     file: { bytes: Uint8Array; contentType?: string; kind?: string; attachmentId?: string; capturedAt?: Date; commandId?: string },

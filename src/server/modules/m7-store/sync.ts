@@ -26,6 +26,19 @@ import { markOrderedSchema, markReorderOrdered } from "./service/reorder";
 import { recordStoreCount, storeCountSchema } from "./service/stock-count";
 import { internalTransferSchema, sendInternalTransfer } from "./service/transfers";
 
+/** Koleksi delta pull `m7.store` (jalur → ukuran ember sasaran). */
+export const STORE_PULL_COLLECTIONS = {
+  recentSales: 16,
+  recentReceipts: 4,
+  recentTransfers: 4,
+  products: 8,
+  customers: 8,
+  suppliers: 8,
+  depots: 8,
+  reorder: 4,
+  proposals: 4,
+} as const;
+
 export function registerSync(): void {
   // B-05: kebijakan POS toko di atas kerangka M6 (handler `pos_void`/`stock_adjustment` TIDAK didaftarkan ulang).
   registerPosKindPolicy(storePolicy);
@@ -118,5 +131,8 @@ export function registerSync(): void {
   registerPullProvider("m7.store", {
     roles: ["store_cashier"],
     fetch: async ({ ctx, device, now, tx }) => buildStoreReference(tx, ctx, device, now),
+    // Pull bersyarat v1.0.1 (D-14 butir 3): penjualan 2 hari terakhir (terbaru dulu, jendela 200) & saldo barang
+    // berubah sepanjang hari → delta per ember berbatas isi (penyisipan di depan tidak mengirim ulang seluruh daftar).
+    collections: STORE_PULL_COLLECTIONS,
   });
 }
