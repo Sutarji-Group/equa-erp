@@ -168,8 +168,12 @@ docs/             lihat peta dokumen di bawah
 | Uji beban 3× volume, kapasitas Neon/Vercel, data seluler lapangan (NFR-03/05/17) | [`docs/qa/uji-beban.md`](docs/qa/uji-beban.md) |
 | Catatan pengembang per modul & backlog lintas modul | `docs/dev/modules/*.md`, [`docs/dev/backlog.md`](docs/dev/backlog.md) |
 | Matriks menu & izin | [`docs/nav-permissions.md`](docs/nav-permissions.md) |
+| Alur Git: branch `main` (produksi) / `development` (staging), PR, rilis, hotfix | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
 ## Deploy (ringkas)
+
+Branch **`main` = produksi**, **`development` = staging/UAT (Preview)**; semua perubahan lewat PR ke `development`,
+rilis lewat PR `development` → `main` + tag `vX.Y.Z` ([`CONTRIBUTING.md`](CONTRIBUTING.md), D-16).
 
 Vercel (Hobby untuk pilot, Pro saat go-live) region `sin1` + Neon dari Vercel Marketplace (`DB_DRIVER=neon`) + Vercel
 Blob + Resend (domain pengirim terverifikasi) + VAPID untuk push. Pekerjaan terjadwal: Vercel Cron harian

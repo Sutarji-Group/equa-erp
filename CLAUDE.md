@@ -89,3 +89,9 @@ Lihat `docs/DECISIONS.md` D-06. `pnpm typecheck && pnpm lint && pnpm test` harus
   (`fieldDevice`, `signedCommand`), data: `tests/helpers/fixtures.ts`, registrasi: `bootstrapForTests()`.
 - Lampiran: daftarkan akses baca per objek (`registerAttachmentAccess`) di `src/server/modules/<modul>/audit.ts`.
 - Rute lapangan/kantor: `src/lib/field-routes.ts`. E2E `next start` memakai `ALLOW_DEV_SECRETS=1` (rahasia dev ditolak di produksi).
+
+## Alur Git (D-16)
+- `main` = produksi, `development` = staging/UAT. Keduanya dilindungi: **tanpa push langsung**, perubahan lewat PR.
+- Kerja baru: branch dari `development` (`feature/*`, `fix/*`, `docs/*`, sesi agen `claude/*`) → PR ke `development`.
+  Rilis: PR `development` → `main` (merge commit) + tag `vX.Y.Z`; hotfix: `hotfix/*` dari `main` → PR ke `main`, lalu
+  `main` digabung kembali ke `development`. Rincian: `CONTRIBUTING.md`.

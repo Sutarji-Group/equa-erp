@@ -235,3 +235,19 @@ Tanggal baseline: 27 September 2026.
 2. **B-95/B-96/B-97** diterima sebagai tindak lanjut pilot/staging (lihat backlog); B-97 wajib sebelum aktivasi Tahap 2.
 3. **Status proyek:** v1.0.1 = rilis kandidat untuk UAT & pilot. Seluruh butir backlog teknis tertutup; sisa = UAT
    lapangan, pengukuran staging Neon, konfigurasi produksi, dan keputusan komite pengarah (B-91, B-94, TG-9).
+
+## D-16 Strategi branch & lingkungan (30 Sep 2026)
+1. **`main` = produksi** (Vercel Production, Neon branch utama); **`development` = staging/UAT** (Vercel Preview
+   beralamat tetap, Neon branch `development` dengan data tersamar NFR-27). Keduanya dibuat dari commit dokumentasi D-16 ini
+   (v1.0.1 + perbaikan CI + strategi branch) dan dilindungi: tanpa push langsung, PR wajib lulus CI "Typecheck, lint, test"; PR ke
+   `main` butuh satu persetujuan.
+2. Branch kerja (`feature/*`, `fix/*`, `docs/*`, `claude/*`) → PR ke `development`. Rilis = PR `development` → `main`
+   (merge commit) + tag anotasi `vX.Y.Z`. Hotfix = `hotfix/*` dari `main` → PR ke `main`, lalu `main` → `development`.
+   Rincian: `CONTRIBUTING.md`; deploy: `docs/deploy/README.md` §2a & §8.
+3. **Tag `v1.0.1`** menandai commit rilis `8380a99` (`chore(release): EQUA ERP v1.0.1`, versi `package.json` 1.0.1).
+   Commit sesudahnya (D-15, perbaikan heap CI, D-16) tercatat di `CHANGELOG.md` bagian `[Belum dirilis]`.
+4. Branch sesi `claude/festive-einstein-mfe4ao` dipertahankan sampai default branch GitHub dipindah ke `main`, lalu
+   boleh dihapus.
+5. **Workflow terjadwal** `cron.yml` hanya berjalan terjadwal bila variabel repositori `CRON_ENABLED=true` (repo private:
+   jadwal 5 menit ≈ 8.640 menit Actions/bulan per job). Pemicu produksi final (Vercel Cron Pro / Upstash QStash /
+   anggaran menit Actions) diputuskan sebelum go-live — backlog B-98.

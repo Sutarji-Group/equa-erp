@@ -2,6 +2,7 @@ name: Cron tick
 
 # Pemicu pekerjaan terjadwal tiap 5 menit (Vercel Cron Hobby hanya harian — lihat docs/DECISIONS.md D-01).
 # Butuh secret repositori CRON_SECRET dan variabel/secret APP_URL. Dilewati bila kosong.
+# Jadwal GitHub hanya berjalan dari branch bawaan repositori (main = produksi, D-16) dan hanya bila vars.CRON_ENABLED=true.
 on:
   schedule:
     - cron: "*/5 * * * *"
@@ -13,6 +14,9 @@ concurrency:
 
 jobs:
   tick:
+    # Jadwal hanya berjalan bila variabel repositori CRON_ENABLED=true (D-16): repo private membayar ≥ 1 menit per job,
+    # jadwal 5 menit ≈ 8.640 menit/bulan per job. "Run workflow" manual selalu boleh.
+    if: github.event_name == 'workflow_dispatch' || vars.CRON_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -31,6 +35,7 @@ jobs:
   # mati. Secret opsional: ALERT_WEBHOOK_URL, RESEND_API_KEY + ALERT_EMAIL_TO (+ variabel ALERT_EMAIL_FROM). Status
   # gangguan dipertahankan antar-jalankan lewat cache; saat pulih, gangguan + durasinya dicatat ke /api/monitor/outage.
   monitor:
+    if: github.event_name == 'workflow_dispatch' || vars.CRON_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:

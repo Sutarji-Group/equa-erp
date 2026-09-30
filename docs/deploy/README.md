@@ -35,8 +35,24 @@ rahasia, perangkat hilang) ada di [`docs/ops/runbook.md`](../ops/runbook.md); cu
 1. Vercel → **Add New… → Project** → impor repositori ini. Framework terdeteksi **Next.js**; perintah install & build
    diambil dari `vercel.json` (`pnpm install --frozen-lockfile`, `pnpm build`). Node.js 22.
 2. **Settings → Functions → Region**: pastikan **Singapore (sin1)** (sudah dipaksa `vercel.json` → `regions`).
-3. **Settings → Git**: cabang produksi = cabang rilis (mis. `main`). Setiap PR mendapat deploy **Preview**.
+3. **Settings → Git**: **Production Branch = `main`**. Branch `development` = staging (Preview beralamat tetap), setiap
+   PR mendapat deploy **Preview** sementara — lihat §2a.
 4. Jangan deploy produksi sebelum §3–§6 selesai (aplikasi menolak berjalan tanpa rahasia produksi — fail-closed).
+
+## 2a. Branch & lingkungan (D-16)
+
+| Branch Git | Lingkungan Vercel | Domain | Neon | Rahasia |
+|---|---|---|---|---|
+| `main` | **Production** | domain utama (mis. `erp.equa.co.id`) | branch utama (data nyata) | produksi |
+| `development` | **Preview** khusus branch `development` (staging/UAT) | `staging.<domain>` (*Settings → Domains → Git Branch = development*) | branch `development` (data uji tersamar, NFR-27) | staging (≠ produksi) |
+| branch kerja / PR | Preview sementara | URL Vercel otomatis | ikut branch `development` | staging |
+
+- Variabel **Preview** di §4 diisi dengan cakupan *Preview → branch `development`* (atau semua Preview) dan nilai
+  **berbeda** dari produksi; `DATABASE_URL` Preview menunjuk branch Neon `development`, **tidak pernah** DB produksi.
+- Alur: PR branch kerja → `development` (staging) → UAT → PR `development` → `main` (produksi) → tag `vX.Y.Z`.
+  Rincian, hotfix, dan pengaturan branch protection GitHub: [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
+- Migrasi DB dijalankan per lingkungan: staging saat PR rilis digabung ke `development`, produksi di jendela PAR-86
+  setelah digabung ke `main` (§8).
 
 ## 3. Basis data Neon (Vercel Marketplace)
 
@@ -165,12 +181,19 @@ Setelah mengubah env: **Redeploy** (env dibaca saat fungsi mulai).
 
    | Nama | Jenis | Dipakai | Wajib |
    |---|---|---|---|
+   | `CRON_ENABLED` | variable = `true` | saklar jadwal `tick` & `monitor` — tanpa ini jadwal tidak berjalan sama sekali (tidak memakai menit Actions); *Run workflow* manual tetap bisa | ya, saat produksi siap |
    | `APP_URL` | secret atau variable | `tick`, `monitor` | ya (tanpa ini job dilewati diam-diam) |
    | `CRON_SECRET` | secret | `tick`; `monitor` (mencatat gangguan pulih ke `/api/monitor/outage`) | ya |
    | `ALERT_WEBHOOK_URL` | secret | `monitor` — POST JSON `{"text": …}` (Slack/Discord/Google Chat/gerbang WA) | salah satu kanal |
    | `RESEND_API_KEY` + `ALERT_EMAIL_TO` | secret (+ secret/variable) | `monitor` — e-mail peringatan lewat Resend | salah satu kanal |
    | `ALERT_EMAIL_FROM` | variable | pengirim e-mail peringatan (domain terverifikasi) | disarankan |
 
+   **Biaya menit Actions (repositori private):** tiap job dibulatkan ≥ 1 menit, sehingga jadwal 5 menit memakai
+   ±8.640 menit/bulan **per job** (`tick` + `monitor` ≈ 17.000 menit/bulan) — jauh di atas kuota gratis paket GitHub
+   organisasi. Sebelum menyalakan `CRON_ENABLED`, pilih salah satu: (a) pemicu `tick` lewat **Vercel Cron** (paket Pro,
+   jadwal `*/5 * * * *` di `vercel.json`) atau **Upstash QStash**, dan pemantau uptime lewat layanan pemantau eksternal
+   / Actions dengan anggaran menit yang disetujui; atau (b) beli menit Actions tambahan. Jadwal hanya berjalan dari
+   branch bawaan repositori (`main`, D-16) dan memantau `APP_URL` produksi.
 4. **Uji**: Actions → *Cron tick* → **Run workflow** (workflow_dispatch). Job `tick` harus mendapat HTTP 200
    (`{"ok":true,…}`); job `monitor` mencetak `Web kantor EQUA: OK` dan `API sinkron EQUA: OK`. Simulasikan gangguan di
    preview (APP_URL salah) untuk memastikan peringatan benar-benar terkirim, lalu pulihkan (NFR-28 ≤ 5 menit).
@@ -192,10 +215,13 @@ Setelah mengubah env: **Redeploy** (env dibaca saat fungsi mulai).
 **Setiap rilis:**
 1. CI hijau (`pnpm typecheck && pnpm lint && pnpm test`) + `pnpm build`; E2E (`pnpm test:e2e`) untuk rilis besar.
 2. Catatan rilis dalam bahasa pengguna (`docs/RELEASE_NOTES_v*.md`) + entri `CHANGELOG.md`.
-3. Deploy ke **Preview** (branch Neon preview) → uji asap (login, satu rit, satu transaksi POS, tutup kas uji).
+3. Gabungkan ke **`development`** → staging (branch Neon `development`) → `pnpm db:migrate` staging → uji asap (login,
+   satu rit, satu transaksi POS, tutup kas uji). Lalu PR **`development` → `main`** (merge commit) dan tag `vX.Y.Z`
+   (`CONTRIBUTING.md`).
 4. **Uji rollback di preview**: promosikan, lalu *Instant Rollback* ke deploy sebelumnya; aplikasi harus tetap
    berjalan dengan skema baru (migrasi aditif).
-5. Di jendela PAR-86: `pnpm db:migrate` → `pnpm db:verify` (produksi) → **Promote to Production**. Bila CHANGELOG rilis
+5. Di jendela PAR-86: `pnpm db:migrate` → `pnpm db:verify` (produksi) → gabung ke `main` (Vercel men-deploy
+   produksi; atau **Promote to Production** bila *auto-assign* domain produksi dimatikan). Bila CHANGELOG rilis
    menyebut perubahan bawaan parameter (`CHANGED_DEFAULTS`, mis. v1.0.1: PAR-38 300 → 150 KB), jalankan juga
    `pnpm db:seed:prod -- --no-accounts` sekali: versi parameter baru berlaku hari itu hanya bila nilainya masih bawaan
    lama (nilai yang sudah diubah pemilik & riwayat tidak disentuh; idempoten).

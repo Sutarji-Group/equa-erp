@@ -6,6 +6,17 @@ dan penomoran [Semantic Versioning](https://semver.org/lang/id/). Catatan rilis 
 
 ## [Belum dirilis]
 
+### Ditambahkan
+
+- **Strategi branch** (D-16): `main` = produksi, `development` = staging/UAT, alur PR/rilis/hotfix di
+  [`CONTRIBUTING.md`](CONTRIBUTING.md), templat PR (`.github/pull_request_template.md`), panduan deploy §2a.
+
+### Diubah
+
+- Workflow terjadwal `cron.yml` (`tick`, `monitor`) hanya berjalan terjadwal bila variabel repositori
+  `CRON_ENABLED=true` — mencegah pemakaian menit Actions sebelum produksi siap (±8.640 menit/bulan per job pada repo
+  private); *Run workflow* manual tetap tersedia.
+
 ### Diperbaiki
 
 - **CI Typecheck gagal kehabisan memori** (`JavaScript heap out of memory`, exit 134): `tsc` atas seluruh proyek
