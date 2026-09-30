@@ -7,10 +7,10 @@ import "server-only";
 
 import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 
-import { accountingPeriods, accounts, bankAccounts, journalLines, journals, tenants } from "@/db/schema";
+import { accountingPeriods, accounts, bankAccounts, eventAccountMappings, featureFlags, journalLines, journals, tenants } from "@/db/schema";
 import type { JournalKind, ProfitCenter } from "@/lib/labels";
 import { formatRupiah } from "@/lib/money";
-import { addDays, firstDayOfMonth, isBusinessDate, lastDayOfMonth, monthOf, type BusinessDate } from "@/lib/time";
+import { addDays, firstDayOfMonth, isBusinessDate, lastDayOfMonth, monthOf, toBusinessDate, type BusinessDate } from "@/lib/time";
 
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import { isTransaction, withTx, type Tx } from "@/server/core/db";
@@ -20,7 +20,7 @@ import { resolveMapping, resolvePostingPeriod } from "@/server/core/ledger";
 import { nextNumber } from "@/server/core/numbering";
 import * as params from "@/server/core/params";
 
-import { mappingMissingMessage } from "../constants";
+import { mappingMissingMessage, REQUIRED_MAPPINGS, type RequiredMapping } from "../constants";
 
 export type AccountRow = typeof accounts.$inferSelect;
 export type JournalRow = typeof journals.$inferSelect;
@@ -91,8 +91,87 @@ export async function isAccountingTenant(tx: Tx, tenantId: string): Promise<bool
   return rows[0]?.kind === "owner";
 }
 
-export async function m11Active(tx: Tx, tenantId: string): Promise<boolean> {
-  return isEnabled(tx, "accounting.m11_active", { tenantId });
+type MappingRowCommon = typeof eventAccountMappings.$inferSelect;
+
+/** Semua versi pemetaan tenant + versi yang berlaku pada `date` per (peristiwa, entri) + akun tenant. */
+export async function mappingRows(tx: Tx, tenantId: string, date: BusinessDate) {
+  const rows = await tx
+    .select()
+    .from(eventAccountMappings)
+    .where(and(eq(eventAccountMappings.tenantId, tenantId), lte(eventAccountMappings.effectiveFrom, "9999-12-31")))
+    .orderBy(asc(eventAccountMappings.eventKey), asc(eventAccountMappings.entryKey), desc(eventAccountMappings.effectiveFrom));
+  const accs = await tx.select().from(accounts).where(eq(accounts.tenantId, tenantId));
+  const byId = new Map(accs.map((a) => [a.id, a]));
+  const current = new Map<string, MappingRowCommon>();
+  const history = new Map<string, MappingRowCommon[]>();
+  for (const r of rows) {
+    const key = `${r.eventKey}|${r.entryKey}`;
+    history.set(key, [...(history.get(key) ?? []), r]);
+    if (!current.has(key) && r.isActive && r.effectiveFrom <= date) current.set(key, r);
+  }
+  return { current, history, byId };
+}
+
+/** Status pemetaan wajib per tanggal (layar pemetaan, syarat aktivasi, gerbang jurnal otomatis). */
+export async function mappingCompleteness(tx: Tx, tenantId: string, date: BusinessDate): Promise<{ total: number; missing: RequiredMapping[]; inactive: RequiredMapping[] }> {
+  const { current, byId } = await mappingRows(tx, tenantId, date);
+  const missing: RequiredMapping[] = [];
+  const inactive: RequiredMapping[] = [];
+  for (const req of REQUIRED_MAPPINGS) {
+    const cur = current.get(`${req.event}|${req.entry}`);
+    if (!cur) {
+      missing.push(req);
+      continue;
+    }
+    const d = byId.get(cur.debitAccountId);
+    const c = byId.get(cur.creditAccountId);
+    if (!d?.isActive || !c?.isActive || !d.isPostable || !c.isPostable) inactive.push(req);
+  }
+  return { total: REQUIRED_MAPPINGS.length, missing, inactive };
+}
+
+export type AccountingActivation = {
+  /** Jurnal otomatis benar-benar berjalan. */
+  active: boolean;
+  /** Nilai flag `accounting.m11_active` (bawaan registri: menyala). */
+  flagOn: boolean;
+  /** Pemilik sudah mengaktifkan lewat `setAccountingActive` (baris flag lingkup tenant) — kelengkapan diperiksa saat itu. */
+  activatedByOwner: boolean;
+  /** Semua pemetaan wajib lengkap (hanya dihitung bila menentukan). */
+  complete: boolean | null;
+};
+
+/**
+ * Status aktivasi jurnal otomatis M11 (US-M11-01 KP-2 "setiap peristiwa wajib terpetakan sebelum M11 diaktifkan").
+ * Flag `accounting.m11_active` menyala secara bawaan (R04), jadi nilai bawaan saja TIDAK cukup: tanpa aktivasi pemilik
+ * (baris flag lingkup tenant dari `setAccountingActive`, yang memeriksa kelengkapan), M11 hanya berjalan bila semua
+ * pemetaan wajib lengkap & akunnya aktif. Selama belum aktif, peristiwa dilewati dan dibangkitkan retroaktif (PTB-47).
+ * Setelah pemilik mengaktifkan, pemetaan yang kelak hilang → daftar tunggu (bukan dilewati).
+ */
+export async function accountingActivation(tx: Tx, tenantId: string, date?: BusinessDate): Promise<AccountingActivation> {
+  const flagOn = await isEnabled(tx, "accounting.m11_active", { tenantId });
+  if (!flagOn) return { active: false, flagOn, activatedByOwner: false, complete: null };
+  const [byOwner] = await tx
+    .select({ id: featureFlags.id })
+    .from(featureFlags)
+    .where(
+      and(
+        eq(featureFlags.key, "accounting.m11_active"),
+        eq(featureFlags.scopeType, "tenant"),
+        eq(featureFlags.scopeRefId, tenantId),
+        eq(featureFlags.enabled, true),
+      ),
+    )
+    .limit(1);
+  if (byOwner) return { active: true, flagOn, activatedByOwner: true, complete: null };
+  const comp = await mappingCompleteness(tx, tenantId, date ?? toBusinessDate(new Date()));
+  const complete = comp.missing.length === 0 && comp.inactive.length === 0;
+  return { active: complete, flagOn, activatedByOwner: false, complete };
+}
+
+/** Jurnal otomatis M11 berjalan untuk tenant ini (lihat `accountingActivation`). */
+export async function m11Active(tx: Tx, tenantId: string, date?: BusinessDate): Promise<boolean> {
+  return (await accountingActivation(tx, tenantId, date)).active;
 }
 
 export async function accountsByCode(tx: Tx, tenantId: string, codes: readonly string[]): Promise<Map<string, AccountRow>> {

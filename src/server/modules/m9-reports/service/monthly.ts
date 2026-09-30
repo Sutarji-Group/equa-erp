@@ -33,7 +33,6 @@ import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core
 import { getDb, withTx, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { exportReport, type ExportResult } from "@/server/core/export";
-import { isEnabled } from "@/server/core/flags";
 import { notify } from "@/server/core/notifications";
 import * as params from "@/server/core/params";
 import { authorize } from "@/server/core/rbac";
@@ -388,7 +387,7 @@ async function pkpFor(
 
 /** Laporan lengkap (tanpa versi Final) untuk satu bulan — dasar Sementara dan isi snapshot Final. */
 async function buildReport(tx: Tx, tenantId: string, month: string, today: BusinessDate): Promise<Omit<MonthlyGrossProfit, "final" | "previousFinals">> {
-  const m11Active = await isEnabled(tx, "accounting.m11_active", { tenantId });
+  const m11Active = await m11.isAccountingActive(tx, tenantId, today);
   const figures = await computeMonthlyFigures(tx, tenantId, month, m11Active);
   const period = figures.periodId ? await periodOf(tx, tenantId, month) : null;
   const par23 = await params.get(tx, "PAR-23", today, { tenantId });
@@ -548,7 +547,7 @@ export async function getMonthlyReport(ctx: ActorContext, input: unknown, opts: 
 export async function pkpDashboard(ctx: ActorContext, opts: { tx?: Tx } = {}): Promise<m11.PkpStatus | null> {
   await authorize(ctx, "m9.monthly_report.read", { tx: opts.tx });
   const db = opts.tx ?? getDb();
-  if (!(await isEnabled(db, "accounting.m11_active", { tenantId: ctx.tenantId }))) return null;
+  if (!(await m11.isAccountingActive(db, ctx.tenantId, ctxBusinessDate(ctx)))) return null;
   return m11.pkpStatus(db, ctx.tenantId, ctxBusinessDate(ctx));
 }
 

@@ -26,6 +26,7 @@ import {
   journalsOfSource,
   linesOf,
   notificationsOf,
+  owner,
   queueOfEvent,
   setPeriod,
   tripPayload,
@@ -34,6 +35,10 @@ import {
 describe("M11 jurnal otomatis dari transaksi operasional (US-M11-02)", () => {
   const t = useTestDb({ seed: true });
   beforeAll(() => bootstrapForTests());
+  // Pemilik mengaktifkan M11 setelah pemetaan lengkap (US-M11-01 KP-2): pemetaan yang kelak hilang → daftar tunggu.
+  beforeAll(async () => {
+    await m11.setAccountingActive(owner(), { enabled: true, reason: "Pemetaan wajib lengkap (uji)" });
+  });
 
   it("US-M11-02 KP-1 rit Selesai (sinkron sopir) → satu jurnal otomatis L2 per rit dengan rujukan nomor rit; setoran diterima → kas kantor + selisih kurang pada pusat laba sumber", async () => {
     const d = await driverDay(t.db, { trips: 2, transferTrips: 1 });

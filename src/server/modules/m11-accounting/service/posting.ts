@@ -172,8 +172,8 @@ async function gate(tx: Tx, event: EventLike, date: BusinessDate, opts: ProcessO
   const tenantId = event.tenantId;
   if (!tenantId) return { status: "skipped", reason: "no_tenant" };
   if (!(await isAccountingTenant(tx, tenantId))) return { status: "skipped", reason: "partner_tenant" };
-  if (!(await m11Active(tx, tenantId))) return { status: "skipped", reason: "m11_inactive" };
   const today = opts.today ?? toBusinessDate(new Date());
+  if (!(await m11Active(tx, tenantId, today))) return { status: "skipped", reason: "m11_inactive" };
   const cutover = await currentCutover(tx, today > date ? today : date);
   if (cutover && date < cutover) return { status: "skipped", reason: "before_cutover" };
   return null;

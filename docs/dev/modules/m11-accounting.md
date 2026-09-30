@@ -225,5 +225,13 @@ Untuk paket B (B-65): `trip.completed` rit prabayar digital membawa `prepaidAmou
   `REQUIRED_MAPPINGS` + tindakan "Lengkapi di Akuntansi > Pemetaan jurnal otomatis"; dipakai daftar tunggu, notifikasi
   `journal.queued`, `mappingAccounts`; `MAPPING_INCOMPLETE` mencantumkan label; akun nonaktif memakai label katalog event.
 - **Konsolidasi M9 = M11.** `INTERNAL_TRANSFER_SOURCES` & `computeInternalMarkup` diekspor dari index untuk M9.
-- Terbuka: flag `accounting.m11_active` masih `defaultEnabled: true` (temuan #18) — lihat laporan tim B.
+- **Aktivasi M11 menuntut pemetaan lengkap (US-M11-01 KP-2).** Flag `accounting.m11_active` tetap bawaan menyala (berkas
+  inti tidak diubah), tetapi status EFEKTIF = `accountingActivation(tx, tenantId, date?)` (common.ts, diekspor index; juga
+  `isAccountingActive`): flag menyala DAN (pemilik sudah mengaktifkan lewat `setAccountingActive` → baris flag lingkup
+  tenant, kelengkapan diperiksa saat itu, ATAU semua pemetaan wajib lengkap & akunnya aktif). Selama belum aktif, gerbang
+  jurnal otomatis melewati peristiwa (`m11_inactive`, dibangkitkan retroaktif PTB-47) dan M9 memakai angka operasional;
+  `/akuntansi/pemetaan` menampilkan "Belum aktif — pemetaan wajib belum lengkap". Setelah pemilik mengaktifkan, pemetaan
+  yang kelak hilang → daftar tunggu (perilaku lama). `listMappings` menambah `activation`. `mappingRows`/
+  `mappingCompleteness` pindah ke common.ts (tetap diekspor dari mappings.ts/index). Runbook cut-over: pemilik menekan
+  "Aktifkan M11" setelah pemetaan ditinjau akuntan.
 - Uji: `tests/m11-accounting/audit-s5b.test.ts`.

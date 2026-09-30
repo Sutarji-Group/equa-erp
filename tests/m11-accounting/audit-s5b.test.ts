@@ -6,7 +6,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { approvalRequests, dataSignoffs, exportLogs, fixedAssets, invoices, journals, truckFills } from "@/db/schema";
+import { approvalRequests, dataSignoffs, eventAccountMappings, exportLogs, fixedAssets, invoices, journals, truckFills } from "@/db/schema";
 import { EQUA_TENANT_ID, outletId, seedId, truckId, waterSourceId } from "@/db/seed";
 import { newId } from "@/lib/ids";
 import { addDays } from "@/lib/time";
@@ -267,5 +267,38 @@ describe("M11/M9 — regresi temuan audit S5-B", () => {
     // Laporan Sementara (periode berjalan) tetap dirender ulang (tidak disimpan sebagai Final).
     const prov = await exportReport(owner(at(TODAY, "08:00")), "m11.profit_loss", "csv", { period: THIS_PERIOD });
     expect(prov.filename).not.toMatch(/final/);
+  });
+});
+
+describe("M11 — aktivasi jurnal otomatis menuntut pemetaan wajib lengkap (US-M11-01 KP-2)", () => {
+  const t = useTestDb({ seed: true });
+  beforeAll(() => bootstrapForTests());
+  beforeAll(async () => {
+    await setPeriod(t.db, THIS_PERIOD, "open");
+  });
+  const mapping = (event: string, entry: string) => and(eq(eventAccountMappings.eventKey, event), eq(eventAccountMappings.entryKey, entry));
+
+  it("US-M11-01 KP-2 flag bawaan menyala tetapi pemetaan wajib belum lengkap → M11 BELUM aktif (peristiwa dilewati untuk dibangkitkan retroaktif, layar 'Belum aktif', M9 memakai angka operasional); setelah pemilik mengaktifkan, pemetaan yang kelak hilang → daftar tunggu", async () => {
+    // Seed melengkapi semua pemetaan wajib → aktif walau pemilik belum pernah mengaktifkan.
+    expect(await withTx((tx) => m11.accountingActivation(tx, EQUA_TENANT_ID, TODAY))).toEqual({ active: true, flagOn: true, activatedByOwner: false, complete: true });
+
+    await t.db.update(eventAccountMappings).set({ isActive: false }).where(mapping("stock.adjusted", "depot"));
+    const view = await m11.listMappings(accountant());
+    expect(view).toMatchObject({ active: false, activation: { flagOn: true, activatedByOwner: false, complete: false } });
+    const skipped = await emitEvent("trip.completed", tripPayload());
+    expect(await journalOfEvent(t.db, skipped.id)).toBeNull();
+    expect(await queueOfEvent(t.db, skipped.id)).toBeNull();
+    expect(await withTx((tx) => m11.isAccountingActive(tx, EQUA_TENANT_ID, TODAY))).toBe(false);
+    await expect(m11.setAccountingActive(owner(), { enabled: true, reason: "Aktifkan jurnal otomatis" })).rejects.toThrow(/belum dapat diaktifkan.*Penyesuaian opname depot/);
+
+    await t.db.update(eventAccountMappings).set({ isActive: true }).where(mapping("stock.adjusted", "depot"));
+    await m11.setAccountingActive(owner(), { enabled: true, reason: "Pemetaan wajib lengkap & ditinjau akuntan" });
+    expect(await withTx((tx) => m11.accountingActivation(tx, EQUA_TENANT_ID, TODAY))).toMatchObject({ active: true, activatedByOwner: true });
+
+    // Setelah aktivasi pemilik: pemetaan yang hilang tidak menghentikan M11 — peristiwanya masuk daftar tunggu.
+    await t.db.update(eventAccountMappings).set({ isActive: false }).where(mapping("trip.completed", "transfer"));
+    const queued = await emitEvent("trip.completed", tripPayload({ paymentMethod: "transfer", cashReceived: 0, transferAmount: 300_000 }));
+    expect(await queueOfEvent(t.db, queued.id)).toMatchObject({ status: "pending", reason: "mapping_missing" });
+    await t.db.update(eventAccountMappings).set({ isActive: true }).where(mapping("trip.completed", "transfer"));
   });
 });

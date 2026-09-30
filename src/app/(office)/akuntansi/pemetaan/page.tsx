@@ -52,12 +52,18 @@ export default async function MappingPage({ searchParams }: { searchParams: Sear
 
       <div className="grid gap-3 sm:grid-cols-3">
         <KpiTile label="Pemetaan wajib" value={String(view.mappings.length)} hint={`Berlaku per ${formatTanggal(view.date)}`} />
-        <KpiTile label="Belum lengkap" value={String(view.missingCount)} tone={view.missingCount ? "danger" : "success"} hint={view.missingCount ? "Peristiwa tanpa pemetaan masuk daftar tunggu" : "Semua peristiwa terpetakan"} />
+        <KpiTile label="Belum lengkap" value={String(view.missingCount)} tone={view.missingCount ? "danger" : "success"} hint={view.missingCount ? (view.active ? "Peristiwa tanpa pemetaan masuk daftar tunggu" : "Jurnal otomatis menunggu pemetaan lengkap") : "Semua peristiwa terpetakan"} />
         <KpiTile
           label="Jurnal otomatis M11"
-          value={view.active ? "Aktif" : "Nonaktif"}
+          value={view.active ? "Aktif" : view.activation.flagOn ? "Belum aktif" : "Nonaktif"}
           tone={view.active ? "success" : "warning"}
-          hint={view.active ? "Peristiwa dijurnal saat terjadi" : "Peristiwa dibangkitkan retroaktif saat diaktifkan (PTB-47)"}
+          hint={
+            view.active
+              ? "Peristiwa dijurnal saat terjadi"
+              : view.activation.flagOn
+                ? "Pemetaan wajib belum lengkap — lengkapi lalu aktifkan; peristiwa dibangkitkan retroaktif"
+                : "Peristiwa dibangkitkan retroaktif saat diaktifkan"
+          }
         />
       </div>
 
