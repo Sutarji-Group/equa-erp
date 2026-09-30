@@ -10,6 +10,7 @@ import {
   officeSession,
   rp,
   runTripFromDetail,
+  syncNow,
   waitSynced,
   wibDate,
 } from "./helpers";
@@ -138,7 +139,15 @@ test.describe("P-02 depot — shift, penjualan, void, pasokan air, tutup shift, 
 
       await menu.getByRole("button", { name: "Pasokan air" }).click();
       const arrived = p.getByTestId("pasokan-tiba").filter({ hasText: `${supplyOrder}/1` });
-      await expect(arrived).toBeVisible({ timeout: 60_000 });
+      // Rit pasokan Selesai di server lalu tertarik ke tablet (pull m6.pos). Sejak v1.0.1 (D-14 butir 2) tablet dengan
+      // antrean kosong menarik data kantor tiap ±5 menit; operator yang menunggu truk mengetuk pil status (kirim
+      // sekarang) seperti di panduan lapangan operator depot.
+      await expect(async () => {
+        if (!(await arrived.isVisible())) {
+          await syncNow(p);
+          throw new Error("pasokan belum tertarik");
+        }
+      }).toPass({ timeout: 90_000, intervals: [3_000] });
       await expect(arrived).toContainText("5.000 L");
       await arrived.getByRole("button", { name: "Sesuai, terima" }).click();
       await waitSynced(p);
