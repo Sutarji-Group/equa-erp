@@ -13,7 +13,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, notInArray, sql } fr
 
 import { customerAddresses, customers, employees, fleetEvents, trips, trucks, users } from "@/db/schema";
 import { label, type EnumValue, type FleetEventKind } from "@/lib/labels";
-import { addDays, type BusinessDate } from "@/lib/time";
+import { addDays, daysBetween, type BusinessDate } from "@/lib/time";
 
 import { query as auditQuery, record as auditRecord, type AuditRow } from "@/server/core/audit";
 import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core/context";
@@ -357,8 +357,10 @@ export async function fleetRangeSummary(
   now: Date,
   opts: { cache?: params.ParamCache } = {},
 ): Promise<FleetDaySummary[]> {
+  // Jumlah hari terbatas (bukan perbandingan teks) — sama dengan `datesInRange` M9; `from > to` → rentang kosong.
   const dates: BusinessDate[] = [];
-  for (let d = from; d <= to; d = addDays(d, 1)) dates.push(d);
+  const span = daysBetween(from, to);
+  for (let i = 0; i <= span; i++) dates.push(addDays(from, i));
   if (dates.length === 0) return [];
   const cache = opts.cache ?? params.cached(tx);
   const rulesByDate = new Map<BusinessDate, M12Rules>();
