@@ -1,5 +1,7 @@
 # Panduan M6 — Penjualan Depot (POS)
 
+> **Kartu 1 halaman untuk dicetak (operator depot, NFR-16):** [`lapangan/operator-depot.md`](lapangan/operator-depot.md). Indeks semua panduan: [`README.md`](README.md).
+
 POS depot berjalan di tablet depot (aplikasi **/pos**) dan **tetap bekerja tanpa sinyal**. Data tersimpan di tablet
 lalu terkirim otomatis saat sinyal kembali. Di kantor, menu **Pemantauan outlet** dan **Laporan outlet**.
 

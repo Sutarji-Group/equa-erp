@@ -1,5 +1,7 @@
 # Panduan Aplikasi Sopir (M3)
 
+> **Kartu 1 halaman untuk dicetak (sopir & kernet, NFR-16):** [`lapangan/sopir-kernet.md`](lapangan/sopir-kernet.md). Indeks semua panduan: [`README.md`](README.md).
+
 Aplikasi sopir dibuka dari ponsel truk (alamat **/sopir**, terpasang seperti aplikasi). Web kantor memakai menu
 **Pesanan & jadwal → Dicatat kantor / Kendala sopir / Laporan sopir**. Semua angka (harga, kas, setoran) dihitung sistem.
 

@@ -1,5 +1,7 @@
 # Panduan M7 — Penjualan Toko & Stok
 
+> **Kartu 1 halaman untuk dicetak (kasir toko, NFR-16):** [`lapangan/kasir-toko.md`](lapangan/kasir-toko.md). Indeks semua panduan: [`README.md`](README.md).
+
 Toko memakai **aplikasi POS yang sama dengan depot** (tablet toko, **/pos**). Tablet yang terdaftar di toko otomatis
 menampilkan **mode toko**. Aplikasi **tetap bekerja tanpa sinyal**; data terkirim otomatis saat sinyal kembali.
 Di kantor, menu **Toko**: Barang & stok, Pemasok, Nota pembelian, Opname, Pesan ulang, Utang pemasok, Laporan toko.
