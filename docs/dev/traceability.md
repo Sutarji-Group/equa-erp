@@ -8,7 +8,7 @@
 
 - **Prioritas M:** 490/490 KP (100.0%) · story: 94 lengkap, 0 sebagian, 0 belum
 - **Semua prioritas:** 552/554 KP (99.6%) · story: 113 lengkap, 0 sebagian, 1 belum
-- Uji dipindai: 1417 judul di 233 berkas; 1173 judul merujuk user story.
+- Uji dipindai: 1439 judul di 238 berkas; 1180 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
@@ -169,8 +169,8 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M10-01 | Peran, pengguna, dan lingkup akses | M | 8/8 | lengkap | — | 38 |
-| US-M10-02 | Login, PIN, perangkat terdaftar, dan sesi | M | 7/7 | lengkap | — | 45 |
+| US-M10-01 | Peran, pengguna, dan lingkup akses | M | 8/8 | lengkap | — | 41 |
+| US-M10-02 | Login, PIN, perangkat terdaftar, dan sesi | M | 7/7 | lengkap | — | 46 |
 | US-M10-03 | Pemisahan tugas dipaksakan | M | 4/4 | lengkap | — | 26 |
 | US-M10-04 | Alur persetujuan | M | 6/6 | lengkap | — | 24 |
 | US-M10-05 | Jejak audit | M | 6/6 | lengkap | — | 22 |
@@ -183,7 +183,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M11-01 | Bagan akun dan pusat laba | M | 5/5 | lengkap | — | 12 |
+| US-M11-01 | Bagan akun dan pusat laba | M | 5/5 | lengkap | — | 13 |
 | US-M11-02 | Jurnal otomatis dari seluruh transaksi operasional | M | 5/5 | lengkap | — | 38 |
 | US-M11-03 | Jurnal manual dengan lampiran dan persetujuan | M | 6/6 | lengkap | — | 13 |
 | US-M11-04 | Buku besar dan laporan keuangan | M | 5/5 | lengkap | — | 16 |
@@ -230,14 +230,14 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-P3-01 | Pendaftaran, penilaian lokasi, kontrak, dan onboarding mitra | M | 5/5 | lengkap | — | 6 |
+| US-P3-01 | Pendaftaran, penilaian lokasi, kontrak, dan onboarding mitra | M | 5/5 | lengkap | — | 7 |
 | US-P3-02 | POS depot standar dengan data terpisah per mitra | M | 5/5 | lengkap | — | 6 |
 | US-P3-03 | Memesan air dan spare part ke EQUA dengan harga mitra dan tagihan | M | 5/5 | lengkap | — | 7 |
 | US-P3-04 | Royalti/fee otomatis, tagihan mitra, dan pembayaran | M | 5/5 | lengkap | — | 10 |
 | US-P3-05 | Standar mutu: daftar periksa harian, jadwal audit, hasil uji air | M | 5/5 | lengkap | — | 6 |
 | US-P3-06 | Dashboard kinerja mitra dan pembina wilayah | M | 5/5 | lengkap | — | 5 |
 | US-P3-07 | Sanksi bertingkat, pemutusan, dan pelepasan | M | 3/3 | lengkap | — | 5 |
-| US-P3-08 | Pasokan air mitra tercatat di POS mitra dan neraca air per mitra | M | 5/5 | lengkap | — | 9 |
-| US-P3-09 | Tagihan langganan sistem bulanan untuk mitra | M | 4/4 | lengkap | — | 9 |
+| US-P3-08 | Pasokan air mitra tercatat di POS mitra dan neraca air per mitra | M | 5/5 | lengkap | — | 10 |
+| US-P3-09 | Tagihan langganan sistem bulanan untuk mitra | M | 4/4 | lengkap | — | 10 |
 | US-P3-10 | Akses baca Pemilik mitra dan laporan bulanan | M | 4/4 | lengkap | — | 9 |
 | US-P3-11 | Permintaan dukungan teknis mitra dengan SLA 48 jam | S | 3/3 | lengkap | — | 5 |
