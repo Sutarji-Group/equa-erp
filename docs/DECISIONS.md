@@ -226,3 +226,12 @@ Tanggal baseline: 27 September 2026.
 5. **Rilis v1.0.1** = butir 1–4 + cek penuh (Vitest, build, seluruh E2E + skenario, trace, alur rilis bersih).
 6. **Berkas `/rilis-server.pid`** (6 bita, sisa pemeriksaan alur rilis di akar sistem berkas kontainer) tidak berbahaya;
    penghapusan di luar repo diblokir pengaman — dibiarkan (kontainer sementara).
+
+## D-15 Keputusan PM atas integrasi v1.0.1 (30 Sep 2026)
+1. **Jeda data kantor ke perangkat (≤ ±5 menit saat antrean kosong):** DITERIMA — sesuai PRD Bab 6.4 & PAR-30
+   ("sinkron otomatis ≤ 5 menit"); pil status tetap menarik segera. Dipantau di pilot (keluhan operator/sopir). Bila
+   mengganggu, langkah pertama: pull otomatis 60 detik selama layar yang menunggu jawaban kantor terbuka (persetujuan
+   void, pasokan air dalam perjalanan) — perubahan klien saja, tanpa ubah protokol.
+2. **B-95/B-96/B-97** diterima sebagai tindak lanjut pilot/staging (lihat backlog); B-97 wajib sebelum aktivasi Tahap 2.
+3. **Status proyek:** v1.0.1 = rilis kandidat untuk UAT & pilot. Seluruh butir backlog teknis tertutup; sisa = UAT
+   lapangan, pengukuran staging Neon, konfigurasi produksi, dan keputusan komite pengarah (B-91, B-94, TG-9).
