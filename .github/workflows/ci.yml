@@ -1,9 +1,11 @@
 name: CI
 
+# D-16: branch kerja diuji lewat PR (tidak dobel push + pull_request); main & development diuji saat menerima push.
 on:
   push:
-    branches: ["**"]
+    branches: [main, development]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -13,7 +15,8 @@ jobs:
   verify:
     name: Typecheck, lint, test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Suite Vitest ±1.400 uji (PGlite) butuh ±10–15 menit di runner; 20 menit terlalu mepet (run dibatalkan).
+    timeout-minutes: 45
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       DB_DRIVER: pglite
@@ -39,4 +42,5 @@ jobs:
         run: pnpm lint
 
       - name: Test
-        run: pnpm test
+        # vitest.config.ts memakai maxWorkers 50% (mesin dev dipakai bersama); runner CI khusus job ini → semua core.
+        run: pnpm vitest run --maxWorkers=100%

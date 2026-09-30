@@ -19,6 +19,10 @@ dan penomoran [Semantic Versioning](https://semver.org/lang/id/). Catatan rilis 
 
 ### Diperbaiki
 
+- **CI Test dibatalkan karena batas waktu** ("The operation was canceled" setelah 20 menit, semua uji yang sempat
+  berjalan lulus): Vitest di CI kini memakai semua core runner (`--maxWorkers=100%`; `vitest.config.ts` tetap 50%
+  untuk mesin dev bersama) dan batas job dinaikkan ke 45 menit. CI berjalan untuk push ke `main`/`development` dan
+  untuk setiap PR (tidak lagi dobel push + PR pada branch kerja).
 - **CI Typecheck gagal kehabisan memori** (`JavaScript heap out of memory`, exit 134): `tsc` atas seluruh proyek
   butuh ±2,4 GB heap, sedangkan batas bawaan Node di runner GitHub ±2 GB. Skrip `pnpm typecheck` kini menjalankan
   `tsc` dengan `--max-old-space-size=4096`, job CI memasang `NODE_OPTIONS=--max-old-space-size=4096` (juga untuk
