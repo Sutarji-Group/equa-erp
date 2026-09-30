@@ -194,7 +194,10 @@ Setelah mengubah env: **Redeploy** (env dibaca saat fungsi mulai).
 3. Deploy ke **Preview** (branch Neon preview) → uji asap (login, satu rit, satu transaksi POS, tutup kas uji).
 4. **Uji rollback di preview**: promosikan, lalu *Instant Rollback* ke deploy sebelumnya; aplikasi harus tetap
    berjalan dengan skema baru (migrasi aditif).
-5. Di jendela PAR-86: `pnpm db:migrate` → `pnpm db:verify` (produksi) → **Promote to Production**.
+5. Di jendela PAR-86: `pnpm db:migrate` → `pnpm db:verify` (produksi) → **Promote to Production**. Bila CHANGELOG rilis
+   menyebut perubahan bawaan parameter (`CHANGED_DEFAULTS`, mis. v1.0.1: PAR-38 300 → 150 KB), jalankan juga
+   `pnpm db:seed:prod -- --no-accounts` sekali: versi parameter baru berlaku hari itu hanya bila nilainya masih bawaan
+   lama (nilai yang sudah diubah pemilik & riwayat tidak disentuh; idempoten).
 6. Verifikasi pasca-rilis (§9). Bila aplikasi lapangan wajib diperbarui: admin sistem menaikkan **versi minimal** di
    **Akses > Perangkat & sinkron** (US-M10-07 KP-4) — perangkat versi lama menahan antrean (tidak hilang) sampai
    diperbarui.

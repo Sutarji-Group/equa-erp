@@ -15,6 +15,12 @@ dan user story/KP yang dibuktikan (dibaca `pnpm trace` → `docs/dev/traceabilit
 
 - Proyek `scenarios` terdaftar TERAKHIR di `playwright.config.ts` (workers = 1): berjalan sesudah spesifikasi modul
   (`chromium`, `mobile`) dan dalam urutan berkas P-01 → P-07; batas waktu 15 menit per skenario, aksi 20 detik.
+  P-01..P-06 dapat berjalan sendiri di DB segar; **P-07 butuh spesifikasi modul berjalan lebih dulu** (setoran demo
+  sopir `S-26-900202` berstatus berjalan baru diselesaikan di sana, sehingga "kas di tangan sopir = 0" di rekonsiliasi
+  hanya terpenuhi pada run penuh).
+- Sejak v1.0.1 (D-14 butir 2) aplikasi lapangan dengan antrean kosong menarik data kantor tiap ±5 menit. Langkah yang
+  menunggu data dari server (rit baru, faktur, pasokan air, persetujuan) mengetuk pil status lewat helper `syncNow`,
+  seperti panduan lapangan — jangan menunggu pull latar.
 - Server uji: `pnpm e2e:prepare` (skema + seed + data awal skenario) lalu `next start` dengan `ALLOW_DEV_SECRETS=1` dan
   `E2E_CLOCK_OVERRIDE=1` (lihat di bawah). Saat iterasi boleh `E2E_DEV=1` (server dev).
 - Setelah uji gagal, `attachAllPages` menyimpan cuplikan ARIA + HTML SEMUA halaman di semua konteks (kantor, ponsel,
@@ -160,6 +166,14 @@ Run integrasi rilis v1.0 (30 Sep 2026, 12.58–13.16 WIB, DB segar, build produk
 (49 `chromium` + 9 `mobile`, lalu 7 skenario: P-01 45 dtk, P-02 1,3 mnt, P-03 1,0 mnt, P-04 29 dtk, P-05 32 dtk,
 P-06 47 dtk, P-07 45 dtk; total 17,6 menit). Vitest 212 berkas / 1.389 uji lulus; `pnpm trace`: KP prioritas M 490/490,
 semua prioritas 552/554 (2 KP US-P2-07 tidak dibangun, D-02).
+
+Run integrasi rilis v1.0.1 (30 Sep 2026, DB segar, build produksi 1.0.1): run pertama dengan perintah yang sama →
+64 lulus, 1 gagal — P-02 menunggu pasokan air ≤ 60 dtk, padahal pull latar v1.0.1 tiap ±5 menit saat antrean kosong;
+skenario kini mengetuk pil status (`syncNow`), perilaku produk tidak diubah. Setelah perbaikan seluruh E2E diulang di DB
+segar dengan build yang sama (`pnpm e2e:prepare` + `next start` port 3200, `E2E_BASE_URL=http://localhost:3200 pnpm
+test:e2e`, 15.21–15.38 WIB) → **65 lulus** (49 `chromium` + 9 `mobile`, lalu 7 skenario: P-01 47 dtk, P-02 36 dtk,
+P-03 1,1 mnt, P-04 31 dtk, P-05 33 dtk, P-06 44 dtk, P-07 45 dtk; total 16,8 menit). Vitest 220 berkas / 1.439 uji
+lulus; `pnpm trace`: KP prioritas M 490/490, semua prioritas 552/554.
 
 Catatan UX (bukan pelanggaran PRD): daftar "Selisih hari ini" di layar tutup kas hanya menampilkan jenis sumber
 (mis. "Shift depot") tanpa nama outlet/karyawan — rinciannya lewat tautan ke `/kas/selisih`.

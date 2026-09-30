@@ -55,7 +55,8 @@ sinkron kompatibel mundur).
 - Tanpa migrasi baru: baseline `drizzle/0000_baseline_v1` tetap; `pnpm db:migrate` → `pnpm db:verify` IDENTIK.
 - DB yang sudah di-seed v1.0.0: setelah deploy jalankan sekali `pnpm db:seed:prod -- --no-accounts` → PAR-38 mendapat
   versi baru 150 KB berlaku hari itu bila nilainya masih bawaan 300 KB (nilai yang sudah diubah pemilik dan riwayat
-  tidak disentuh). DB baru langsung memakai 150 KB.
+  tidak disentuh). DB baru langsung memakai 150 KB. Diverifikasi saat integrasi pada DB hasil seed v1.0.0: `db:migrate`
+  0 migrasi baru, `db:verify` IDENTIK, seed menambah versi PAR-38 150 KB berlaku hari itu, riwayat 300 KB tetap.
 - Versi minimal aplikasi tidak perlu dinaikkan; penghematan kuota berlaku setelah perangkat memperbarui ke 1.0.1
   (otomatis saat aplikasi dibuka dan terhubung). Versi per perangkat terlihat di Akses › Perangkat & sinkron.
 - Masih terbuka: kuota nyata di pilot (NFR-17, B-88/B-96), pengukuran Neon & render halaman produksi (B-90, B-95).

@@ -1,4 +1,4 @@
-# Uji beban 3× volume — NFR-03, NFR-05, NFR-17 (S5-C)
+# Uji beban 3× volume — NFR-03, NFR-05, NFR-17 (S5-C, diperbarui v1.0.1)
 
 Dokumen ini adalah lampiran uji beban untuk gerbang TG-5 (PRD Bab 10.1 NFR-05: "uji beban 3× sebelum pilot dengan data
 sintetis; hasil dilampirkan ke TG-5"). Isinya: cara data dibangkitkan, cara mengukur, hasil sebelum/sesudah perbaikan,
@@ -9,7 +9,7 @@ Ringkasnya:
 | Target | Hasil | Status |
 | --- | --- | --- |
 | NFR-05: 3× volume (20 truk, 30 depot + 50 outlet mitra, 1.000 pelanggan, ±5.000 transaksi/hari) tanpa perubahan arsitektur | 60 hari data sintetis (±4.870 transaksi/hari, 1,5 GB) lolos semua penjaga DB & invarian; semua layanan kunci berjalan tanpa perubahan arsitektur | **Lulus**, dengan 1 batas kapasitas yang perlu keputusan (nomor jurnal, §7) — diselesaikan v1.0.1 (D-14, §10) |
-| NFR-03: web ≤ 2 detik | Sebelum: laporan keuangan 3,0 dtk (gagal), 2 layar lain 0,9 dtk karena pindai penuh. Sesudah: semua 25 kasus lulus di PGlite; terlama 0,94 dtk (laporan bulanan) | **Lulus** di PGlite; perkiraan di Neon lulus kecuali dashboard rentang bulan bila latensi per kueri ≥ 2 ms (§6) |
+| NFR-03: web ≤ 2 detik | Sebelum: laporan keuangan 3,0 dtk (gagal), 2 layar lain 0,9 dtk karena pindai penuh. Sesudah: semua 25 kasus lulus di PGlite; terlama 0,94 dtk (laporan bulanan) | **Lulus** di PGlite; perkiraan di Neon lulus kecuali dashboard rentang bulan bila latensi per kueri ≥ 2 ms (§6) — v1.0.1: rentang bulan 662 → 197 kueri, perkiraan ±1,05 dtk pada 3 ms/kueri (§10.2); ukur nyata di Neon staging (B-90) |
 | Pull sinkron ≤ 2 detik | Pull sopir 0,16 dtk (58 KB, gzip 8 KB); pull POS 0,12 dtk; delta sopir 0,06 dtk (0,7 KB gzip) | **Lulus** |
 | NFR-17: unduhan kecil, kuota ≤ 50 MB/bulan/sopir | Precache PWA dipangkas 1,45 MB → 0,55 MB gzip. v1.0: ±81 MB/bulan (foto bukti PAR-38 300 KB, pull 60 detik). **v1.0.1** (D-14): PAR-38 150 KB/1.280 px, pull latar 5 menit, pull bersyarat → **±40 MB** sopir, tablet POS ±140 → ±13 MB (§10) | **Memenuhi (perkiraan)** sejak v1.0.1; diukur nyata pada pilot |
 
