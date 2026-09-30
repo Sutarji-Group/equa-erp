@@ -194,3 +194,15 @@ Tanggal baseline: 27 September 2026.
 9. **Uji skenario E2E (`e2e/scenarios/`)** dijalankan sebagai satu proyek utuh pada DB segar dan tidak melintasi tengah
    malam WIB; override waktu E2E (`src/server/core/e2e-clock.ts`) hanya aktif bila `E2E_CLOCK_OVERRIDE=1` +
    `ALLOW_DEV_SECRETS=1` dan bukan deploy Vercel produksi/preview — DISETUJUI.
+
+## D-13 Keputusan PM atas isu integrasi S5-B (30 Sep 2026)
+1. **Mitra dua outlet (B-82):** PRD 9.7 hanya menuntut "satu tenant, dua outlet; langganan per outlet; wilayah eksklusif
+   per outlet". Model v1.0: satu tenant mitra, **satu kontrak per outlet** (tiap outlet = satu pelanggan mitra dengan
+   batas kredit & faktur sendiri), wilayah eksklusif & langganan per outlet. Batas kredit bersama dan faktur gabungan
+   lintas outlet TIDAK dibangun (bukan tuntutan PRD). S5-C menambah uji penerimaan "PRD 9.7 mitra dua outlet" dan
+   memperbaiki minimal bila gagal.
+2. **Migrasi produksi skema S5-B (B-83):** masuk baseline migrasi S5-C (semua kolom baru nullable, tabel `service_outages`).
+3. **Aktivasi M11 (B-84):** langkah runbook cut-over — pemilik menekan "Aktifkan M11" setelah akuntan meninjau pemetaan.
+4. **Pemantau uptime (B-85):** secret/variabel repositori (`APP_URL`, `CRON_SECRET`, `ALERT_WEBHOOK_URL` atau
+   `RESEND_API_KEY` + `ALERT_EMAIL_TO`) masuk daftar periksa deploy S5-C.
+5. Hasil audit S5-B (`docs/qa/audit-s5.md`): 78 temuan, 77 diperbaiki, 0 ditolak, 1 diputuskan (butir 1). DITERIMA.
