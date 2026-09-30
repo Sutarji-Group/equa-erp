@@ -20,7 +20,8 @@
     "db:verify": "tsx scripts/db-verify.ts",
     "db:mask": "tsx scripts/db-mask.ts",
     "e2e:prepare": "tsx scripts/e2e-prepare.ts",
-    "trace": "tsx tools/trace-check.ts"
+    "trace": "tsx tools/trace-check.ts",
+    "uat:gen": "tsx tools/gen-uat.ts"
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {
