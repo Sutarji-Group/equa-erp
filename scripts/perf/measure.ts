@@ -10,14 +10,23 @@
  * Opsi: `--label sebelum|sesudah` (nama berkas hasil), `--ulang N` (bawaan 5), `--kasus a,b` (subset), `--profil`
  * (cetak 5 kueri terlama per kasus — perkiraan dari jeda antar-kueri), `--keluaran DIR` (simpan keluaran tiap kasus
  * sebagai `DIR/<kasus>.json` — bandingkan sebelum/sesudah perbaikan untuk membuktikan perilaku tidak berubah).
+ *
+ * DB lain (mis. cabang Neon staging berisi data `DB_DRIVER=neon pnpm perf:generate`): `DB_DRIVER=neon|pg` +
+ * `DATABASE_URL`; nama basis data WAJIB memuat "perf" (push uji menulis data). Waktu yang terukur kemudian sudah
+ * termasuk latensi jaringan per kueri (lihat docs/qa/uji-beban.md §6).
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 
 import { PGlite } from "@electric-sql/pglite";
+import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
+import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import type { Logger } from "drizzle-orm/logger";
+import pg from "pg";
+import ws from "ws";
 
 import { setDbForTests, type Db } from "@/db/client";
 import * as schema from "@/db/schema";
@@ -40,7 +49,23 @@ import { fieldDevice, type FieldDevice } from "../../tests/helpers/field";
 import { numberArg, PERF_DATA_DIR, readMeta } from "./lib/config";
 
 type Sample = { ms: number; queries: number; bytes: number; gzip: number };
-type CaseResult = { key: string; label: string; kind: "web" | "pull" | "push"; targetMs: number; samples: Sample[]; min: number; median: number; max: number; queries: number; bytes: number; gzip: number; pass: boolean; note?: string; slowest?: { ms: number; sql: string }[] };
+type CaseResult = {
+  key: string;
+  label: string;
+  kind: "web" | "pull" | "push";
+  targetMs: number;
+  samples: Sample[];
+  min: number;
+  median: number;
+  max: number;
+  queries: number;
+  bytes: number;
+  gzip: number;
+  pass: boolean;
+  note?: string;
+  slowest?: { ms: number; sql: string }[];
+  repeated?: { count: number; sql: string }[];
+};
 
 /** Pencatat kueri Drizzle: jumlah + perkiraan durasi per kueri (jeda ke kueri berikutnya / akhir kasus). */
 class QueryLog implements Logger {
@@ -57,11 +82,46 @@ class QueryLog implements Logger {
       .sort((a, b) => b.ms - a.ms)
       .slice(0, n);
   }
+  /** Kueri yang paling sering berulang dalam satu panggilan (petunjuk N+1): teks SQL identik → jumlah. */
+  repeated(n = 5): { count: number; sql: string }[] {
+    const counts = new Map<string, number>();
+    for (const e of this.entries) {
+      const key = e.sql.replace(/\s+/g, " ");
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .filter(([, c]) => c > 1)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([sql, count]) => ({ count, sql: sql.slice(0, process.env.PERF_SQL_LEN ? Number(process.env.PERF_SQL_LEN) : 220) }));
+  }
 }
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+/** DB uji beban: PGlite berkas (bawaan) atau Postgres/Neon lewat `DB_DRIVER` + `DATABASE_URL` (nama DB memuat "perf"). */
+function openDb(logger: Logger): { db: Db; close: () => Promise<void>; target: string } {
+  const driver = process.env.DB_DRIVER?.trim() || "pglite";
+  if (driver === "pglite") {
+    const client = new PGlite(PERF_DATA_DIR);
+    return { db: drizzlePglite({ client, schema, logger }) as unknown as Db, close: () => client.close(), target: PERF_DATA_DIR };
+  }
+  const url = process.env.DATABASE_URL?.trim() ?? "";
+  const dbName = url ? new URL(url).pathname.replace(/^\//, "") : "";
+  if (!dbName.includes("perf")) throw new Error(`DB_DRIVER=${driver}: DATABASE_URL harus menunjuk basis data uji beban (nama memuat "perf"), bukan "${dbName || "(kosong)"}".`);
+  if (driver === "neon") {
+    neonConfig.webSocketConstructor = ws;
+    const pool = new NeonPool({ connectionString: url });
+    return { db: drizzleNeon({ client: pool, schema, logger }) as unknown as Db, close: () => pool.end(), target: `neon:${dbName}` };
+  }
+  if (driver === "pg") {
+    const pool = new pg.Pool({ connectionString: url });
+    return { db: drizzleNodePg({ client: pool, schema, logger }) as unknown as Db, close: () => pool.end(), target: `pg:${dbName}` };
+  }
+  throw new Error(`DB_DRIVER tidak dikenal: "${driver}". Gunakan pglite, neon, atau pg.`);
 }
 
 function median(xs: number[]): number {
@@ -83,11 +143,10 @@ async function main(): Promise<void> {
   const month = monthOf(today);
 
   const log = new QueryLog();
-  const client = new PGlite(PERF_DATA_DIR);
-  const db = drizzlePglite({ client, schema, logger: log }) as unknown as Db;
+  const { db, close, target } = openDb(log);
   setDbForTests(db);
   ensureBootstrapped();
-  console.log(`perf:measure → ${PERF_DATA_DIR} · jangkar ${today} ${now.toISOString()} · ${repeat}× per kasus`);
+  console.log(`perf:measure → ${target} · jangkar ${today} ${now.toISOString()} · ${repeat}× per kasus`);
 
   const owner = seededContext("pemilik", { now });
   const finance = seededContext("keuangan1", { now });
@@ -103,12 +162,18 @@ async function main(): Promise<void> {
   let pos: FieldDevice | null = null;
   let driverSession: { sessionId: string } | null = null;
   let posSession: { sessionId: string; user: { id: string } } | null = null;
+  // POS-D06: shift terbuka ukuran wajar (±70 transaksi). POS-D05 menerima push uji sehingga shift-nya terus membesar
+  // (+50 transaksi per putaran push) — pull D05 memperlihatkan pertumbuhan muatan per transaksi shift (lihat uji-beban.md).
+  let pos6: FieldDevice | null = null;
+  let pos6Session: { sessionId: string } | null = null;
   const field = async () => {
-    if (hp && pos && driverSession && posSession) return;
+    if (hp && pos && driverSession && posSession && pos6 && pos6Session) return;
     hp = await fieldDevice("HP-T3", { admin: seededContext("admin1", { now }) });
     driverSession = await hp.login("sopir3", { now });
     pos = await fieldDevice("POS-D05", { admin: seededContext("admin1", { now }) });
     posSession = (await pos.login("depot05", { now })) as unknown as { sessionId: string; user: { id: string } };
+    pos6 = await fieldDevice("POS-D06", { admin: seededContext("admin1", { now }) });
+    pos6Session = await pos6.login("depot06", { now });
   };
 
   type Def = { key: string; label: string; kind: CaseResult["kind"]; targetMs: number; run: () => Promise<unknown>; setup?: () => Promise<void> };
@@ -157,6 +222,14 @@ async function main(): Promise<void> {
       run: () => pos!.pull(posSession!, {}, { now }),
     },
     {
+      key: "sync.pull_pos_d06",
+      label: "Pull sinkron POS depot (POS-D06, shift ±70 transaksi)",
+      kind: "pull",
+      targetMs: 2_000,
+      setup: field,
+      run: () => pos6!.pull(pos6Session!, {}, { now }),
+    },
+    {
       key: "sync.pull_sopir_delta",
       label: "Pull sinkron sopir — delta (since = kursor terakhir, tanpa perubahan)",
       kind: "pull",
@@ -171,6 +244,14 @@ async function main(): Promise<void> {
       targetMs: 2_000,
       setup: field,
       run: () => pos!.pull(posSession!, { since: now.toISOString() }, { now }),
+    },
+    {
+      key: "sync.pull_pos_d06_delta",
+      label: "Pull sinkron POS-D06 — delta (since = kursor terakhir, tanpa perubahan)",
+      kind: "pull",
+      targetMs: 2_000,
+      setup: field,
+      run: () => pos6!.pull(pos6Session!, { since: now.toISOString() }, { now }),
     },
     {
       key: "sync.push_50",
@@ -207,6 +288,7 @@ async function main(): Promise<void> {
       await d.run(); // pemanasan (cache rencana kueri & modul)
       const samples: Sample[] = [];
       let slowest: CaseResult["slowest"];
+      let repeated: CaseResult["repeated"];
       for (let i = 0; i < repeat; i++) {
         log.reset();
         const t0 = performance.now();
@@ -214,7 +296,10 @@ async function main(): Promise<void> {
         const t1 = performance.now();
         const json = JSON.stringify(out) ?? "";
         samples.push({ ms: Math.round((t1 - t0) * 10) / 10, queries: log.entries.length, bytes: Buffer.byteLength(json), gzip: gzipSync(json).length });
-        if (profile && i === repeat - 1) slowest = log.slowest(t1);
+        if (profile && i === repeat - 1) {
+          slowest = log.slowest(t1);
+          repeated = log.repeated();
+        }
         if (outputDir && i === repeat - 1) writeFileSync(`${outputDir}/${d.key}.json`, `${JSON.stringify(out, null, 1)}\n`);
       }
       const ms = samples.map((s) => s.ms);
@@ -232,10 +317,12 @@ async function main(): Promise<void> {
         gzip: median(samples.map((s) => s.gzip)),
         pass: median(ms) <= d.targetMs,
         slowest,
+        repeated,
       };
       results.push(r);
       console.log(`${r.pass ? "LULUS" : "GAGAL"} ${d.key.padEnd(26)} median ${String(r.median).padStart(8)} ms · min ${r.min} · maks ${r.max} · ${r.queries} kueri · ${(r.bytes / 1024).toFixed(1)} KB (gzip ${(r.gzip / 1024).toFixed(1)} KB)`);
       if (slowest) for (const s of slowest) console.log(`      ${String(s.ms).padStart(8)} ms  ${s.sql}`);
+      if (repeated?.length) for (const q of repeated) console.log(`      ${String(q.count).padStart(6)} ×    ${q.sql}`);
     } catch (error) {
       console.error(`GALAT ${d.key}: ${(error as Error).message}`);
       results.push({ key: d.key, label: d.label, kind: d.kind, targetMs: d.targetMs, samples: [], min: 0, median: 0, max: 0, queries: 0, bytes: 0, gzip: 0, pass: false, note: (error as Error).message });
@@ -246,7 +333,7 @@ async function main(): Promise<void> {
   const file = `.data/perf-hasil-${label}.json`;
   writeFileSync(file, `${JSON.stringify({ label, measuredAt: new Date().toISOString(), anchor: meta.anchorDate, repeat, counts: counts.rows, results }, null, 2)}\n`);
   console.log(`Hasil: ${file} · ${results.filter((r) => r.pass).length}/${results.length} lulus`);
-  await client.close();
+  await close();
 }
 
 main().catch((error: unknown) => {

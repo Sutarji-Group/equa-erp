@@ -49,6 +49,11 @@ async function main(): Promise<void> {
   assertPerfDir(PERF_DATA_DIR);
   process.env.PGLITE_DATA_DIR = PERF_DATA_DIR;
   process.env.DB_DRIVER = process.env.DB_DRIVER ?? "pglite";
+  if (process.env.DB_DRIVER !== "pglite") {
+    // Postgres/Neon (mis. cabang staging khusus uji beban): basis data harus kosong & bernama "…perf…".
+    const dbName = new URL(process.env.DATABASE_URL ?? "postgres://x/").pathname.replace(/^\//, "");
+    if (!dbName.includes("perf")) throw new Error(`DB_DRIVER=${process.env.DB_DRIVER}: DATABASE_URL harus menunjuk basis data kosong khusus uji beban (nama memuat "perf"), bukan "${dbName || "(kosong)"}".`);
+  }
   if (process.env.DB_DRIVER === "pglite") rmSync(PERF_DATA_DIR, { recursive: true, force: true });
   const startDate = addDays(anchorDate, -(days - 1));
   log(`DB ${process.env.DB_DRIVER} ${PERF_DATA_DIR} · ${days} hari ${startDate} … ${anchorDate} (jangkar ${anchorNow.toISOString()}) · ±${expectedTransactionsPerDay()} transaksi/hari`);
