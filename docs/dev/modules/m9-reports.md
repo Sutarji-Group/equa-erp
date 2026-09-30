@@ -170,3 +170,16 @@ log ekspor yang sama). `pendingKeys` tidak lagi dipakai katalog (tipe tetap untu
   (wajib/“gabungan” untuk beban L1) — `costBySource` M9 tidak lagi hanya pembagian liter untuk biaya manual.
 - **Ekspor Final laporan keuangan M11 identik** lewat inti ekspor (lihat hand-off M11 §13).
 - Uji: `tests/m11-accounting/audit-s5b.test.ts` (`US-M9-02 KP-2 …`, `US-M9-02 KP-6 …`).
+
+## 12. v1.0.1 — kueri berulang H+0 rentang (tim X, D-14 butir 4, B-90 sebagian)
+
+- `exceptionsForRange(tx, tenantId, from, to, now, unmatchedTransfers, opts?: { cache?: params.ParamCache })` memakai
+  `m12.fleetRangeSummary` (kueri armada tetap per rentang) — bukan `m12.fleetDaySummary` per hari. Agregat blok
+  pengecualian armada identik dengan cara lama (penjumlahan harian, urutan perangkat mati sama).
+- `getDailyDashboard` membuat satu cache parameter per permintaan (`params.cached(db)`) dan meneruskannya ke
+  `exceptionsForRange` & `discrepanciesAwaitingOwner` (`m4.cash_rules` dibaca sekali). `discrepancyFollowUpHours` /
+  `discrepanciesAwaitingOwner` menerima `opts.cache` opsional (argumen lama tetap).
+- Rincian bulanan akun (`monthlyDrilldown`) mengurutkan jurnal dengan `docNumberOrder` (bulan peralihan nomor jurnal
+  5 → 6 digit tetap urut terbit — D-14 butir 1).
+- Hasil: H+0 rentang bulan 662 → 197 kueri, keluaran identik byte-per-byte (selain `computeMs`) —
+  `docs/qa/uji-beban.md` §10. Uji: `tests/m12-fleet/range-summary.test.ts` (`US-M9-01 KP-1 D-14 …`).

@@ -250,3 +250,26 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
   `/api/health/sync` (GET, tanpa autentikasi, cek DB) dan `/api/monitor/outage` (POST, Bearer `CRON_SECRET`). Berkas baru
   `src/db/mask.ts`, `scripts/db-mask.ts` (`pnpm db:mask`), `scripts/uptime-monitor.sh`; job `monitor` di
   `.github/workflows/cron.yml`.
+
+## v1.0.1 tim X (D-14 butir 1 & 4) — perubahan & tambahan inti (dilaporkan)
+
+- **Diubah (DIIZINKAN D-14 butir 1):** `DOC_TYPES.journal.digits` 5 → 6 di `src/server/core/numbering.ts` (+ tabel
+  komentar): nomor jurnal `J-YYMM-NNNNNN`, 999.999/bulan/tenant. Nomor lama tidak diubah; penghitung
+  `document_sequences` berlanjut. D-04 diperbarui.
+- **Tambahan `numbering.ts`:** `docNumberOrder(kolom): SQL[]` — urutan alami nomor dokumen (`length(kolom)`, lalu
+  kolom) untuk `.orderBy(...)`; sama dengan `asc(kolom)` bila panjang nomor sama, benar pada bulan peralihan 5 → 6 digit.
+  Dipakai M11 (buku besar, tinjauan pemilik, ekspor templat pajak) dan M9 (rincian bulanan).
+- **Tambahan `params-read.ts` (diekspor ulang `@/server/core/params`), D-14 butir 4:** `cached(tx): ParamCache` —
+  pembaca parameter bercache per transaksi/permintaan (`get`/`resolve` tanpa `tx`, nilai & galat sama dengan
+  `params.get`/`params.resolve`; satu kueri per kunci+tenant+outlet, tanggal diselesaikan di memori; hasil di-parse
+  ulang per panggilan). Terikat objek transaksi lewat WeakMap; untuk db tanpa transaksi mengembalikan cache BARU tiap
+  panggilan (pemanggil memegangnya satu permintaan) — tidak pernah disimpan pada instans db bersama. `ParamCache.queries`
+  = jumlah kueri (uji/pengukuran). `invalidateParamCaches()` mengosongkan semua cache pada pembacaan berikutnya.
+- **Diubah (hanya tambah perilaku) `params.ts`:** `set` memanggil `invalidateParamCaches()` setelah menulis. M10
+  `setMinAppVersion` (penulis parameter langsung) juga memanggilnya. API `get`/`resolve`/`set`/`history`/`listCurrent`
+  tidak berubah dan tidak memakai cache.
+- Pola pakai: laporan rentang yang membaca parameter per tanggal → `const pc = params.cached(tx)` lalu
+  `pc.get(key, tanggal, { tenantId })`; fungsi modul menerima `opts?: { cache?: params.ParamCache }` (contoh
+  `m12Rules`, `m12.fleetRangeSummary`, `m9.exceptionsForRange`). Jangan menyimpan `ParamCache` di variabel modul.
+- Uji: `tests/core/params-cache.test.ts`, `tests/core/numbering.test.ts`, `tests/m11-accounting/journal-number.test.ts`,
+  `tests/m12-fleet/range-summary.test.ts`. Pengukuran: `docs/qa/uji-beban.md` §10.

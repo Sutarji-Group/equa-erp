@@ -248,3 +248,14 @@ Untuk paket B (B-65): `trip.completed` rit prabayar digital membawa `prepaidAmou
   penerimaan setoran demo mengembalikan saldo ke 0 dan rekonsiliasi kas sopir (saldo sistem wajib 0) dapat nol di P-07.
   Uji `tests/m11-accounting/demo-seed-driver-cash.test.ts`.
 - Uji: `tests/m11-accounting/audit-s5b.test.ts`.
+
+## 14. v1.0.1 — nomor jurnal 6 digit (tim X, D-14 butir 1, B-87)
+
+- Nomor jurnal `J-YYMM-NNNNNN` (inti `DOC_TYPES.journal.digits = 6`; kapasitas 999.999/bulan/tenant). Nomor 5 digit yang
+  sudah terbit tidak diubah; penghitung bulan berjalan dilanjutkan (`J-2610-01234` → `J-2610-001235`).
+- Urutan menurut nomor memakai `docNumberOrder(journals.number)` (tambahan inti `numbering.ts`: panjang lalu teks) di
+  buku besar (`computeLedger`, termasuk saldo berjalan & paginasi), daftar tinjauan pemilik (`ownerReviewList`) dan
+  ekspor templat pajak (`templateRows`) — bulan peralihan tetap urut terbit; nomor sepanjang sama = urutan lama.
+- Seed demo `JD-YYMM-NNNNNN` (6 digit, di luar urutan resmi). Fixture uji (`tests/helpers/db-fixtures.ts`) memakai `JU-`.
+- Uji: `tests/m11-accounting/journal-number.test.ts` (`US-M11-02 KP-1 D-14 …` jurnal otomatis ke-100.000;
+  `US-M11-04 KP-1 D-14 …` buku besar bulan peralihan), `tests/core/numbering.test.ts` (`D-14 B-87 …`).
