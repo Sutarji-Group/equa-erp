@@ -324,7 +324,23 @@ describe("M1 Master Data", () => {
         creditLimitAfter: 15_000_000,
         termDaysAfter: 21,
       });
-      // Pelanggan Tunai belum dapat mengajukan ubah batas.
+    });
+
+    it("US-M1-01 KP-4 BR-04 ubah segmen pelanggan bertempo oleh Dispatcher TIDAK menaikkan batas kredit; batas segmen baru diajukan ke pemilik", async () => {
+      const c = await customer("third_party_depot");
+      await t.db.update(customers).set({ creditStatus: "credit", creditLimit: 3_000_000 }).where(eq(customers.id, c.id));
+      const res = await m1.updateCustomer(dispatcher(), c.id, { segment: "industry" });
+      if (res.status !== "updated") throw new Error("gagal");
+      expect(res.customer).toMatchObject({ segment: "industry", creditLimit: 3_000_000 });
+      expect(res.creditTermsApproval).toMatchObject({ creditLimit: 10_000_000 });
+      const req = (await t.db.select().from(approvalRequests).where(eq(approvalRequests.id, res.creditTermsApproval!.id)))[0]!;
+      expect(req).toMatchObject({ type: "credit_terms_change", status: "submitted", objectId: c.id });
+      // Batas baru hanya berlaku setelah pemilik menyetujui.
+      await approvals.decide(owner(), req.id, "approve", "Volume industri");
+      expect((await t.db.select().from(customers).where(eq(customers.id, c.id)))[0]!.creditLimit).toBe(10_000_000);
+    });
+
+    it("US-M1-01 KP-4 pelanggan Tunai belum dapat mengajukan ubah batas", async () => {
       const cash = await customer();
       await expect(
         m1.requestCreditTermsChange(dispatcher(), cash.id, {

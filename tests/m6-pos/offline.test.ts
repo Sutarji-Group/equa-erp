@@ -44,7 +44,19 @@ describe("US-M6-06 Bekerja tanpa sinyal", () => {
       cmd("m6.pos_sale.create", { saleId: sale2, shiftId, localNumber: localNumber({ outletCode: "D04", deviceCode: "POS-D04" }, 2, yesterday), deviceSeq: 2, lines: [isi(1)], paymentMethod: "cash" }, "08:00"),
       cmd("m6.pos_sale.void", { saleId: sale2, reason: "customer_cancelled" }, "08:01"),
       cmd("m6.water_supply.record_other", { receiptId: otherId, volumeL: 1_000, reason: "Pasokan darurat" }, "10:00"),
-      cmd("m6.stock_count.submit", { stockCountId: countId, lines: [{ productId: P.TUTUP, physicalQty: 47 }, { productId: P.TISU, physicalQty: 47 }] }, "12:00"),
+      cmd(
+        "m6.stock_count.submit",
+        {
+          stockCountId: countId,
+          // Opname menghitung SELURUH bahan (BR-27): bahan lain dihitung sesuai saldonya.
+          lines: [
+            { productId: P.TUTUP, physicalQty: 47 },
+            { productId: P.TISU, physicalQty: 47 },
+            ...ref.materials.filter((m) => m.id !== P.TUTUP && m.id !== P.TISU).map((m) => ({ productId: m.id, physicalQty: m.balance })),
+          ],
+        },
+        "12:00",
+      ),
       cmd("m6.shift.close", { shiftId, closingCashCounted: 215_000, stock: [{ productId: P.TUTUP, physicalQty: 47 }, { productId: P.TISU, physicalQty: 47 }, { productId: P.GALON_KOSONG, physicalQty: 0 }], saleIds: [sale1, sale2], voidedSaleIds: [sale2] }, "21:00"),
     ];
     const res = await hp.push(cmds);

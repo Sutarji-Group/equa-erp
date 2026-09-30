@@ -128,6 +128,16 @@ describe("US-P3-09 Tagihan langganan sistem bulanan untuk mitra (RL-7)", () => {
     expect(credit).toMatchObject({ profitCenter: "L5", credit: 150_000, accountId: accountId("4-1401") });
   });
 
+  it("US-P3-09 KP-3 US-M9-02 KP-1 pendapatan L5 dijurnal pada bulan LAYANAN (akhir September), bukan tanggal terbit faktur 1 Oktober", async () => {
+    const p = await setupPartner(t.db);
+    const run = await runSubscriptionBilling(T_OCT1);
+    const mine = run.issued.find((i) => i.tenantId === p.tenantId)!;
+    const [inv] = await t.db.select().from(invoices).where(eq(invoices.id, mine.invoiceId));
+    expect(inv).toMatchObject({ issueDate: "2026-10-01", periodMonth: "2026-09-01" });
+    const [j] = await t.db.select().from(journals).where(and(eq(journals.sourceObjectType, "invoice"), eq(journals.sourceObjectId, mine.invoiceId)));
+    expect(j).toMatchObject({ journalDate: "2026-09-30", status: "posted" });
+  });
+
   it("US-P3-09 KP-4 faktur tidak dapat dihapus (DB menolak); koreksi lewat nota kredit beralasan (BR-38)", async () => {
     const p = await setupPartner(t.db);
     const run = await runSubscriptionBilling(T_OCT1);
@@ -139,6 +149,24 @@ describe("US-P3-09 Tagihan langganan sistem bulanan untuk mitra (RL-7)", () => {
     const [inv] = await t.db.select().from(invoices).where(eq(invoices.id, mine.invoiceId));
     expect(inv).toMatchObject({ creditedAmount: 50_000, outstandingAmount: 100_000 });
     expect(await t.db.select().from(creditNotes).where(eq(creditNotes.invoiceId, mine.invoiceId))).toHaveLength(1);
+  });
+
+  it("US-P3-09 KP-2 KP-3 BR-05 US-M11-02 nota kredit faktur mitra gabungan dibatasi komponen L5 (langganan/royalti); koreksi air diarahkan ke Koreksi rit — pendapatan L5 tidak terpotong koreksi air", async () => {
+    const p = await setupPartner(t.db, { creditStatus: "credit", creditLimit: 5_000_000, contract: { monthlyBilling: true, creditLimit: 5_000_000 } });
+    await t.db.insert(unbilledCharges).values({ tenantId: EQUA_TENANT_ID, customerId: p.customerId, serviceDate: "2026-09-12", description: "Rit air tempo", amount: 200_000, volumeL: 5_000 });
+    const run = await runSubscriptionBilling(T_OCT1);
+    const mine = run.issued.find((i) => i.tenantId === p.tenantId)!;
+    expect(mine).toMatchObject({ amount: 350_000, l5Amount: 150_000 });
+    // Koreksi senilai lebih dari komponen langganan (mis. koreksi volume air) ditolak dengan arahan tindakan.
+    await expect(
+      requestCreditNote(finance(at("2026-10-02T03:00:00Z")), { invoiceId: mine.invoiceId, amount: 200_000, reason: "Koreksi volume rit air 12 September" }),
+    ).rejects.toThrow(/Koreksi rit/);
+    // Koreksi langganan di dalam sisa L5 diterima; sisa L5 berkurang untuk koreksi berikutnya.
+    const ok = await requestCreditNote(finance(at("2026-10-02T03:00:00Z")), { invoiceId: mine.invoiceId, amount: 100_000, reason: "Outlet libur, potong langganan" });
+    expect(ok.status).toBe("issued");
+    await expect(
+      requestCreditNote(finance(at("2026-10-02T04:00:00Z")), { invoiceId: mine.invoiceId, amount: 60_000, reason: "Potong langganan lagi" }),
+    ).rejects.toThrow(/sisa Rp 50\.000/);
   });
 });
 
@@ -246,5 +274,46 @@ describe("US-P3-04 Royalti/fee otomatis, tagihan mitra, dan pembayaran (Tahap 3,
     await disablePhase3();
     void inArray;
     void T_SEPT;
+  });
+
+  it("US-P3-04 KP-5 US-P3-09 KP-1 tgl 1: job siklus kontrak 00.30 lalu tagihan 00.40 — bulan layanan lalu tetap bertarif lama; persetujuan terlambat berlaku bulan sesudah persetujuan", async () => {
+    const p = await setupPartner(t.db);
+    const prop = await proposeContractTerms(finance(at("2026-09-20T03:00:00Z")), { contractId: p.contractId!, subscriptionFeePerOutlet: 200_000, reason: "Adendum tarif Oktober" });
+    await approvals.decide(owner(at("2026-09-21T03:00:00Z")), prop.approval.id, "approve", "Setuju adendum");
+    // 1 Okt 00.30 WIB: parameter baru diterapkan ke kolom dasar kontrak.
+    const life = await runContractLifecycle(at("2026-09-30T17:30:00Z"));
+    expect(life.termsApplied).toContain(p.contractId);
+    // 1 Okt 00.40 WIB: tagihan September memakai tarif September (150.000), bukan tarif baru.
+    const run = await runSubscriptionBilling(at("2026-09-30T17:40:00Z"));
+    expect(run.issued.find((i) => i.contractId === p.contractId)).toMatchObject({ outletCount: 1, amount: 150_000 });
+    const [c] = await t.db.select().from(partnerContracts).where(eq(partnerContracts.id, p.contractId!));
+    expect((await withTx((tx) => computePartnerBill(tx, c!, "2026-09"))).terms.subscriptionFeePerOutlet).toBe(150_000);
+    expect((await withTx((tx) => computePartnerBill(tx, c!, "2026-10"))).terms.subscriptionFeePerOutlet).toBe(200_000);
+    // Usulan 20 Okt (berlaku 1 Nov) baru disetujui 5 Nov → berlaku 1 Des; tarif November tetap 200.000.
+    const late = await proposeContractTerms(finance(at("2026-10-20T03:00:00Z")), { contractId: p.contractId!, subscriptionFeePerOutlet: 250_000, reason: "Adendum tarif November" });
+    expect(late.effectiveFrom).toBe("2026-11-01");
+    await approvals.decide(owner(at("2026-11-05T03:00:00Z")), late.approval.id, "approve", "Setuju, terlambat");
+    const [c2] = await t.db.select().from(partnerContracts).where(eq(partnerContracts.id, p.contractId!));
+    expect(c2!.pendingTermsEffectiveFrom).toBe("2026-12-01");
+    expect((await withTx((tx) => computePartnerBill(tx, c2!, "2026-11"))).terms.subscriptionFeePerOutlet).toBe(200_000);
+    expect((await withTx((tx) => computePartnerBill(tx, c2!, "2026-12"))).terms.subscriptionFeePerOutlet).toBe(250_000);
+    expect((await withTx((tx) => computePartnerBill(tx, c2!, "2026-09"))).terms.subscriptionFeePerOutlet).toBe(150_000);
+  });
+
+  it("US-P3-01 KP-5 D-02 flag Tahap 3 per tenant: pengingat kontrak berakhir mengikuti flag tenant mitra itu (bukan hanya global)", async () => {
+    const on = await setupPartner(t.db, { contract: false });
+    const off = await setupPartner(t.db, { contract: false });
+    const mk = async (tenantId: string, customerId: string) => {
+      const r = await createContract(finance(), { tenantId, customerId, startDate: "2026-08-01", termMonths: 3, reason: "Kontrak uji coba 3 bulan" });
+      await approvals.decide(owner(), r.approval.id, "approve", "Uji coba");
+      return r.contract.id;
+    };
+    const onId = await mk(on.tenantId, on.customerId);
+    const offId = await mk(off.tenantId, off.customerId);
+    await disablePhase3();
+    await enablePhase3(T_SEPT, on.tenantId);
+    const life = await runContractLifecycle(at("2026-09-10T00:30:00Z"));
+    expect(life.expiring).toContain(onId);
+    expect(life.expiring).not.toContain(offId);
   });
 });

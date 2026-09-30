@@ -158,3 +158,18 @@ PAR-52, PAR-87, `app.min_supported_version`, `notifications.digest_recipients`.
   `CONDITIONAL_GRANTS` (tampil "Bersyarat" di ekspor matriks peran). Uji `tests/core/rbac.test.ts`.
 - `<FieldSupportPanel />` kini terpasang di /sopir (M3), /produksi (M8), dan /pos depot & toko (M6/M7, B-03).
 
+## Perbaikan audit S5B (paket A)
+
+- **Anonimisasi (US-M10-06 KP-2, PTB-36)**: `openReceivableOf` = definisi piutang M5 (`getReceivableBalance`: faktur
+  bersisa + `unbilled_charges`) → `{ count, amount, unbilled, blocked }`; rit tempo belum ditagih juga menunda.
+- **Ringkasan akses harian (US-M10-01 KP-7)**: jendela = sejak `windowEnd` ringkasan terakhir (jejak `access_summary`)
+  sampai sekarang; perubahan 22.15–24.00 masuk ringkasan berikutnya. Baru: `accessChangesBetween(tx, tenantId, start, end)`.
+- **Versi minimal (US-M10-07 KP-4, NFR-32)**: ditegakkan server — push dari versi lama dijawab `retry`
+  `APP_UPDATE_REQUIRED` (antrean tertahan), login PIN daring ditolak 426, log perangkat `update_required`
+  (`src/server/core/sync/app-version.ts`).
+- **Retensi GPS (US-M12-01 KP-6, PTB-33)**: `runRetention` menghapus GPS mentah lewat M12 `purgeExpiredPositions`
+  (ringkasan rit/hari dipastikan dulu; impor dinamis karena M12 mengimpor M10).
+- **/persetujuan (NFR-15/19)**: kartu menampilkan `approvalObjectText` (label objek Indonesia + nomor dokumen dari
+  payload), tanpa UUID.
+- Uji: `tests/m10-access/{personal-data,users,monitoring,sod-approvals}.test.ts` (judul US-M10-06 KP-2/KP-3,
+  US-M10-01 KP-7, US-M10-07 KP-4, US-M10-04 KP-2).

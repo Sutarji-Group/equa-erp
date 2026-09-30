@@ -614,7 +614,10 @@ export async function publishSchedule(ctx: ActorContext, input: { truckId: strin
       const o = orderCache.get(t.orderId) ?? (await loadOrder(tx, null, t.orderId));
       orderCache.set(o.id, o);
       const blockers = await schedulingBlockers(tx, o, { forPublish: true, trip: t });
-      for (const b of blockers) problems.push(`Rit ${t.number}: ${b.message}`);
+      // US-M2-05 KP-6 (PTB-18 "pesanan baru") / BR-24: penghalang per pelanggan yang muncul SETELAH rit terbit tidak
+      // menahan penerbitan ulang seluruh jalur truk — hanya rit yang belum terbit yang dievaluasi.
+      const relevant = t.publishedAt ? blockers.filter((b) => b.code !== "second_underpayment" && b.code !== "reconfirmation") : blockers;
+      for (const b of relevant) problems.push(`Rit ${t.number}: ${b.message}`);
     }
     if (problems.length) throw new DomainError("PUBLISH_BLOCKED", `Jadwal truk ${truck.code} belum dapat diterbitkan. ${problems.join(" ")}`);
     const revision = schedule.publishedAt ? schedule.version + 1 : 0;

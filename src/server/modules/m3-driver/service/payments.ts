@@ -135,6 +135,14 @@ export async function resolvePayment(ctx: ActorContext, tc: TripContext, input: 
   }
   // Tunai → tempo: hanya dengan persetujuan Dispatcher yang sudah diputuskan (PTB-19).
   const approval = await fieldCreditApprovalFor(meta.tx, trip.id, input.creditApprovalId ?? null);
+  // US-M3-04 KP-4: pelanggan Tunai tidak pernah menjadi tempo di lapangan — tanpa permintaan tempo, sopir wajib memilih
+  // tunai/transfer dan mencatat alasan kurang bayar sendiri (bukan alasan otomatis).
+  if (!approval && !meta.office && tc.customer.creditStatus !== "credit" && tc.customer.creditStatus !== "credit_migrated") {
+    throw ValidationError.field(
+      "payment",
+      `${tc.customer.name} berstatus ${label("credit_status", tc.customer.creditStatus)} — tidak dapat tempo. Pilih tunai atau transfer; bila uang kurang, catat kurang bayar dengan alasan.`,
+    );
+  }
   if (approval?.status === "approved") {
     return {
       method: "credit",
@@ -299,7 +307,7 @@ export async function requestFieldCredit(ctx: ActorContext, input: unknown, meta
   const tc = await loadTripContext(tx, data.tripId, { forUpdate: true });
   const { trip } = tc;
   await tripConflictNote(tx, ctx, trip, meta);
-  await assertActingOnTruck(tx, ctx, "m3.field_credit.request", trip.truckId, meta.businessDate, meta);
+  await assertActingOnTruck(tx, ctx, "m3.field_credit.request", trip.truckId, meta.businessDate, meta, trip);
   const rules = await m3Rules(tx, meta.businessDate, trip.tenantId);
   const delayMs = meta.receivedAt.getTime() - meta.deviceTime.getTime();
   if (delayMs > rules.fieldCreditMaxDelayMinutes * 60_000) {

@@ -113,12 +113,12 @@ export async function stockBalancesOf(tx: Tx, outletId: string, productIds?: rea
   return out;
 }
 
-export type ConsumableProduct = { id: string; code: string; name: string; unit: string; sortOrder: number };
+export type ConsumableProduct = { id: string; code: string; name: string; unit: string; sortOrder: number; createdAt: Date };
 
 /** Bahan habis pakai aktif tenant untuk lini outlet (depot: tutup, tisu, galon kosong). */
 export async function consumablesOf(tx: Tx, tenantId: string, line: "depot" | "store" = "depot"): Promise<ConsumableProduct[]> {
   return tx
-    .select({ id: products.id, code: products.code, name: products.name, unit: products.unit, sortOrder: products.sortOrder })
+    .select({ id: products.id, code: products.code, name: products.name, unit: products.unit, sortOrder: products.sortOrder, createdAt: products.createdAt })
     .from(products)
     .where(and(eq(products.tenantId, tenantId), eq(products.line, line), eq(products.isConsumable, true), eq(products.status, "active")))
     .orderBy(asc(products.sortOrder), asc(products.code));

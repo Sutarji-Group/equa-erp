@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 import { useDriver } from "./driver-context";
 import { Banner, ErrorText } from "./ui";
+import { OutboxItemActions } from "@/components/field/outbox-item-actions";
 
 const STATUS_TONE: Record<string, string> = {
   assigned: "bg-muted text-foreground",
@@ -139,6 +140,7 @@ function OutboxList() {
           <p className={cn("text-base", item.status === "rejected" ? "text-destructive" : item.status === "sent" ? "text-success" : "text-warning-foreground")}>
             {outboxStatusText(item)} · {formatJam(new Date(item.createdAt))}
           </p>
+            <OutboxItemActions item={item} />
         </li>
       ))}
     </ul>

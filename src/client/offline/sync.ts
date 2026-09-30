@@ -7,6 +7,10 @@
  *    (jumlah antrean, versi, baterai, kejadian login offline). Hasil per item: terkirim / ditolak (pesan) /
  *    konflik / perlu login / dicoba ulang dengan backoff.
  * 3. Tarik data referensi pengguna aktif (`GET /api/sync/pull`) → `refs`.
+ * 4. Pangkas penyimpanan ponsel (`pruneOutbox`): Blob lampiran terkirim & riwayat antrean terkirim yang lama.
+ *
+ * Galat unggah lampiran: hanya penolakan final atas BERKAS itu (`isFinalUploadError`) yang menolak perintahnya
+ * (`ATTACHMENT_FAILED`, dapat "Kirim ulang" lewat `retryOutboxItem`); galat server/perangkat/sesi bersifat sementara.
  *
  * Pemicu (`startSyncWorker`): kejadian `online`, interval 60 detik, perubahan antrean, tab kembali terlihat, dan
  * tombol "Kirim sekarang" (`syncNow({ force: true })`).
@@ -15,7 +19,7 @@ import { activeSession, clearAuthEvents, SYNC_REQUEST_EVENT, takeAuthEvents } fr
 import { APP_VERSION, deviceFetch, FieldApiError, isOnline, loadDevice, OFFLINE_MESSAGE } from "./api";
 import { fieldDb, getMeta, PENDING_STATUSES, setMeta, type OutboxItem } from "./db";
 import { seedDeviceSeqFloors } from "./numbering";
-import { OUTBOX_CHANGED_EVENT, pendingByUser } from "./outbox";
+import { ATTACHMENT_FAILED_CODE, OUTBOX_CHANGED_EVENT, pendingByUser, pruneOutbox } from "./outbox";
 import type { PullResponse, PushResult } from "./types";
 
 export const PUSH_BATCH_SIZE = 50;
@@ -53,11 +57,29 @@ function backoff(attempts: number, now: number): number {
   return now + Math.min(MAX_BACKOFF_MS, 5_000 * 2 ** Math.max(0, attempts - 1));
 }
 
-async function uploadAttachments(): Promise<number> {
+/** Galat per PENGGUNA (sesi PIN): lewati lampiran pengguna itu tanpa menandai gagal; lanjutkan pengguna lain. */
+const USER_SESSION_CODES = new Set(["SESSION_REQUIRED", "SESSION_EXPIRED"]);
+
+/**
+ * Penolakan FINAL atas lampiran itu sendiri: server menolak berkasnya (galat `VALIDATION` berisian — jenis, ukuran,
+ * ID bentrok) atau akun pemiliknya sudah tidak aktif. SEMUA galat lain bersifat sementara (NFR-07, Bab 6.4): server
+ * ≥ 500 (`INTERNAL`, penyimpanan berkas), perangkat perlu aktivasi ulang/diblokir sementara (`DEVICE_*`), token/jam
+ * ponsel, sesi, dan galat tak dikenal — lampiran tetap `pending` dan perintahnya tetap di antrean.
+ */
+export function isFinalUploadError(error: unknown): boolean {
+  if (!(error instanceof FieldApiError) || error.network) return false;
+  if (error.code === "ACCOUNT_INACTIVE") return true;
+  return error.code === "VALIDATION" && error.status === 400 && error.issues.length > 0;
+}
+
+async function uploadAttachments(force: boolean): Promise<number> {
   const db = fieldDb();
-  const pending = await db.attachments.where("status").equals("pending").toArray();
+  const now = Date.now();
+  const pending = (await db.attachments.where("status").equals("pending").toArray()).filter((a) => force || !a.nextAttemptAt || a.nextAttemptAt <= now);
+  const skipUsers = new Set<string>();
   let uploaded = 0;
   for (const att of pending.slice(0, 20)) {
+    if (skipUsers.has(att.userId)) continue;
     const form = new FormData();
     form.set("file", att.blob, `${att.id}.${att.contentType.includes("png") ? "png" : "jpg"}`);
     form.set("attachmentId", att.id);
@@ -69,18 +91,25 @@ async function uploadAttachments(): Promise<number> {
     if (att.commandId) form.set("commandId", att.commandId);
     try {
       await deviceFetch("/api/sync/upload", { form });
-      await db.attachments.update(att.id, { status: "uploaded", uploadedAt: Date.now(), message: null });
+      await db.attachments.update(att.id, { status: "uploaded", uploadedAt: Date.now(), message: null, nextAttemptAt: null });
       uploaded++;
     } catch (error) {
-      if (error instanceof FieldApiError && (error.network || error.code === "SESSION_REQUIRED")) {
-        if (error.network) throw error;
+      if (error instanceof FieldApiError && error.network) throw error;
+      if (error instanceof FieldApiError && USER_SESSION_CODES.has(error.code)) {
+        skipUsers.add(att.userId);
         continue;
       }
       const message = error instanceof Error ? error.message : "Unggah gagal.";
-      await db.attachments.update(att.id, { status: "failed", attempts: att.attempts + 1, message });
-      if (att.commandId) {
-        await db.outbox.update(att.commandId, { status: "rejected", message: `Foto/lampiran gagal diunggah: ${message}` });
+      if (isFinalUploadError(error)) {
+        await db.attachments.update(att.id, { status: "failed", attempts: att.attempts + 1, message, nextAttemptAt: null });
+        if (att.commandId) {
+          await db.outbox.update(att.commandId, { status: "rejected", code: ATTACHMENT_FAILED_CODE, message: `Foto/lampiran gagal diunggah: ${message}`, reviewedAt: null });
+        }
+        continue;
       }
+      // Sementara: lampiran tetap menunggu (backoff), putaran dihentikan — perintah tetap `queued` (tidak ditolak).
+      await db.attachments.update(att.id, { attempts: att.attempts + 1, message, nextAttemptAt: backoff(att.attempts + 1, Date.now()) });
+      throw error;
     }
   }
   return uploaded;
@@ -234,9 +263,11 @@ export function syncNow(opts: { force?: boolean } = {}): Promise<SyncSummary> {
     const started = Date.now();
     await patchState({ syncing: true, lastAttemptAt: started, offline: false });
     try {
-      const uploaded = await uploadAttachments();
+      const uploaded = await uploadAttachments(!!opts.force);
       const pushed = await pushQueue(!!opts.force);
       const pulled = await pullReferences();
+      // NFR-17: pangkas Blob lampiran terkirim & riwayat antrean lama (galat pemangkasan tidak menggagalkan sinkron).
+      await pruneOutbox().catch(() => undefined);
       await patchState({ syncing: false, lastSyncAt: Date.now(), lastError: null, offline: false });
       return { uploaded, ...pushed, pulled };
     } catch (error) {

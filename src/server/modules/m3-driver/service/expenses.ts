@@ -19,22 +19,26 @@ import { emit } from "@/server/core/events";
 import { linkAttachment } from "@/server/core/storage";
 
 import { expenseSchema } from "../schemas";
-import { actingTruckId, assertActingOnTruck, attachmentsOfKind, ensureRunningDeposit, fieldValues, loadTrip, type M3WriteMeta } from "./common";
+import { actingTruckId, assertActingOnTruck, assertCashDayOpen, attachmentsOfKind, ensureRunningDeposit, fieldValues, loadTrip, type M3WriteMeta } from "./common";
 
 export type TripExpenseRow = typeof tripExpenses.$inferSelect;
 
-export async function recordExpense(ctx: ActorContext, input: unknown, meta: M3WriteMeta): Promise<{ expense: TripExpenseRow; duplicate: boolean }> {
+export async function recordExpense(ctx: ActorContext, input: unknown, meta: M3WriteMeta): Promise<{ expense: TripExpenseRow; duplicate: boolean; conflict: string | null }> {
   const data = parseInput(expenseSchema, input, { kind: "Jenis", amount: "Jumlah", fundingSource: "Sumber dana" });
   const tx = meta.tx;
   const existing = await tx.select().from(tripExpenses).where(eq(tripExpenses.id, data.expenseId)).limit(1);
-  if (existing[0]) return { expense: existing[0], duplicate: true };
+  if (existing[0]) return { expense: existing[0], duplicate: true, conflict: null };
   const trip = data.tripId ? await loadTrip(tx, data.tripId) : null;
   const truckId = trip?.truckId ?? (await actingTruckId(tx, ctx, meta.businessDate));
   if (!truckId) throw new DomainError("TRUCK_REQUIRED", "Pengeluaran harus terkait truk. Pilih rit atau hubungi Dispatcher.");
-  await assertActingOnTruck(tx, ctx, "m3.trip_expense.create", truckId, meta.businessDate, meta);
+  const actingNote = await assertActingOnTruck(tx, ctx, "m3.trip_expense.create", truckId, meta.businessDate, meta, trip);
+  // BR-07, US-M3-07 KP-2: setelah Setor tidak ada pengeluaran baru hari itu (kecuali setoran dibuka kembali).
+  await assertCashDayOpen(tx, ctx.userId!, meta.businessDate, meta, "pengeluaran rit");
   const receipt = attachmentsOfKind(meta, "receipt_note")[0] ?? null;
   if (!receipt && !meta.office) throw new DomainError("RECEIPT_PHOTO_REQUIRED", "Foto nota wajib. Ambil foto nota BBM/tol/parkir lalu simpan lagi.");
-  const { deposit } = await ensureRunningDeposit(tx, ctx, { tenantId: trip?.tenantId ?? ctx.tenantId, userId: ctx.userId!, date: meta.businessDate, truckId, today: toBusinessDate(ctx.now) });
+  const { deposit, carriedOver } = await ensureRunningDeposit(tx, ctx, { tenantId: trip?.tenantId ?? ctx.tenantId, userId: ctx.userId!, date: meta.businessDate, truckId, today: toBusinessDate(ctx.now) });
+  const conflict =
+    [actingNote, carriedOver ? `Setoran tanggal pengeluaran sudah diterima Admin Keuangan; nota diverifikasi pada setoran berjalan ${deposit.number} (terlambat sinkron).` : null].filter(Boolean).join(" ") || null;
   const [expense] = await tx
     .insert(tripExpenses)
     .values({
@@ -84,7 +88,7 @@ export async function recordExpense(ctx: ActorContext, input: unknown, meta: M3W
     },
     { ctx, businessDate: meta.businessDate, objectType: "trip_expense", objectId: expense!.id },
   );
-  return { expense: expense!, duplicate: false };
+  return { expense: expense!, duplicate: false, conflict };
 }
 
 /** Pengeluaran rit hidup (bukan baris pembalik & belum dibalik) pengguna pada tanggal. */

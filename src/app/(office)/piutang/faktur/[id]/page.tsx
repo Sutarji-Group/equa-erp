@@ -248,7 +248,14 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       {canSend || canDispute || canDecide || canCredit || canOpening ? (
         <div className="grid gap-6 lg:grid-cols-2">
           {canCredit && open && !inv.isOpeningBalance && !disputed ? (
-            <SectionCard title="Nota kredit (koreksi beralasan)" description="Faktur tidak dapat dihapus (BR-38). Nota kredit di atas batas koreksi (PAR-21) menunggu persetujuan pemilik.">
+            <SectionCard
+              title="Nota kredit (koreksi beralasan)"
+              description={
+                inv.kind === "partner_subscription"
+                  ? "Faktur mitra: nota kredit hanya untuk langganan sistem/royalti. Koreksi volume atau harga rit air lewat menu Koreksi rit agar pendapatan air ikut terkoreksi. Di atas PAR-21 menunggu persetujuan pemilik."
+                  : "Faktur tidak dapat dihapus (BR-38). Nota kredit di atas batas koreksi (PAR-21) menunggu persetujuan pemilik."
+              }
+            >
               <M5ActionForm action={creditNoteAction.bind(null, inv.id)} submitLabel="Terbitkan nota kredit" testId="form-nota-kredit">
                 <FormInput label="Nilai nota kredit (Rp)" name="amount" inputMode="numeric" required hint={`Paling besar sisa faktur ${formatRupiah(inv.outstandingAmount)}.`} />
                 <FormTextarea label="Alasan" name="reason" required />

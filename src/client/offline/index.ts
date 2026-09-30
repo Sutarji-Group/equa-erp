@@ -32,8 +32,24 @@ export {
   DEFAULT_POLICY,
   type KnownUser,
 } from "./auth";
-export { enqueue, listOutbox, outboxStatusText, pendingByUser, pendingCount, OUTBOX_CHANGED_EVENT, type EnqueueAttachment, type EnqueueCommand } from "./outbox";
-export { getSyncState, startSyncWorker, syncNow, PUSH_BATCH_SIZE, SYNC_INTERVAL_MS, type SyncState, type SyncSummary } from "./sync";
+export {
+  enqueue,
+  canRetryOutboxItem,
+  listOutbox,
+  markRejectedReviewed,
+  outboxStatusText,
+  pendingByUser,
+  pendingCount,
+  pruneOutbox,
+  retryOutboxItem,
+  ATTACHMENT_FAILED_CODE,
+  OUTBOX_CHANGED_EVENT,
+  OUTBOX_KEEP_DAYS,
+  OUTBOX_KEEP_RECENT,
+  type EnqueueAttachment,
+  type EnqueueCommand,
+} from "./outbox";
+export { getSyncState, isFinalUploadError, startSyncWorker, syncNow, PUSH_BATCH_SIZE, SYNC_INTERVAL_MS, type SyncState, type SyncSummary } from "./sync";
 export { useOnline, useOutbox, useReference, useSyncStatus, type SyncStatus } from "./hooks";
 export { nextDeviceSeq, seedDeviceSeqFloors } from "./numbering";
 export { moduleStore, type ModuleStore } from "./module-store";

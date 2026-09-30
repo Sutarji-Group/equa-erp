@@ -25,7 +25,7 @@ import { newId } from "@/lib/ids";
 import { parseHourMinute, toWibParts, type HourMinute } from "@/lib/time";
 
 import { ensureBootstrapped } from "./bootstrap";
-import { getDb, type Db } from "./db";
+import { getDb, isTransaction, withTx, type Db, type Tx } from "./db";
 import { get as getParam } from "./params-read";
 import type { ParamKey } from "./params-registry";
 
@@ -212,4 +212,18 @@ export async function runJobNow(key: string, now: Date = new Date(), opts: { run
   if (!job) return { key, runKey: null, status: "failed", error: `Job tidak dikenal: ${key}.` };
   const runKey = opts.runKey ?? `manual:${now.toISOString().slice(0, 16)}`;
   return execute(opts.db ?? getDb(), job, runKey, now);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Tambahan S5-B (D-12 butir 8) — hanya tambah
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * D-12 butir 8: SATU unit kerja job (mis. satu toko / satu pengguna) di dalam transaksi — runner memberi koneksi biasa,
+ * jadi job yang menulis lebih dari satu baris (baris + notifikasi + jejak audit) WAJIB membungkus tiap unit kerja dengan
+ * ini agar kegagalan di tengah tidak meninggalkan data setengah jadi (dan percobaan ulang tidak melewati unit itu).
+ * Bila `db` sudah transaksi (dipanggil dari uji/transaksi lain), dipakai langsung.
+ */
+export function inJobTx<T>(db: Db | Tx | undefined, run: (tx: Tx) => Promise<T>): Promise<T> {
+  return db && isTransaction(db as Tx) ? run(db as Tx) : withTx(run, { db: db as Db | undefined });
 }

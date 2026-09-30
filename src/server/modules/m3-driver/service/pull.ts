@@ -9,7 +9,7 @@
  */
 import "server-only";
 
-import { and, desc, eq, gt, inArray, isNotNull, isNull, max, ne, or } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, max, ne, notInArray, or, sql } from "drizzle-orm";
 
 import {
   approvalRequests,
@@ -37,7 +37,7 @@ import {
   waMessageLogs,
 } from "@/db/schema";
 import { label } from "@/lib/labels";
-import { toBusinessDate, type BusinessDate } from "@/lib/time";
+import { toBusinessDate, wibToUtc, type BusinessDate } from "@/lib/time";
 
 import {
   shortAddress,
@@ -55,8 +55,8 @@ import type { Tx } from "@/server/core/db";
 import * as params from "@/server/core/params";
 
 import { collectionsOf, openInvoicesFor } from "./collections";
-import { actingTruckId, depositOf, driverLock, m3Rules } from "./common";
-import { depositHistory, paymentsOf } from "./deposits";
+import { actingTruckId, depositOf, driverLock, m3Rules, staleRunningDeposits } from "./common";
+import { dayFigures, depositHistory, paymentsOf } from "./deposits";
 import { expensesOf } from "./expenses";
 import { phoneTrackingActive } from "./gps";
 import { openExplanationTasks } from "./incidents";
@@ -92,6 +92,12 @@ async function lastChange(tx: Tx, input: { userId: string; truckIds: string[]; d
     await pick(tx.select({ m: max(dailySchedules.updatedAt) }).from(dailySchedules).where(and(inArray(dailySchedules.truckId, input.truckIds), eq(dailySchedules.businessDate, input.date))));
     await pick(tx.select({ m: max(fleetEvents.updatedAt) }).from(fleetEvents).where(inArray(fleetEvents.truckId, input.truckIds)));
     await pick(tx.select({ m: max(phoneTrackingFlags.updatedAt) }).from(phoneTrackingFlags).where(inArray(phoneTrackingFlags.truckId, input.truckIds)));
+    await pick(
+      tx
+        .select({ m: max(scheduleChangeLogs.changedAt) })
+        .from(scheduleChangeLogs)
+        .where(and(eq(scheduleChangeLogs.afterPublish, true), inArray(sql<string>`${scheduleChangeLogs.before}->>'truckId'`, input.truckIds), gte(scheduleChangeLogs.changedAt, wibToUtc(input.date, "00:00")))),
+    );
   }
   await pick(tx.select({ m: max(trips.updatedAt) }).from(trips).where(eq(trips.driverUserId, input.userId)));
   await pick(tx.select({ m: max(crewAssignments.updatedAt) }).from(crewAssignments).where(eq(crewAssignments.businessDate, input.date)));
@@ -202,6 +208,36 @@ export async function buildToday(tx: Tx, ctx: ActorContext, since: Date | null, 
         .innerJoin(customers, eq(customers.id, trips.customerId))
         .where(and(inArray(trips.truckId, truckIds), eq(trips.scheduledDate, date), isNotNull(trips.withdrawnAt), isNotNull(trips.publishedAt)))
     : [];
+  // US-M3-01 KP-4 / US-M2-03 KP-5: rit terbit yang DIKELUARKAN dari truk ini (ditarik ke daftar belum dijadwalkan,
+  // dijadwal ulang, atau dipindah ke truk lain) tampil sebagai "ditarik" beserta ringkasan perubahannya.
+  const leftLogs = truckIds.length
+    ? await tx
+        .select({ log: scheduleChangeLogs, number: trips.number, customerName: customers.name })
+        .from(scheduleChangeLogs)
+        .innerJoin(trips, eq(trips.id, scheduleChangeLogs.tripId))
+        .innerJoin(customers, eq(customers.id, trips.customerId))
+        .where(
+          and(
+            eq(scheduleChangeLogs.afterPublish, true),
+            inArray(scheduleChangeLogs.changeType, ["withdrawn", "truck_changed", "moved"]),
+            inArray(sql<string>`${scheduleChangeLogs.before}->>'truckId'`, truckIds),
+            gte(scheduleChangeLogs.changedAt, wibToUtc(date, "00:00")),
+            ...(tripIds.length ? [notInArray(scheduleChangeLogs.tripId, tripIds)] : []),
+          ),
+        )
+        .orderBy(desc(scheduleChangeLogs.changedAt))
+    : [];
+  const withdrawnList: M3Today["withdrawn"] = withdrawnRows.map((w) => ({ tripId: w.tripId, number: w.number, customerName: w.customerName, at: w.at!.toISOString(), summary: "Rit ditarik dari jadwal (pesanan dibatalkan)" }));
+  for (const l of leftLogs) {
+    if (withdrawnList.some((w) => w.tripId === l.log.tripId)) continue;
+    const before = (l.log.before ?? {}) as Record<string, unknown>;
+    if (typeof before.scheduledDate === "string" && before.scheduledDate !== date) continue;
+    withdrawnList.push({ tripId: l.log.tripId, number: l.number, customerName: l.customerName, at: l.log.changedAt.toISOString(), summary: changeSummary(l.log) });
+  }
+  // US-M3-07 KP-5: setoran hari sebelumnya yang belum sempat diajukan (mis. lewat tengah malam) — dapat diajukan terlambat.
+  const pendingDeposits = await Promise.all(
+    (await staleRunningDeposits(tx, userId, date)).map(async (d) => ({ id: d.id, number: d.number, businessDate: d.businessDate, expectedNet: (await dayFigures(tx, userId, d.businessDate)).cashOnHand })),
+  );
   const creditRequests = tripIds.length
     ? await tx
         .select()
@@ -310,7 +346,8 @@ export async function buildToday(tx: Tx, ctx: ActorContext, since: Date | null, 
     readOnlyReason: acting.reason,
     lock: lock ? { kind: lock.kind, message: lock.message, depositNumber: lock.depositNumber, depositDate: lock.depositDate } : null,
     trips: sortTripsForDriver(tripsOut),
-    withdrawn: withdrawnRows.map((w) => ({ tripId: w.tripId, number: w.number, customerName: w.customerName, at: w.at!.toISOString() })),
+    withdrawn: withdrawnList,
+    pendingDeposits,
     invoicesByCustomer,
     payments: paymentRefs,
     collections,

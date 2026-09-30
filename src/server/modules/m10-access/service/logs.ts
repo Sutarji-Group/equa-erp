@@ -10,6 +10,7 @@ import { accessLogs, users } from "@/db/schema";
 import { label, type AccessEvent, type RoleCode } from "@/lib/labels";
 import { businessDateToUtcRange, toBusinessDate } from "@/lib/time";
 import { APPROVAL_TYPES, type ApprovalTypeDef } from "@/server/core/approvals";
+import { auditObjectLabel } from "@/server/core/audit";
 import type { ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import * as params from "@/server/core/params";
@@ -138,4 +139,17 @@ export async function describeApprovalRules(tx: Tx, businessDate: string): Promi
     });
   }
   return out;
+}
+
+const APPROVAL_NUMBER_KEYS = ["number", "documentNumber", "invoiceNumber", "depositNumber", "tripNumber", "orderNumber", "shiftNumber", "saleNumber", "contractNumber", "customerName", "name"] as const;
+
+/**
+ * Teks objek kartu persetujuan (NFR-15/NFR-19, temuan S5B): label jenis objek Bahasa Indonesia + nomor dokumen yang
+ * dapat dibaca dari payload persetujuan (mis. "Setoran S-26-000123"); ID teknis (UUID) tidak pernah ditampilkan.
+ */
+export function approvalObjectText(objectType: string, payload: Record<string, unknown> | null | undefined): string {
+  const noun = auditObjectLabel(objectType) ?? "objek";
+  const raw = APPROVAL_NUMBER_KEYS.map((k) => payload?.[k]).find((v): v is string => typeof v === "string" && v.trim().length > 0);
+  const text = raw ? `${noun} ${raw}` : noun;
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

@@ -85,6 +85,34 @@ export async function recordSupplyArrival(tx: Tx, event: DomainEvent<"trip.compl
 // Nilai transfer internal (BR-33, K20)
 // ---------------------------------------------------------------------------------------------------------------------
 
+/**
+ * US-M6-05 KP-5 / BR-33: harga transfer internal depot tidak dapat ditentukan (zona alamat, tarif zona, atau komponen
+ * BBM belum ada) → alasan (dilaporkan ke Admin Keuangan & dibawa di event agar tidak hilang diam-diam); `null` = lengkap.
+ */
+export async function transferPriceIssue(tx: Tx, outlet: OutletRow, date: BusinessDate): Promise<string | null> {
+  try {
+    await resolveInternalTransferPrice(tx, { depotOutletId: outlet.id, date });
+    return null;
+  } catch (error) {
+    if (error instanceof DomainError) return error.message;
+    throw error;
+  }
+}
+
+async function reportMissingTransferPrice(tx: Tx, outlet: OutletRow, receiptId: string, volumeL: number, issue: string, now: Date): Promise<void> {
+  await notify(tx, {
+    event: "water_supply.transfer_price_missing",
+    tenantId: outlet.tenantId,
+    title: `Nilai transfer internal pasokan ${outlet.name} tidak dapat dihitung`,
+    body: `${volumeL.toLocaleString("id-ID")} L diterima, tetapi harga transfer internal belum lengkap: ${issue} Lengkapi data master lalu catat jurnal transfer internal L2 → L3.`,
+    objectType: "water_supply_receipt",
+    objectId: receiptId,
+    link: `/outlet/${outlet.id}?tab=air`,
+    groupKey: `water_supply.transfer_price_missing:${receiptId}`,
+    now,
+  });
+}
+
 /** Nilai transfer internal = harga rit internal (tarif zona + BBM) × volume diterima / volume standar rit (PAR-15). */
 export async function transferValueFor(tx: Tx, outlet: OutletRow, receivedL: number, date: BusinessDate): Promise<number> {
   if (receivedL <= 0) return 0;
@@ -182,7 +210,13 @@ export async function confirmWaterSupply(ctx: ActorContext, input: z.output<type
     after: { status, receivedVolumeL: input.receivedVolumeL, differenceL: diff },
     reason,
   });
-  const transferValue = await transferValueFor(tx, outlet, input.receivedVolumeL, meta.businessDate);
+  // BR-33: pasokan yang sudah diterima otomatis (PAR-61) sudah dijurnal dengan nilai volume sopir → konfirmasi
+  // terlambat hanya membawa PENYESUAIAN nilai selisih (bertanda), bukan nilai penuh kedua kali.
+  const transferValue = autoAccepted
+    ? (await transferValueFor(tx, outlet, input.receivedVolumeL, meta.businessDate)) - (await transferValueFor(tx, outlet, receipt.receivedVolumeL ?? delivered, meta.businessDate))
+    : await transferValueFor(tx, outlet, input.receivedVolumeL, meta.businessDate);
+  const priceIssue = input.receivedVolumeL > 0 ? await transferPriceIssue(tx, outlet, meta.businessDate) : null;
+  if (priceIssue) await reportMissingTransferPrice(tx, outlet, receipt.id, input.receivedVolumeL, priceIssue, ctx.now);
   await emit(
     tx,
     "water_supply.confirmed",
@@ -198,6 +232,8 @@ export async function confirmWaterSupply(ctx: ActorContext, input: z.output<type
       differenceL: diff,
       differenceReason: reason,
       autoAccepted: false,
+      adjustmentOfAutoAccepted: autoAccepted || undefined,
+      transferPriceMissing: priceIssue,
       shiftId: shift?.id ?? null,
     },
     { ctx, objectType: "water_supply_receipt", objectId: receipt.id },
@@ -352,6 +388,8 @@ export async function autoAcceptPendingSupplies(
       rule: "PAR-61",
       businessDate: input.businessDate,
     });
+    const priceIssue = vol > 0 ? await transferPriceIssue(tx, input.outlet, input.businessDate) : null;
+    if (priceIssue) await reportMissingTransferPrice(tx, input.outlet, r.id, vol, priceIssue, input.closedAt);
     await emit(
       tx,
       "water_supply.confirmed",
@@ -366,6 +404,7 @@ export async function autoAcceptPendingSupplies(
         source: "equa_truck",
         differenceL: 0,
         autoAccepted: true,
+        transferPriceMissing: priceIssue,
         shiftId: input.shift.id,
       },
       { ctx, objectType: "water_supply_receipt", objectId: r.id, businessDate: input.businessDate },

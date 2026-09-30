@@ -15,24 +15,23 @@ import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 
 import { customerPayments, customers, deposits, deviceUsageLogs, discrepancies, employees, tripExpenses, tripPayments, trips, users } from "@/db/schema";
 import { formatRupiah } from "@/lib/money";
-import { addDays, parseHourMinute, toBusinessDate, toWibParts, type BusinessDate } from "@/lib/time";
+import { addDays, formatTanggal, parseHourMinute, toBusinessDate, toWibParts, type BusinessDate } from "@/lib/time";
 
 import { computeDayFigures, type DayFigures, type DepositManifest, type M3DepositHistoryRow, type M3PaymentRef } from "@/client/m3-driver/contract";
 
 import { record as auditRecord } from "@/server/core/audit";
-import { substituteDriverConditions } from "@/server/core/auth";
 import { ctxBusinessDate, type ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
-import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
+import { DomainError, NotFoundError, ValidationError, parseInput } from "@/server/core/errors";
 import { emit } from "@/server/core/events";
 import { notify } from "@/server/core/notifications";
 import { nextNumber } from "@/server/core/numbering";
 import { authorize, runService } from "@/server/core/rbac";
-import { linkAttachment } from "@/server/core/storage";
+import { linkAttachment, type AttachmentRow } from "@/server/core/storage";
 
 import { depositNoteSchema, depositSubmitSchema, reopenDepositSchema } from "../schemas";
 import { collectionsOf } from "./collections";
-import { actingTruckId, assertActingOnTruck, attachmentsOfKind, depositOf, fieldValues, m3Rules, type DepositRow, type M3WriteMeta } from "./common";
+import { actingTruckId, attachmentsOfKind, depositOf, fieldValues, m3Rules, staleRunningDeposits, substituteConditionsAt, type DepositRow, type M3WriteMeta } from "./common";
 import { expensesOf } from "./expenses";
 
 // =====================================================================================================================
@@ -92,8 +91,8 @@ export async function dayFigures(tx: Tx, userId: string, date: string): Promise<
 export async function cashOnHand(ctx: ActorContext, input: { date?: BusinessDate } = {}, opts: { tx?: Tx } = {}): Promise<DayFigures> {
   const db = opts.tx ?? getDb();
   const date = input.date ?? ctxBusinessDate(ctx);
-  const truckId = await actingTruckId(db, ctx, date);
-  const conditions = truckId ? await substituteDriverConditions(db, ctx, truckId, date) : {};
+  // US-M2-11 KP-3: kas di tangan milik pengguna sendiri — juga setelah digantikan pengemudi lain.
+  const conditions = await depositHolderConditions(db, ctx);
   await authorize(ctx, "m3.cash_on_hand.read", { tx: opts.tx, conditions });
   const f = await dayFigures(db, ctx.userId!, date);
   return f;
@@ -151,57 +150,78 @@ function countManifest(m: DepositManifest): number {
   return m.completedTripIds.length + m.failedTripIds.length + m.collectionIds.length + m.expenseIds.length;
 }
 
-export async function submitDeposit(ctx: ActorContext, input: unknown, meta: M3WriteMeta): Promise<{ deposit: DepositRow; duplicate: boolean; waitingSync: number; late: boolean }> {
-  const data = parseInput(depositSubmitSchema, input, { method: "Cara setor", note: "Catatan" });
-  const tx = meta.tx;
-  const userId = ctx.userId!;
-  const date = meta.businessDate;
+/**
+ * Kondisi izin Setor (US-M2-11 KP-3 "setoran dipisah per pengguna — masing-masing menyetor kas yang diterimanya"):
+ * sopir berperan `driver` selalu boleh menyetor kasnya sendiri; kernet boleh bila pengemudi pengganti pada waktu
+ * perangkat ATAU memegang setoran sopir miliknya yang masih Berjalan (kas dari masa pengganti). `anyStatus` untuk
+ * keterangan atas selisih setoran miliknya yang sudah diterima.
+ */
+export async function depositHolderConditions(tx: Tx, ctx: ActorContext, opts: { anyStatus?: boolean } = {}): Promise<{ substitute_driver: boolean }> {
+  if (!ctx.roles.includes("helper") || !ctx.userId) return { substitute_driver: false };
+  const date = ctxBusinessDate(ctx);
   const truckId = await actingTruckId(tx, ctx, date);
-  await assertActingOnTruck(tx, ctx, "m3.deposit.submit", truckId, date, meta);
-  const existing = await depositOf(tx, userId, date, { forUpdate: true });
-  if (existing && existing.status !== "running") {
-    if (existing.status === "submitted" && existing.syncCommandId === meta.commandId) return { deposit: existing, duplicate: true, waitingSync: 0, late: existing.submittedLate };
-    throw new DomainError("DEPOSIT_ALREADY_SUBMITTED", `Setoran hari ini (${existing.number}) sudah ${existing.status === "submitted" ? "diajukan" : "diterima Admin Keuangan"}.`);
-  }
-  // US-M3-07 KP-2: Setor hanya bila tidak ada rit Berangkat/Tiba.
-  const active = await tx.select({ number: trips.number }).from(trips).where(and(eq(trips.driverUserId, userId), inArray(trips.status, ["departed", "arrived"]))).limit(1);
-  if (active[0]) throw new DomainError("ACTIVE_TRIP_EXISTS", `Rit ${active[0].number} masih berjalan. Selesaikan atau tandai gagal dulu sebelum Setor.`);
-  // PTB-23: setor bank dengan slip hanya bila diizinkan pemilik per orang.
-  const slip = attachmentsOfKind(meta, "deposit_slip")[0] ?? null;
-  if (data.method === "bank_slip") {
-    const emp = ctx.employeeId ? (await tx.select({ allow: employees.allowBankDeposit }).from(employees).where(eq(employees.id, ctx.employeeId)).limit(1))[0] : null;
-    if (!emp?.allow) throw new DomainError("BANK_DEPOSIT_NOT_ALLOWED", "Anda belum diizinkan setor ke bank. Serahkan uang langsung ke Admin Keuangan.");
-    if (!slip) throw new DomainError("SLIP_REQUIRED", "Foto slip setoran bank wajib.");
-  }
-  const rules = await m3Rules(tx, date, ctx.tenantId);
-  const late = isAfterCloseTime(meta.deviceTime, rules.cashCloseTime) || date < toBusinessDate(ctx.now);
-  const f = await dayFigures(tx, userId, date);
-  const missing = await missingFromManifest(tx, data.manifest);
+  if (truckId && (await substituteConditionsAt(tx, ctx, truckId, date)).substitute_driver) return { substitute_driver: true };
+  const own = await tx
+    .select({ id: deposits.id })
+    .from(deposits)
+    .where(and(eq(deposits.sourceType, "driver"), eq(deposits.depositorUserId, ctx.userId), ...(opts.anyStatus ? [] : [eq(deposits.status, "running")])))
+    .limit(1);
+  return { substitute_driver: own.length > 0 };
+}
+
+export type SubmitDepositResult = {
+  deposit: DepositRow;
+  duplicate: boolean;
+  waitingSync: number;
+  late: boolean;
+  /** Setoran hari sebelumnya yang masih Berjalan dan ikut diajukan (terlambat) pada Setor ini (US-M3-07 KP-5). */
+  lateDeposits: { id: string; number: string; businessDate: string; expectedNet: number }[];
+};
+
+type SubmitCore = {
+  userId: string;
+  employeeId: string | null;
+  method: "physical" | "bank_slip";
+  slip: AttachmentRow | null;
+  note: string | null;
+  manifest: DepositManifest;
+  deviceExpectedNet: number | null;
+  truckId: string | null;
+  late: boolean;
+  /** Keterangan tambahan jejak audit (mis. diajukan bersama setoran hari ini / dicatat kantor). */
+  auditReason: string | null;
+};
+
+/** Kunci ringkasan satu setoran sopir (Berjalan → Diajukan) — dipakai Setor perangkat & "dicatat kantor". */
+async function lockDepositSummary(ctx: ActorContext, meta: M3WriteMeta, date: BusinessDate, existing: DepositRow | null, c: SubmitCore): Promise<{ deposit: DepositRow; waitingSync: number }> {
+  const tx = meta.tx;
+  const f = await dayFigures(tx, c.userId, date);
+  const missing = await missingFromManifest(tx, c.manifest);
   const snapshot: DepositSnapshot = {
     figures: { ...f, cashTrips: f.cashTrips },
     cashTrips: f.cashTrips,
-    collections: f.collections.map((c) => ({ id: c.id, customerName: c.customerName, method: c.method, amount: c.amount })),
+    collections: f.collections.map((x) => ({ id: x.id, customerName: x.customerName, method: x.method, amount: x.amount })),
     expenses: f.expenses.map((e) => ({ id: e.id, kind: e.kind, amount: e.amount, fundingSource: e.fundingSource, status: e.status })),
     transfers: f.payments.filter((p) => p.method === "transfer").map((p) => ({ tripNumber: p.tripNumber, customerName: p.customerName, amount: p.receivedAmount })),
     credit: f.payments.filter((p) => p.method === "credit").map((p) => ({ tripNumber: p.tripNumber, customerName: p.customerName, amount: p.expectedAmount })),
     underpayments: f.payments.filter((p) => p.underpaymentAmount > 0).map((p) => ({ tripNumber: p.tripNumber, customerName: p.customerName, amount: p.underpaymentAmount })),
-    manifest: data.manifest,
+    manifest: c.manifest,
     missing,
-    deviceExpectedNet: data.deviceExpectedNet ?? null,
-    submittedFromDeviceId: meta.deviceId,
-    note: data.note ?? null,
+    deviceExpectedNet: c.deviceExpectedNet,
+    submittedFromDeviceId: meta.office ? null : meta.deviceId,
+    note: c.note,
   };
   const values = {
     status: "submitted" as const,
-    method: data.method,
-    bankSlipAttachmentId: slip?.id ?? null,
+    method: c.method,
+    bankSlipAttachmentId: c.slip?.id ?? null,
     expectedCash: f.expectedCash,
     acceptedExpenses: 0,
     expectedNet: f.cashOnHand,
     summarySnapshot: snapshot as unknown as Record<string, unknown>,
     submittedAt: meta.deviceTime,
-    submittedLate: late,
-    truckId: truckId ?? existing?.truckId ?? null,
+    submittedLate: c.late,
+    truckId: c.truckId ?? existing?.truckId ?? null,
     ...fieldValues(meta),
     updatedAt: ctx.now,
   };
@@ -212,19 +232,28 @@ export async function submitDeposit(ctx: ActorContext, input: unknown, meta: M3W
     const number = await nextNumber(tx, "deposit", date, { tenantId: ctx.tenantId });
     [deposit] = (await tx
       .insert(deposits)
-      .values({ tenantId: ctx.tenantId, number, sourceType: "driver", businessDate: date, depositorUserId: userId, depositorEmployeeId: ctx.employeeId, createdBy: userId, ...values })
+      .values({ tenantId: ctx.tenantId, number, sourceType: "driver", businessDate: date, depositorUserId: c.userId, depositorEmployeeId: c.employeeId, createdBy: ctx.userId, ...values })
       .returning()) as [DepositRow];
   }
-  if (slip) await linkAttachment(tx, slip.id, { type: "deposit", id: deposit.id });
+  if (c.slip) await linkAttachment(tx, c.slip.id, { type: "deposit", id: deposit.id });
   await auditRecord(tx, {
     ctx,
     objectType: "deposit",
     objectId: deposit.id,
     action: "submit",
     before: { status: existing?.status ?? null },
-    after: { status: "submitted", expectedCash: f.expectedCash, expectedNet: f.cashOnHand, method: data.method, submittedLate: late, waitingSync: countManifest(missing) },
-    reason: data.note ?? null,
-    rule: "US-M3-07 KP-2",
+    after: {
+      status: "submitted",
+      expectedCash: f.expectedCash,
+      expectedNet: f.cashOnHand,
+      method: c.method,
+      submittedLate: c.late,
+      waitingSync: countManifest(missing),
+      recordedByOffice: !!meta.office || undefined,
+      onBehalfOfUserId: meta.office ? c.userId : undefined,
+    },
+    reason: [c.note, c.auditReason].filter(Boolean).join(" — ") || null,
+    rule: meta.office ? "US-M3-09 KP-5 dicatat kantor" : c.late ? "US-M3-07 KP-5" : "US-M3-07 KP-2",
     businessDate: date,
   });
   await emit(
@@ -233,7 +262,7 @@ export async function submitDeposit(ctx: ActorContext, input: unknown, meta: M3W
     {
       depositId: deposit.id,
       sourceType: "driver",
-      sourceUserId: userId,
+      sourceUserId: c.userId,
       truckId: deposit.truckId,
       outletId: null,
       expectedAmount: f.cashOnHand,
@@ -241,13 +270,120 @@ export async function submitDeposit(ctx: ActorContext, input: unknown, meta: M3W
       businessDate: date,
       expectedCash: f.expectedCash,
       claimedCashExpenses: f.expensesFromCash,
-      method: data.method,
-      submittedLate: late,
+      method: c.method,
+      submittedLate: c.late,
       lateSync: meta.lateSync,
     },
     { ctx, businessDate: date, objectType: "deposit", objectId: deposit.id },
   );
-  return { deposit, duplicate: false, waitingSync: countManifest(missing), late };
+  return { deposit, waitingSync: countManifest(missing) };
+}
+
+/**
+ * Ajukan setoran Berjalan atas nama sopir ("dicatat kantor", US-M3-09 KP-5) — dipanggil `officeSubmitDeposit` (izin
+ * & alasan diperiksa di sana). Ringkasan dihitung sistem; serah fisik; penanda terlambat bila tanggalnya sudah lewat.
+ */
+export async function submitDepositOnBehalf(ctx: ActorContext, meta: M3WriteMeta, dep: DepositRow, who: { userId: string; employeeId: string | null; reason: string }) {
+  const rules = await m3Rules(meta.tx, dep.businessDate, ctx.tenantId);
+  const late = dep.businessDate < toBusinessDate(ctx.now) || isAfterCloseTime(meta.deviceTime, rules.cashCloseTime);
+  return lockDepositSummary(ctx, meta, dep.businessDate, dep, {
+    userId: who.userId,
+    employeeId: who.employeeId,
+    method: "physical",
+    slip: null,
+    note: null,
+    manifest: emptyManifest(),
+    deviceExpectedNet: null,
+    truckId: dep.truckId,
+    late,
+    auditReason: `Dicatat kantor: ${who.reason}`,
+  });
+}
+
+/**
+ * Setor (US-M3-07 KP-2/KP-3/KP-5). Otorisasi berdasarkan KEPEMILIKAN kas (setoran milik pelaku), bukan status
+ * pengemudi truk saat sinkron — sopir yang digantikan di tengah hari tetap menyetor kas yang ia terima (US-M2-11 KP-3).
+ *
+ * - `depositDate` < tanggal perintah: mengajukan setoran hari sebelumnya yang belum sempat diajukan (lewat tengah
+ *   malam) dengan penanda terlambat; rit hari ini tidak ikut terkunci.
+ * - Setor hari ini juga mengajukan setoran hari-hari sebelumnya milik pelaku yang masih Berjalan (terlambat), agar kas
+ *   tidak tertahan dan kunci BR-10 dapat dibuka Admin Keuangan. Bila hari ini belum ada aktivitas kas/rit, setoran
+ *   hari ini TIDAK dibuat (hari ini tetap terbuka untuk rit).
+ */
+export async function submitDeposit(ctx: ActorContext, input: unknown, meta: M3WriteMeta): Promise<SubmitDepositResult> {
+  const data = parseInput(depositSubmitSchema, input, { method: "Cara setor", note: "Catatan", depositDate: "Tanggal setoran" });
+  const tx = meta.tx;
+  const userId = ctx.userId!;
+  const today = meta.businessDate;
+  if (!meta.office) await authorize(ctx, "m3.deposit.submit", { tx, conditions: await depositHolderConditions(tx, ctx) });
+  const date = data.depositDate ?? today;
+  if (date > today) throw ValidationError.field("depositDate", "Tanggal setoran tidak boleh setelah hari ini. Periksa tanggal & jam ponsel.");
+  const truckId = await actingTruckId(tx, ctx, today);
+  // PTB-23: setor bank dengan slip hanya bila diizinkan pemilik per orang.
+  const slip = attachmentsOfKind(meta, "deposit_slip")[0] ?? null;
+  if (data.method === "bank_slip") {
+    const emp = ctx.employeeId ? (await tx.select({ allow: employees.allowBankDeposit }).from(employees).where(eq(employees.id, ctx.employeeId)).limit(1))[0] : null;
+    if (!emp?.allow) throw new DomainError("BANK_DEPOSIT_NOT_ALLOWED", "Anda belum diizinkan setor ke bank. Serahkan uang langsung ke Admin Keuangan.");
+    if (!slip) throw new DomainError("SLIP_REQUIRED", "Foto slip setoran bank wajib.");
+  }
+  const rules = await m3Rules(tx, today, ctx.tenantId);
+  const core = (late: boolean, over: Partial<SubmitCore> = {}): SubmitCore => ({
+    userId,
+    employeeId: ctx.employeeId,
+    method: data.method,
+    slip,
+    note: data.note ?? null,
+    manifest: data.manifest,
+    deviceExpectedNet: data.deviceExpectedNet ?? null,
+    truckId,
+    late,
+    auditReason: null,
+    ...over,
+  });
+  const alreadySubmitted = (dep: DepositRow): SubmitDepositResult | never => {
+    if (dep.status === "submitted" && dep.syncCommandId === meta.commandId) return { deposit: dep, duplicate: true, waitingSync: 0, late: dep.submittedLate, lateDeposits: [] };
+    throw new DomainError("DEPOSIT_ALREADY_SUBMITTED", `Setoran ${date === today ? "hari ini" : formatTanggal(date, { weekday: false })} (${dep.number}) sudah ${dep.status === "submitted" ? "diajukan" : "diterima Admin Keuangan"}.`);
+  };
+
+  // --- Setoran hari sebelumnya yang belum diajukan (dipilih eksplisit di perangkat) ---
+  if (date < today) {
+    const dep = await depositOf(tx, userId, date, { forUpdate: true });
+    if (!dep) throw new NotFoundError(`Tidak ada setoran ${formatTanggal(date, { weekday: false })} untuk diajukan. Tarik data terbaru lalu periksa menu Setor.`);
+    if (dep.status !== "running") return alreadySubmitted(dep);
+    const res = await lockDepositSummary(ctx, meta, date, dep, core(true, { truckId: dep.truckId }));
+    return { deposit: res.deposit, duplicate: false, waitingSync: res.waitingSync, late: true, lateDeposits: [] };
+  }
+
+  const existing = await depositOf(tx, userId, date, { forUpdate: true });
+  if (existing && existing.status !== "running") return alreadySubmitted(existing);
+  // US-M3-07 KP-2: Setor hanya bila tidak ada rit Berangkat/Tiba.
+  const active = await tx.select({ number: trips.number }).from(trips).where(and(eq(trips.driverUserId, userId), inArray(trips.status, ["departed", "arrived"]))).limit(1);
+  if (active[0]) throw new DomainError("ACTIVE_TRIP_EXISTS", `Rit ${active[0].number} masih berjalan. Selesaikan atau tandai gagal dulu sebelum Setor.`);
+
+  // US-M3-07 KP-5: setoran hari sebelumnya yang masih Berjalan ikut diajukan (terlambat) — serah fisik.
+  const stale = await staleRunningDeposits(tx, userId, date, { forUpdate: true });
+  const lateDeposits: SubmitDepositResult["lateDeposits"] = [];
+  for (const dep of stale) {
+    const res = await lockDepositSummary(
+      ctx,
+      meta,
+      dep.businessDate,
+      dep,
+      core(true, { method: "physical", slip: null, manifest: emptyManifest(), deviceExpectedNet: null, truckId: dep.truckId, auditReason: `Diajukan terlambat bersama Setor ${formatTanggal(date, { weekday: false })}.` }),
+    );
+    lateDeposits.push({ id: res.deposit.id, number: res.deposit.number, businessDate: res.deposit.businessDate, expectedNet: res.deposit.expectedNet });
+  }
+  if (!existing && lateDeposits.length > 0) {
+    const f = await dayFigures(tx, userId, date);
+    const idle = f.trips.length === 0 && f.payments.length === 0 && f.collections.length === 0 && f.expenses.length === 0;
+    if (idle) {
+      const last = (await depositOf(tx, userId, lateDeposits[lateDeposits.length - 1]!.businessDate))!;
+      return { deposit: last, duplicate: false, waitingSync: 0, late: true, lateDeposits: lateDeposits.slice(0, -1) };
+    }
+  }
+  const late = isAfterCloseTime(meta.deviceTime, rules.cashCloseTime) || date < toBusinessDate(ctx.now);
+  const res = await lockDepositSummary(ctx, meta, date, existing, core(late));
+  return { deposit: res.deposit, duplicate: false, waitingSync: res.waitingSync, late, lateDeposits };
 }
 
 /** Keterangan sopir atas selisih setoran yang sudah Diterima (US-M3-07 KP-4) → alur selisih M4. */

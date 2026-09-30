@@ -31,6 +31,7 @@ import { computePinVerifier, fieldCommandKey, formatCode, hashCode, normalizeCod
 import type { DeviceAuth } from "./device-auth";
 import { deviceSource, logDeviceUsage, type DeviceRow } from "./devices";
 import { AuthError } from "./errors";
+import { appUpdateMessage, appUpdateRequired } from "../sync/app-version";
 import { applyCrewScope } from "./field-scope";
 import { hashPin, isPinFormat, verifySecretHash } from "./password";
 import { createSession, isUserUsable, revokeAllSessions } from "./session";
@@ -293,6 +294,9 @@ async function recentDevicePinFailures(tx: Tx, deviceId: string, now: Date): Pro
  */
 export async function pinLogin(auth: DeviceAuth, input: { userId: string; pin: string }): Promise<FieldLoginResult> {
   const { device, now } = auth;
+  // US-M10-07 KP-4, NFR-32 (S5B): versi aplikasi di bawah minimal tidak dapat login daring (perbarui dulu).
+  const minVersion = await appUpdateRequired(auth.appVersion, now);
+  if (minVersion) throw new AuthError("APP_UPDATE_REQUIRED", appUpdateMessage(minVersion), { minVersion });
   const outcome = await withTx(async (tx) => {
     if ((await recentDevicePinFailures(tx, device.id, now)) >= PIN_LOGIN_MAX_FAILURES_PER_DEVICE_15_MIN) {
       throw new AuthError("PIN_RATE_LIMITED", "Terlalu banyak PIN salah di perangkat ini. Tunggu 15 menit atau hubungi admin sistem.");

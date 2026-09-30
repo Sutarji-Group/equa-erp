@@ -742,6 +742,13 @@ export interface WaterSupplyConfirmedPayload {
   /** Pasokan tanpa konfirmasi operator sampai tutup shift berikutnya (PAR-61). */
   autoAccepted?: boolean;
   shiftId?: string | null;
+  /**
+   * Tambahan S5-B: konfirmasi operator atas pasokan yang SUDAH diterima otomatis — `transferValue` = penyesuaian nilai
+   * selisih (bertanda, bisa negatif), bukan nilai penuh (BR-33).
+   */
+  adjustmentOfAutoAccepted?: boolean;
+  /** Tambahan S5-B: harga transfer internal tidak dapat ditentukan (zona/tarif/BBM belum lengkap) — M11 mengantrekan jurnal. */
+  transferPriceMissing?: string | null;
 }
 export interface MeterReadingRecordedPayload {
   meterReadingId: string;

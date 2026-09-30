@@ -384,6 +384,11 @@ export function registerAuditObjectLabel(objectType: string, text: string): void
   OBJECT_LABELS.set(objectType, text);
 }
 
+/** Label Bahasa Indonesia jenis objek (huruf kecil, mis. "setoran"); `null` bila belum terdaftar. Tambahan S5B. */
+export function auditObjectLabel(objectType: string): string | null {
+  return OBJECT_LABELS.get(objectType) ?? null;
+}
+
 /** Daftarkan label & format kolom (`objectType` atau `*` untuk semua objek). */
 export function registerAuditFieldLabel(objectType: string, field: string, def: FieldLabel): void {
   FIELD_LABELS.set(`${objectType}.${field}`, def);

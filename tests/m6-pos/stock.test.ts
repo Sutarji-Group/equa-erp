@@ -120,8 +120,12 @@ describe("US-M6-04 Stok bahan habis pakai dan opname mingguan", () => {
   it("US-M6-04 KP-4 opname mingguan → usulan penyesuaian beralasan → persetujuan pemilik (tenggat 3 hari) → saldo + stock.adjusted; belum opname minggu ini → Admin Keuangan", async () => {
     const pos = await posFor("D07");
     await stockUp(pos, { tutup: 40, tisu: 40, galonKosong: 6 });
-    const noReason = await pos.send("m6.stock_count.submit", { stockCountId: newId(), lines: [{ productId: P.TUTUP, physicalQty: 35 }] });
+    const noReason = await pos.send("m6.stock_count.submit", { stockCountId: newId(), lines: [{ productId: P.TUTUP, physicalQty: 35 }, { productId: P.TISU, physicalQty: 40 }, { productId: P.GALON_KOSONG, physicalQty: 6 }] });
     expect(noReason.status).toBe("rejected");
+    // US-M6-04 KP-4 / BR-27: opname harus menghitung SELURUH bahan (opname sebagian ditolak).
+    const partial = await pos.send("m6.stock_count.submit", { stockCountId: newId(), lines: [{ productId: P.TUTUP, physicalQty: 40 }] });
+    expect(partial.status).toBe("rejected");
+    expect(partial.message).toMatch(/seluruh bahan/);
     const countId = newId();
     const res = await pos.send("m6.stock_count.submit", {
       stockCountId: countId,
@@ -145,7 +149,12 @@ describe("US-M6-04 Stok bahan habis pakai dan opname mingguan", () => {
     expect((ev!.payload as { lines: unknown[] }).lines).toHaveLength(2);
     // Ditolak → saldo tidak berubah.
     const c2 = newId();
-    expectApplied(await pos.send("m6.stock_count.submit", { stockCountId: c2, lines: [{ productId: P.TUTUP, physicalQty: 30, reason: "damaged" }] }));
+    expectApplied(
+      await pos.send("m6.stock_count.submit", {
+        stockCountId: c2,
+        lines: [{ productId: P.TUTUP, physicalQty: 30, reason: "damaged" }, { productId: P.TISU, physicalQty: 42 }, { productId: P.GALON_KOSONG, physicalQty: 6 }],
+      }),
+    );
     const [count2] = await t.db.select().from(stockCounts).where(eq(stockCounts.id, c2));
     await approvals.decide(owner(), count2!.approvalRequestId!, "reject", "Hitung ulang bersama Admin Keuangan");
     expect(await balance(t.db, pos.outletId, P.TUTUP)).toBe(35);

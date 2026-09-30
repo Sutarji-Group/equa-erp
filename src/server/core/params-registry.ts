@@ -531,6 +531,27 @@ export const PARAM_REGISTRY = {
     },
   }),
 
+  // --- Tambahan S5-B (audit PRD) M6 — hanya tambah ---
+  /** US-M6-01 KP-1 / US-M6-06 KP-4: harga perangkat diterima hanya bila sama dengan harga master yang berlaku dalam jendela offline. */
+  "m6.price_rules": defineParam({
+    schema: z
+      .object({
+        /** Harga master versi lama masih diterima bila berlaku dalam N hari sebelum tanggal transaksi (katalog perangkat offline). */
+        offline_price_grace_days: int(0),
+      })
+      .strict(),
+    scopes: ["global", "tenant"],
+    affectedRoles: ["depot_operator", "store_cashier"],
+    fallback: { offline_price_grace_days: 3 },
+    meta: {
+      name: "Jendela harga katalog offline POS",
+      unit: "hari",
+      reference: "US-M6-01 KP-1, US-M6-06 KP-4, BR-15, BR-17, BR-18",
+      description:
+        "Transaksi POS memakai harga di perangkat saat itu; server menerimanya hanya bila sama dengan harga master (jenis harga yang berlaku) pada salah satu hari dalam N hari terakhir. Harga lain ditolak agar harga master, batas diskon, dan harga mitra tidak dapat dilewati.",
+    },
+  }),
+
   // --- Tambahan modul M3 (Aplikasi Sopir) — hanya tambah ---
   /** Aturan aplikasi sopir yang bukan PAR Lampiran B (angka yang disebut PRD M3 tanpa nomor PAR). */
   "m3.driver_rules": defineParam({

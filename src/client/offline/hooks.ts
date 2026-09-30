@@ -2,7 +2,7 @@
 
 /**
  * Hook React aplikasi lapangan (hanya peramban):
- * - `useSyncStatus(userId?)` → jumlah antrean belum terkirim (pengguna aktif), ditolak, perlu login, status daring,
+ * - `useSyncStatus(userId?)` → jumlah antrean belum terkirim (pengguna aktif), ditolak & belum dibaca, perlu login, status daring,
  *   sedang mengirim, terakhir sinkron, `syncNow()` ("Kirim sekarang").
  * - `useReference<T>(key)` → data referensi offline hasil pull untuk pengguna aktif (mis. `"m3.trips_today"`), dengan
  *   perintah yang masih di antrean diterapkan ulang secara optimistis (`registerOptimistic`, ./optimistic.ts).
@@ -11,8 +11,9 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useSyncExternalStore } from "react";
 
-import { fieldDb, PENDING_STATUSES, type MetaItem, type OutboxItem } from "./db";
+import { fieldDb, PENDING_STATUSES, type MetaItem, type OutboxItem, type OutboxStatus } from "./db";
 import { hasOptimisticFor, withOptimistic } from "./optimistic";
+import { listOutbox } from "./outbox";
 import { syncNow, type SyncState } from "./sync";
 
 function subscribeOnline(callback: () => void): () => void {
@@ -49,16 +50,16 @@ export function useSyncStatus(userId?: string | null): SyncStatus {
   const online = useOnline();
   const counts = useLiveQuery(
     async () => {
+      // NFR-17: hitung lewat indeks status (tidak memuat seluruh riwayat antrean setiap perubahan).
       const db = fieldDb();
-      const rows = userId ? await db.outbox.where("userId").equals(userId).toArray() : await db.outbox.toArray();
+      const count = (status: OutboxStatus) => (userId ? db.outbox.where("[userId+status]").equals([userId, status]) : db.outbox.where("status").equals(status));
       let pending = 0;
-      let rejected = 0;
-      let needsLogin = 0;
-      for (const r of rows) {
-        if ((PENDING_STATUSES as readonly string[]).includes(r.status)) pending++;
-        if (r.status === "rejected") rejected++;
-        if (r.status === "needs_login") needsLogin++;
-      }
+      for (const status of PENDING_STATUSES) pending += await count(status).count();
+      const needsLogin = await count("needs_login").count();
+      // Item ditolak yang sudah dibaca (`markRejectedReviewed`) tidak lagi menyalakan pita merah.
+      const rejected = await count("rejected")
+        .filter((r) => !r.reviewedAt)
+        .count();
       return { pending, rejected, needsLogin };
     },
     [userId],
@@ -86,8 +87,11 @@ export function useReference<T>(key: string, userId: string | null | undefined):
       const db = fieldDb();
       const data = (await db.refs.get([userId, key]))?.data as T | undefined;
       if (!hasOptimisticFor(key)) return data;
-      // Perintah pengguna yang belum terkirim diterapkan ulang di atas hasil pull terakhir.
-      const pending = await db.outbox.where("userId").equals(userId).toArray();
+      // Perintah pengguna yang belum terkirim diterapkan ulang di atas hasil pull terakhir (hanya status PENDING, via indeks).
+      const pending = await db.outbox
+        .where("[userId+status]")
+        .anyOf(PENDING_STATUSES.map((s) => [userId, s]))
+        .toArray();
       return withOptimistic(key, data, pending);
     },
     [key, userId],
@@ -95,13 +99,12 @@ export function useReference<T>(key: string, userId: string | null | undefined):
   );
 }
 
-/** Antrean pengguna (terbaru dulu). */
+/** Antrean pengguna (terbaru dulu; indeks `[userId+createdAt]` + batas — tidak memuat seluruh riwayat). */
 export function useOutbox(userId: string | null | undefined, limit = 20): OutboxItem[] {
   return useLiveQuery(
     async () => {
       if (!userId) return [];
-      const rows = await fieldDb().outbox.where("userId").equals(userId).toArray();
-      return rows.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+      return listOutbox(userId, limit);
     },
     [userId, limit],
     [] as OutboxItem[],

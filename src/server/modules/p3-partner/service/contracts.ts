@@ -60,8 +60,21 @@ export type ContractTerms = {
 
 type PendingTerms = Partial<ContractTerms> & { reason?: string; approvalNumber?: string };
 
-/** Parameter yang berlaku untuk bulan layanan `periodMonth` ('YYYY-MM-01'). */
+/** Satu penerapan parameter: `before` berlaku untuk bulan layanan < `effectiveFrom` (US-P3-04 KP-5). */
+export type TermsHistoryEntry = { effectiveFrom: BusinessDate; before: ContractTerms; approvalNumber?: string | null; appliedAt?: string };
+
+function termsHistoryOf(contract: Pick<ContractRow, "termsHistory">): TermsHistoryEntry[] {
+  return ((contract.termsHistory ?? []) as unknown as TermsHistoryEntry[]).slice().sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+}
+
+/**
+ * Parameter yang berlaku untuk bulan layanan `periodMonth` ('YYYY-MM-01'): riwayat penerapan (bulan sebelum tanggal
+ * berlaku memakai parameter lama — tagihan bulan lalu yang terbit SETELAH job siklus 00.30 tetap bertarif lama), lalu
+ * kolom dasar, lalu `pending_terms` yang sudah jatuh tanggal berlakunya.
+ */
 export function effectiveTerms(contract: ContractRow, periodMonth: BusinessDate): ContractTerms {
+  const older = termsHistoryOf(contract).find((h) => periodMonth < h.effectiveFrom);
+  if (older) return older.before;
   const base: ContractTerms = {
     subscriptionFeePerOutlet: contract.subscriptionFeePerOutlet,
     royaltyBp: contract.royaltyBp,
@@ -405,18 +418,22 @@ export async function scheduleContractTerms(tx: Tx, ctx: ActorContext, contractI
   const contract = await loadContract(tx, contractId, { forUpdate: true });
   const payload = (request.payload ?? {}) as { changes?: Partial<ContractTerms>; effectiveFrom?: string };
   const pending: PendingTerms = { ...(payload.changes ?? {}), reason: request.reason, approvalNumber: request.number };
-  await tx.update(partnerContracts).set({ pendingTerms: pending, pendingTermsEffectiveFrom: payload.effectiveFrom ?? null, updatedAt: ctx.now }).where(eq(partnerContracts.id, contract.id));
+  // US-P3-04 KP-5: berlaku mulai bulan SESUDAH persetujuan — persetujuan yang terlambat (setelah tanggal berlaku usulan)
+  // tidak mengubah tarif bulan layanan yang sudah berjalan.
+  const earliest = firstDayOfMonth(addDays(`${ctxBusinessDate(ctx).slice(0, 7)}-01`, 32));
+  const effectiveFrom = payload.effectiveFrom && payload.effectiveFrom >= earliest ? payload.effectiveFrom : earliest;
+  await tx.update(partnerContracts).set({ pendingTerms: pending, pendingTermsEffectiveFrom: effectiveFrom, updatedAt: ctx.now }).where(eq(partnerContracts.id, contract.id));
   await auditRecord(tx, {
     ctx,
     objectType: "partner_contract",
     objectId: contract.id,
     action: "schedule_terms",
-    before: effectiveTerms(contract, payload.effectiveFrom ?? ctxBusinessDate(ctx)),
-    after: { ...pending, effectiveFrom: payload.effectiveFrom },
+    before: effectiveTerms(contract, effectiveFrom),
+    after: { ...pending, effectiveFrom, proposedEffectiveFrom: payload.effectiveFrom ?? null },
     reason: request.reason,
     rule: "US-P3-04 KP-5, 6.2a",
   });
-  return { effectiveFrom: payload.effectiveFrom, changes: payload.changes };
+  return { effectiveFrom, changes: payload.changes };
 }
 
 // =====================================================================================================================
@@ -482,22 +499,27 @@ export async function runContractLifecycle(now: Date, opts: { db?: Db } = {}): P
       const equa = await ownerTenantId(tx);
       const ctx = systemContext({ tenantId: equa, now, businessDate: today });
       const rules = await partnerRules(tx, today);
-      const phase3 = await portalEnabled(tx);
       const live = await tx.select().from(partnerContracts).where(inArray(partnerContracts.status, ["active", "extended"])).orderBy(asc(partnerContracts.number));
       for (const c of live) {
         if (c.pendingTerms && c.pendingTermsEffectiveFrom && c.pendingTermsEffectiveFrom <= today) {
           const next = effectiveTerms(c, c.pendingTermsEffectiveFrom);
+          const before: ContractTerms = { subscriptionFeePerOutlet: c.subscriptionFeePerOutlet, royaltyBp: c.royaltyBp, waterDiscountBp: c.waterDiscountBp, creditLimit: c.creditLimit };
+          // Riwayat: parameter lama tetap berlaku untuk bulan layanan sebelum tanggal berlaku (tagihan 00.40 bulan lalu).
+          const history: TermsHistoryEntry[] = [
+            ...termsHistoryOf(c),
+            { effectiveFrom: c.pendingTermsEffectiveFrom, before, approvalNumber: (c.pendingTerms as PendingTerms).approvalNumber ?? null, appliedAt: now.toISOString() },
+          ];
           await tx
             .update(partnerContracts)
-            .set({ ...next, pendingTerms: null, pendingTermsEffectiveFrom: null, updatedAt: now })
+            .set({ ...next, termsHistory: history as unknown as Record<string, unknown>[], pendingTerms: null, pendingTermsEffectiveFrom: null, updatedAt: now })
             .where(eq(partnerContracts.id, c.id));
           await auditRecord(tx, {
             ctx,
             objectType: "partner_contract",
             objectId: c.id,
             action: "apply_terms",
-            before: { subscriptionFeePerOutlet: c.subscriptionFeePerOutlet, royaltyBp: c.royaltyBp, waterDiscountBp: c.waterDiscountBp, creditLimit: c.creditLimit },
-            after: next,
+            before,
+            after: { ...next, effectiveFrom: c.pendingTermsEffectiveFrom },
             reason: (c.pendingTerms as PendingTerms).reason ?? null,
             rule: "US-P3-04 KP-5",
           });
@@ -513,7 +535,8 @@ export async function runContractLifecycle(now: Date, opts: { db?: Db } = {}): P
           out.ended.push(c.id);
           continue;
         }
-        if (!phase3) continue;
+        // US-P3-01 KP-5: flag Tahap 3 dapat hidup per tenant mitra (bukan hanya global).
+        if (!(await portalEnabled(tx, c.tenantId))) continue;
         if (addDays(c.endDate, -rules.contract_expiry_reminder_days) <= today) {
           const sent = await notifyOnce(tx, {
             event: "partner.contract_expiring",

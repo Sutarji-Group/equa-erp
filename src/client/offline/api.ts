@@ -19,8 +19,13 @@ export class FieldApiError extends Error {
   readonly wipe: boolean;
   readonly lockedUntil: string | null;
   readonly attemptsLeft: number | null;
+  /** Isian yang ditolak validasi server (galat `VALIDATION` berisian = penolakan final atas data itu). */
+  readonly issues: readonly { path: string; message: string }[];
 
-  constructor(message: string, info: { code: string; status?: number; network?: boolean; wipe?: boolean; lockedUntil?: string | null; attemptsLeft?: number | null }) {
+  constructor(
+    message: string,
+    info: { code: string; status?: number; network?: boolean; wipe?: boolean; lockedUntil?: string | null; attemptsLeft?: number | null; issues?: readonly { path: string; message: string }[] },
+  ) {
     super(message);
     this.name = "FieldApiError";
     this.code = info.code;
@@ -29,6 +34,7 @@ export class FieldApiError extends Error {
     this.wipe = info.wipe ?? false;
     this.lockedUntil = info.lockedUntil ?? null;
     this.attemptsLeft = info.attemptsLeft ?? null;
+    this.issues = info.issues ?? [];
   }
 }
 
@@ -164,6 +170,7 @@ export async function deviceFetch<T>(path: string, opts: DeviceFetchOptions = {}
       wipe: !!err.wipe,
       lockedUntil: err.lockedUntil ?? null,
       attemptsLeft: err.attemptsLeft ?? null,
+      issues: Array.isArray(err.issues) ? err.issues : [],
     });
   }
   return data as T;

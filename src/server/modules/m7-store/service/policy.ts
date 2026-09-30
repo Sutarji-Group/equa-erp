@@ -101,15 +101,24 @@ async function validateStoreSale(args: PosSaleValidateArgs): Promise<PosSaleDeci
     await authorize(ctx, "m7.credit_sale.create", { tx, objectType: "pos_sale", objectId: input.saleId });
     const rules = await storeRules(tx, meta.businessDate, outlet.tenantId);
     const delayMs = meta.fieldValues.syncedAt.getTime() - meta.deviceTime.getTime();
-    const offline = input.creditOffline === true || delayMs > rules.credit_offline_after_minutes * 60_000;
+    // US-M7-04 KP-4 / PTB-42: "offline" ditentukan server dari jeda waktu perangkat → sinkron, BUKAN dari penanda klien
+    // (`creditOffline` hanya informasi) — tempo daring selalu melewati kontrol kredit penuh.
+    const offline = delayMs > rules.credit_offline_after_minutes * 60_000;
     const check = await evaluateStoreCredit(tx, { tenantId: outlet.tenantId, customerId, amount: total });
     if (!check.ok && (check.reason === "customer_required" || check.reason === "not_partner")) {
       throw new DomainError(check.reason === "customer_required" ? "CREDIT_CUSTOMER_REQUIRED" : "CREDIT_NOT_PARTNER", check.message);
     }
     if (offline) {
-      // PTB-42: tempo offline memakai eksposur sinkron terakhir di perangkat — diterima & ditandai tinjauan FA.
+      // PTB-42: tempo offline memakai eksposur sinkron terakhir di perangkat — melampaui batas karena transaksi lain
+      // diterima & ditandai tinjauan FA; pelanggan Ditahan/Tunai TIDAK pernah Sah otomatis → menunggu persetujuan pemilik.
       decision.creditOffline = true;
-      if (!check.ok) decision.conflict = `Tempo dicatat saat offline; menurut server: ${check.message}`;
+      if (!check.ok && check.reason === "over_limit") {
+        decision.conflict = `Tempo dicatat saat offline; menurut server: ${check.message}`;
+      } else if (!check.ok) {
+        decision.status = "pending_approval";
+        decision.conflict = `Tempo dicatat saat offline, tetapi ${check.message.replace(/ Pilih tunai.*$/, "")} — menunggu keputusan pemilik.`;
+        decision.approvals!.push({ type: "store_credit_sale", amount: total, reason: `Tempo dicatat saat offline (PTB-42) untuk pelanggan yang menurut server: ${check.message.replace(/ Pilih tunai.*$/, "")}` });
+      }
     } else if (!check.ok) {
       if (input.requestApproval && check.canRequestApproval) {
         decision.status = "pending_approval";

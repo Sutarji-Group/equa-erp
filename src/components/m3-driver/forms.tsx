@@ -12,6 +12,7 @@ import {
   M3_ATTACHMENT_KINDS,
   M3_COMMANDS,
   normalizePhoneForWa,
+  receiptOutstanding,
   renderTemplateText,
   sortInvoicesForCollection,
   waLink,
@@ -355,7 +356,8 @@ export function ReceiptView({ tripId, paymentId }: { tripId: string; paymentId?:
   const kind = paymentId ? "payment_receipt" : "trip_receipt";
   const pay = today.payments.find((p) => p.tripId === t.id);
   const collection = paymentId ? today.collections.find((c) => c.id === paymentId) : undefined;
-  const outstanding = (today.invoicesByCustomer[t.customerId] ?? []).reduce((sum, i) => sum + i.outstanding, 0);
+  // Faktur rit ini (kurang bayar/tempo) yang sudah terbit setelah pull tidak dihitung dua kali.
+  const outstanding = receiptOutstanding(today.invoicesByCustomer[t.customerId] ?? [], t.id, pay);
   const text = renderTemplateText(today.receiptTemplates[kind] ?? "", {
     nama_usaha: today.company.name,
     nomor_rit: t.number,
@@ -365,7 +367,7 @@ export function ReceiptView({ tripId, paymentId }: { tripId: string; paymentId?:
     harga: formatRupiah(t.price),
     cara_bayar: pay ? label("payment_method", pay.method) : label("payment_method", t.paymentMethod),
     nama_penerima: t.recipientName,
-    sisa_piutang: pay?.method === "credit" || (pay?.underpaymentAmount ?? 0) > 0 || outstanding > 0 ? `Sisa piutang: ${formatRupiah(outstanding + (pay?.method === "credit" ? pay.expectedAmount : (pay?.underpaymentAmount ?? 0)))}` : null,
+    sisa_piutang: outstanding > 0 ? `Sisa piutang: ${formatRupiah(outstanding)}` : null,
     jumlah: collection ? formatRupiah(collection.amount) : null,
     daftar_faktur: collection ? collection.allocations.map((a) => a.invoiceNumber ?? "").join(", ") : null,
   });

@@ -164,3 +164,30 @@ rit sudah Selesai/Gagal oleh perintah lain → konflik (catatan pertama berlaku)
 - M12: pakai `noLocation`, `outOfOrder`, jarak server, dan `gps_positions` sumber `phone`; buat `fleet_events.requires_explanation`.
 - UAT (tidak otomatis): NFR-18 teks ≥ 16 pt & kontras di bawah sinar matahari (US-M3-01 KP-7 sebagian), kamera nyata,
   uji lapangan tanpa sinyal di rute Cianjur.
+
+## 11. Perbaikan audit S5B (paket A)
+
+- **Setoran lintas tengah malam (US-M3-07 KP-5, BR-10)**: `submitDeposit` menerima `depositDate` (dari kartu
+  "Ajukan setoran <tanggal>" di layar Setor; pull `m3.today.pendingDeposits`). Setoran Berjalan hari sebelumnya
+  diajukan TERLAMBAT (bukan terkunci permanen); Setor hari ini juga mengajukan setoran Berjalan lama milik pengguna.
+  Pesan kunci BR-10 menyebut setoran yang belum diajukan.
+- **Setor per pemegang kas (US-M2-11 KP-3)**: otorisasi Setor, catatan setoran & kas di tangan memakai
+  `depositHolderConditions` (pemilik kas = `ctx.userId` dengan item tunai/pengeluaran), bukan status pengemudi aktif —
+  sopir yang digantikan tetap dapat menyetor tunainya.
+- **Pelaksana pada waktu perangkat (Bab 6.4 butir 3)**: `actingStatusAt`/`assertActingOnTruck` menilai penugasan pada
+  `meta.deviceTime` (penugasan yang `superseded_at` > waktu perangkat tetap sah) → `conflict` bertanda, bukan tolak.
+  Kunci BR-10/PAR-83 yang terbentuk setelah waktu perangkat → konflik.
+- **Kas setelah Setor (BR-07)**: pelunasan/pengeluaran yang dicatat setelah Setor ditolak (`assertCashDayOpen`); data
+  sebelum Setor yang terlambat sinkron tidak pernah ditautkan ke setoran Diterima/Ditutup — dibawa ke setoran Berjalan
+  berikutnya (carry-over, catatan konflik). `recordExpense` kini dapat mengembalikan `conflict`.
+- **Rit ditarik truk lain (US-M10-03 KP-1)**: `tripConflictNote` mewajibkan bukti rit pernah ada di truk lingkup pelaku
+  (truk rit, `driverUserId`, atau `schedule_change_logs` withdrawn/truck_changed/moved `before.truckId`), selain itu
+  `ForbiddenError` SCOPE.
+- **Dicatat kantor (US-M3-09 KP-5)**: `officeRecordCollection` & `officeSubmitDeposit` (alasan ≥ 10 huruf, bukti,
+  notifikasi `device.lost_queue`, penanda `recorded_by_office`); layar `/sopir-kantor/dicatat-kantor`.
+- **Minor**: `withdrawn` di pull memuat rit yang dikeluarkan dari truk + ringkasan (US-M3-01 KP-4); Selesai tanpa Tiba
+  tidak merekayasa `arrivedAt` (audit `arrivalNotRecorded`); Tempo hanya untuk pesanan tempo / permintaan tempo yang
+  diajukan, dan server menolak `method: credit` tanpa persetujuan untuk pelanggan Tunai; struk WA memakai
+  `receiptOutstanding` (tidak menghitung ganda faktur rit ini, `M3InvoiceRef.tripId`); akurasi GPS ponsel dari
+  `m12.fleet_rules.max_accuracy_m`.
+- Uji: `tests/m3-driver/cash-ownership.test.ts` (12 uji).

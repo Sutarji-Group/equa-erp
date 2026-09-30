@@ -155,3 +155,25 @@ status kredit pelanggan mitra (batas kredit kontrak).
 - B-08: portal mitra memaksa ganti kata sandi sementara (`requirePortalSession` → `/akun/kata-sandi`) dan menyediakan
   tombol "Ubah kata sandi" di kepala portal.
 
+## 10. Perbaikan audit S5B (paket A)
+
+- **Riwayat parameter kontrak (US-P3-04 KP-5, US-P3-09 KP-1)**: kolom baru `partner_contracts.terms_history`
+  (`[{ effectiveFrom, before, approvalNumber, appliedAt }]`) diisi job siklus saat menerapkan `pending_terms`;
+  `effectiveTerms(contract, periodMonth)` memakai parameter lama untuk bulan layanan < `effectiveFrom` — tagihan 00.40
+  bulan lalu tetap bertarif lama walau siklus 00.30 sudah menerapkan tarif baru. Tanggal berlaku dihitung saat
+  PERSETUJUAN (persetujuan terlambat → bulan sesudah persetujuan).
+- **Nota kredit faktur mitra gabungan (US-P3-09 KP-2/KP-3, BR-05, US-M11-02)**: nota kredit koreksi atas faktur
+  `partner_subscription` dibatasi sisa komponen L5 (langganan/royalti/fee awal) — `assertPartnerCreditNoteWithinL5`
+  (berkas baru `src/server/modules/m5-receivables/service/partner-credit.ts`, dipanggil `requestCreditNote`); koreksi
+  baris air lewat Koreksi rit M3. Formulir nota kredit faktur mitra menampilkan petunjuknya.
+- **Flag Tahap 3 per tenant (US-P3-01 KP-5)**: pengingat kontrak berakhir & evaluasi berkala memeriksa
+  `portalEnabled(tx, c.tenantId)`.
+- **Versi POS di portal (PRD 9.7, NFR-32)**: `portalHome.posVersion` (`partnerPosVersion`: versi minimal berlaku,
+  versi berikutnya + tanggal, versi per tablet mitra) + kartu "Versi aplikasi POS outlet" di beranda portal.
+- **Pendapatan L5 pada bulan layanan (US-P3-09 KP-3, US-M9-02 KP-1)**: M11 `partnerSubscription`
+  (`src/server/modules/m11-accounting/service/auto-journals.ts`) menjurnal `partner.subscription_invoiced` bertanggal
+  akhir `periodMonth` (bukan tanggal terbit faktur tgl 1 bulan berikutnya); periode bulan layanan yang sudah
+  Ditutup/Dikunci → mesin posting memindahkan ke periode terbuka pertama dengan "asal periode". Uji:
+  `tests/p3-partner/billing.test.ts` (KP-3 bulan LAYANAN).
+- Terbuka (lihat laporan S5B): mitra dua outlet (PRD 9.7 — dua pelanggan M1, satu kontrak; batas kredit bersama &
+  gabungan faktur lintas pelanggan mitra perlu perubahan model kontrak/eksposur M5).

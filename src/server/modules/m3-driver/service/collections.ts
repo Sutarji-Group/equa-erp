@@ -24,7 +24,7 @@ import { linkAttachment } from "@/server/core/storage";
 import { allocateOldestFirst, sortInvoicesForCollection, type M3InvoiceRef } from "@/client/m3-driver/contract";
 
 import { collectionSchema } from "../schemas";
-import { assertActingOnTruck, attachmentsOfKind, ensureRunningDeposit, fieldValues, loadTrip, type M3WriteMeta } from "./common";
+import { assertActingOnTruck, assertCashDayOpen, attachmentsOfKind, ensureRunningDeposit, fieldValues, loadTrip, type M3WriteMeta } from "./common";
 
 /** Jenis faktur lini truk (profit center L2) untuk pelunasan lewat sopir. */
 const TRUCK_INVOICE_KINDS = new Set(["underpayment", "delivery", "monthly"]);
@@ -47,6 +47,7 @@ export async function openInvoicesFor(tx: Tx, customerIds: readonly string[]): P
       credited: invoices.creditedAmount,
       writtenOff: invoices.writtenOffAmount,
       outstanding: invoices.outstandingAmount,
+      tripId: invoices.tripId,
       allocated: sql<number>`coalesce((select sum(pa.amount) from payment_allocations pa where pa.invoice_id = "invoices"."id"), 0)::bigint`,
     })
     .from(invoices)
@@ -65,6 +66,7 @@ export async function openInvoicesFor(tx: Tx, customerIds: readonly string[]): P
       dueDate: r.dueDate,
       outstanding,
       isUnderpayment: r.kind === "underpayment",
+      tripId: r.tripId,
     });
   }
   return sortInvoicesForCollection(out);
@@ -94,7 +96,9 @@ export async function recordCollection(ctx: ActorContext, input: unknown, meta: 
     throw new DomainError("NOT_TODAY_CUSTOMER", "Pelunasan hanya untuk pelanggan pada rit hari ini. Pelanggan lain melunasi lewat Admin Keuangan (kantor/transfer).");
   }
   if (trip.isInternal) throw new DomainError("INTERNAL_TRIP", "Rit internal pasokan depot tidak memiliki piutang pelanggan.");
-  await assertActingOnTruck(tx, ctx, "m3.collection.create", trip.truckId, meta.businessDate, meta);
+  const actingNote = await assertActingOnTruck(tx, ctx, "m3.collection.create", trip.truckId, meta.businessDate, meta, trip);
+  // BR-07, US-M3-07 KP-2: setelah Setor tidak ada pelunasan tunai baru hari itu (kecuali dibuka kembali).
+  if (data.method === "cash") await assertCashDayOpen(tx, actingUserId, meta.businessDate, meta, "pelunasan tunai");
 
   const proof = attachmentsOfKind(meta, "collection_transfer_proof")[0] ?? attachmentsOfKind(meta, "transfer_proof")[0] ?? null;
   if (data.method === "transfer" && !proof && !meta.office) {
@@ -106,16 +110,19 @@ export async function recordCollection(ctx: ActorContext, input: unknown, meta: 
   const selected = open.filter((i) => data.invoiceIds.includes(i.id));
   const missing = data.invoiceIds.filter((id) => !selected.some((s) => s.id === id));
   const { allocations, excess } = allocateOldestFirst(selected, data.amount);
-  const conflict =
+  const invoiceNote =
     excess > 0 || missing.length > 0
       ? `Sisa faktur berubah sejak data terakhir di ponsel${missing.length ? ` (${missing.length} faktur sudah lunas)` : ""}; ${formatRupiah(excess)} dicatat sebagai uang muka pelanggan untuk ditinjau Admin Keuangan.`
       : null;
 
   let depositId: string | null = null;
+  let carriedNote: string | null = null;
   if (data.method === "cash") {
-    const { deposit } = await ensureRunningDeposit(tx, ctx, { tenantId: trip.tenantId, userId: actingUserId, date: meta.businessDate, truckId: trip.truckId, today: toBusinessDate(ctx.now) });
+    const { deposit, carriedOver } = await ensureRunningDeposit(tx, ctx, { tenantId: trip.tenantId, userId: actingUserId, date: meta.businessDate, truckId: trip.truckId, today: toBusinessDate(ctx.now) });
     depositId = deposit.id;
+    if (carriedOver) carriedNote = `Setoran tanggal pelunasan sudah diterima Admin Keuangan; tunai ${formatRupiah(data.amount)} masuk setoran berjalan ${deposit.number} (terlambat sinkron).`;
   }
+  const conflict = [invoiceNote, actingNote, carriedNote].filter(Boolean).join(" ") || null;
   const [payment] = await tx
     .insert(customerPayments)
     .values({

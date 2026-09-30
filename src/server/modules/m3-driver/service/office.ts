@@ -18,12 +18,13 @@ import { getDb, type Tx } from "@/server/core/db";
 import { DomainError, parseInput } from "@/server/core/errors";
 import { notify } from "@/server/core/notifications";
 import { authorize, runService } from "@/server/core/rbac";
-import { getAttachment, put as putAttachment } from "@/server/core/storage";
+import { getAttachment, linkAttachment, put as putAttachment } from "@/server/core/storage";
 import { resolveDayCrews } from "@/server/modules/m2-orders";
 
-import { officeCompleteSchema, officeFailSchema } from "../schemas";
+import { officeCollectionSchema, officeCompleteSchema, officeDepositSchema, officeFailSchema } from "../schemas";
+import { openInvoicesFor, recordCollection } from "./collections";
 import { loadTrip, type M3WriteMeta, type TripRow } from "./common";
-import { driverDaySyncStatus, type DriverDaySyncStatus } from "./deposits";
+import { driverDaySyncStatus, submitDepositOnBehalf, type DriverDaySyncStatus } from "./deposits";
 import { completeTrip, failTrip } from "./trips";
 
 /** Sopir atas nama siapa rit dicatat: pelaksana rit (bila sudah Berangkat) atau pengemudi hari itu (jadwal kru). */
@@ -135,6 +136,80 @@ export async function officeFailTrip(ctx: ActorContext, input: unknown, opts: { 
   });
 }
 
+/**
+ * Admin Keuangan mencatat pelunasan piutang lewat sopir yang tertahan di antrean perangkat rusak/hilang (US-M3-09
+ * KP-5 "antrean belum terkirim"): alasan ≥ 10 huruf, bukti, penanda `recorded_by_office` (KPI-01 "tidak di sumber"),
+ * dilaporkan ke pemilik. Tunai masuk setoran sopir rit itu (setoran yang sudah Diterima → setoran berjalan berikutnya).
+ */
+export async function officeRecordCollection(ctx: ActorContext, input: unknown, opts: { tx?: Tx } = {}) {
+  await authorize(ctx, "m3.office_entry.create", { tx: opts.tx });
+  const data = parseInput(officeCollectionSchema, input, { reason: "Alasan", occurredTime: "Jam kejadian", amount: "Jumlah pelunasan", invoiceIds: "Faktur", method: "Cara bayar" });
+  return runService(ctx, opts, async (tx) => {
+    const trip = await loadTrip(tx, data.tripId);
+    if (trip.tenantId !== ctx.tenantId) throw new DomainError("NOT_FOUND", "Rit tidak ditemukan.");
+    await assertEvidence(tx, ctx, data.evidenceAttachmentId);
+    const who = await onBehalfOf(tx, trip);
+    const date = trip.completionBusinessDate ?? trip.scheduledDate;
+    const meta = { ...officeMeta(tx, ctx, trip, data.occurredTime, data.reason), businessDate: date, deviceTime: wibToUtc(date, data.occurredTime) };
+    const invoiceIds = data.invoiceIds.length ? data.invoiceIds : (await openInvoicesFor(tx, [data.customerId])).map((i) => i.id);
+    if (!invoiceIds.length) throw new DomainError("NO_OPEN_INVOICE", "Pelanggan ini tidak punya faktur terbuka. Catat sebagai uang muka lewat menu Piutang.");
+    const res = await recordCollection(
+      ctx,
+      { paymentId: data.paymentId, customerId: data.customerId, tripId: trip.id, method: data.method, amount: data.amount, invoiceIds },
+      meta,
+      { actingUserId: who.userId },
+    );
+    if (!res.duplicate) {
+      if (data.evidenceAttachmentId) await linkAttachment(tx, data.evidenceAttachmentId, { type: "customer_payment", id: res.payment.id });
+      await reportToOwner(tx, ctx, trip, `pelunasan ${formatRupiah(data.amount)}`, who.name, data.reason);
+    }
+    return { ...res, driverName: who.name };
+  });
+}
+
+/**
+ * Admin Keuangan mengajukan setoran sopir yang masih Berjalan atas nama sopir (US-M3-09 KP-5; US-M3-07 KP-5): perangkat
+ * rusak/hilang dengan Setor tertahan di antrean, atau setoran hari sebelumnya yang tertinggal (kunci BR-10). Ringkasan
+ * dihitung sistem dari data tersinkron; penanda terlambat bila lewat PAR-06/tanggalnya sudah lewat; dilaporkan ke pemilik.
+ */
+export async function officeSubmitDeposit(ctx: ActorContext, input: unknown, opts: { tx?: Tx } = {}) {
+  await authorize(ctx, "m3.office_entry.create", { tx: opts.tx });
+  const data = parseInput(officeDepositSchema, input, { reason: "Alasan", occurredTime: "Jam kejadian" });
+  return runService(ctx, opts, async (tx) => {
+    const dep = (await tx.select().from(deposits).where(eq(deposits.id, data.depositId)).for("update").limit(1))[0];
+    if (!dep || dep.tenantId !== ctx.tenantId || dep.sourceType !== "driver" || !dep.depositorUserId) throw new DomainError("NOT_FOUND", "Setoran sopir tidak ditemukan.");
+    if (dep.status !== "running") throw new DomainError("DEPOSIT_NOT_RUNNING", `Setoran ${dep.number} sudah ${label("deposit_status", dep.status)} — tidak perlu diajukan kantor.`);
+    await assertEvidence(tx, ctx, data.evidenceAttachmentId);
+    const who = (await tx.select({ employeeId: users.employeeId, name: employees.fullName }).from(users).leftJoin(employees, eq(employees.id, users.employeeId)).where(eq(users.id, dep.depositorUserId)).limit(1))[0];
+    const meta: M3WriteMeta = {
+      tx,
+      deviceId: null,
+      deviceTime: wibToUtc(dep.businessDate, data.occurredTime),
+      businessDate: dep.businessDate,
+      commandId: null,
+      receivedAt: ctx.now,
+      lateSync: dep.businessDate < toBusinessDate(ctx.now),
+      clockSkewFlagged: false,
+      attachments: [],
+      office: { reason: data.reason, recordedBy: ctx.userId! },
+    };
+    const res = await submitDepositOnBehalf(ctx, meta, dep, { userId: dep.depositorUserId, employeeId: who?.employeeId ?? null, reason: data.reason });
+    if (data.evidenceAttachmentId) await linkAttachment(tx, data.evidenceAttachmentId, { type: "deposit", id: dep.id });
+    await notify(tx, {
+      event: "device.lost_queue",
+      tenantId: dep.tenantId,
+      title: `Dicatat kantor: Setor ${dep.number}`,
+      body: `Atas nama ${who?.name ?? "sopir"} oleh Admin Keuangan (${formatRupiah(res.deposit.expectedNet)}). Alasan: ${data.reason}. Dihitung "tidak di sumber" pada KPI-01.`,
+      objectType: "deposit",
+      objectId: dep.id,
+      link: "/sopir-kantor/laporan",
+      groupKey: `office_entry:${dep.id}`,
+      now: ctx.now,
+    });
+    return { ...res, driverName: who?.name ?? null };
+  });
+}
+
 /** Unggah bukti (foto nota kertas, tangkapan layar transfer) untuk pencatatan kantor. */
 export async function uploadOfficeEvidence(ctx: ActorContext, file: { bytes: Uint8Array; contentType: string; name?: string | null }, opts: { tx?: Tx } = {}) {
   await authorize(ctx, "m3.office_entry.create", { tx: opts.tx });
@@ -150,6 +225,7 @@ export type OfficeTripRow = {
   number: string;
   status: TripRow["status"];
   truckCode: string | null;
+  customerId: string;
   customerName: string;
   price: number;
   paymentMethod: string;
@@ -184,6 +260,7 @@ export async function officeEntryBoard(ctx: ActorContext, input: { date?: Busine
     number: r.t.number,
     status: r.t.status,
     truckCode: r.truckCode,
+    customerId: r.t.customerId,
     customerName: r.customerName,
     price: r.t.price,
     paymentMethod: r.t.paymentMethod,
@@ -225,7 +302,7 @@ export async function officeEntryBoard(ctx: ActorContext, input: { date?: Busine
 }
 
 export type OfficeEntryReportRow = {
-  kind: "trip_completed" | "trip_failed" | "collection";
+  kind: "trip_completed" | "trip_failed" | "collection" | "deposit";
   businessDate: string;
   tripNumber: string | null;
   truckCode: string | null;
@@ -305,10 +382,32 @@ export async function officeEntryReport(ctx: ActorContext, input: { from?: Busin
       recordedByName: await nameOf(c.p.createdBy),
     });
   }
+  const deps = await db
+    .select({ d: deposits, driverName: employees.fullName, truckCode: trucks.code })
+    .from(deposits)
+    .leftJoin(users, eq(users.id, deposits.depositorUserId))
+    .leftJoin(employees, eq(employees.id, users.employeeId))
+    .leftJoin(trucks, eq(trucks.id, deposits.truckId))
+    .where(and(eq(deposits.tenantId, ctx.tenantId), eq(deposits.sourceType, "driver"), eq(deposits.recordedByOffice, true), gte(deposits.businessDate, from), lte(deposits.businessDate, to)));
+  for (const d of deps) {
+    out.push({
+      kind: "deposit",
+      businessDate: d.d.businessDate,
+      tripNumber: d.d.number,
+      truckCode: d.truckCode,
+      customerName: "—",
+      driverName: d.driverName,
+      amount: d.d.expectedNet,
+      paymentMethod: d.d.method,
+      reason: d.d.officeRecordReason,
+      recordedAt: d.d.syncedAt ?? d.d.updatedAt,
+      recordedByName: null,
+    });
+  }
   return out.sort((a, b) => b.recordedAt.getTime() - a.recordedAt.getTime());
 }
 
 /** Ringkasan teks untuk notifikasi/laporan. */
 export function describeOfficeEntry(row: OfficeEntryReportRow): string {
-  return `${row.kind === "collection" ? "Pelunasan" : row.kind === "trip_failed" ? "Rit gagal" : "Rit selesai"} ${row.tripNumber ?? ""} ${row.customerName}${row.amount !== null ? ` ${formatRupiah(row.amount)}` : ""}`.trim();
+  return `${row.kind === "deposit" ? "Setor" : row.kind === "collection" ? "Pelunasan" : row.kind === "trip_failed" ? "Rit gagal" : "Rit selesai"} ${row.tripNumber ?? ""} ${row.customerName}${row.amount !== null ? ` ${formatRupiah(row.amount)}` : ""}`.trim();
 }

@@ -17,6 +17,8 @@
  * `businessDate` HARUS tanggal WIB saat dicatat (bawaan); server menolak tanggal lain (Bab 5.3, toleransi ±PAR-42 di
  * tengah malam). Jangan memakai tanggal shift/rit sebagai tanggal bisnis perintah.
  */
+import Dexie from "dexie";
+
 import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
 
@@ -133,10 +135,95 @@ export async function pendingByUser(): Promise<Record<string, number>> {
   return out;
 }
 
-/** Item antrean pengguna (terbaru dulu). Data pengguna lain tidak ditampilkan (US-M10-02 KP-2). */
+/** Item antrean pengguna (terbaru dulu, lewat indeks — tidak memuat seluruh riwayat). Data pengguna lain tidak ditampilkan (US-M10-02 KP-2). */
 export async function listOutbox(userId: string, limit = 50): Promise<OutboxItem[]> {
-  const rows = await fieldDb().outbox.where("userId").equals(userId).toArray();
-  return rows.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+  return fieldDb().outbox.where("[userId+createdAt]").between([userId, Dexie.minKey], [userId, Dexie.maxKey]).reverse().limit(limit).toArray();
+}
+
+/** Perintah yang ditolak DI PERANGKAT karena lampirannya ditolak final saat diunggah (belum pernah sampai server). */
+export const ATTACHMENT_FAILED_CODE = "ATTACHMENT_FAILED";
+
+/**
+ * Item ditolak yang dapat dikirim ulang: penolakannya berasal dari unggah lampiran (perintahnya sendiri belum pernah
+ * diterima server, `attempts = 0`). Perintah yang ditolak SERVER tidak dikirim ulang — server menyimpan hasilnya
+ * (idempoten), jadi koreksinya lewat kantor.
+ */
+export function canRetryOutboxItem(item: Pick<OutboxItem, "status" | "code" | "attempts" | "attachmentIds">): boolean {
+  return item.status === "rejected" && (item.code === ATTACHMENT_FAILED_CODE || (item.attempts === 0 && item.attachmentIds.length > 0));
+}
+
+/** "Kirim ulang" (NFR-07): lampiran gagal kembali menunggu unggah, perintah kembali ke antrean. */
+export async function retryOutboxItem(id: string): Promise<boolean> {
+  const db = fieldDb();
+  const ok = await db.transaction("rw", db.outbox, db.attachments, async () => {
+    const item = await db.outbox.get(id);
+    if (!item || !canRetryOutboxItem(item)) return false;
+    const atts = await db.attachments.bulkGet(item.attachmentIds);
+    for (const att of atts) {
+      if (att && att.status === "failed") await db.attachments.update(att.id, { status: "pending", nextAttemptAt: null, message: null });
+    }
+    await db.outbox.update(id, { status: "queued", code: null, message: null, nextAttemptAt: null, reviewedAt: null });
+    return true;
+  });
+  if (ok) notifyChanged();
+  return ok;
+}
+
+/** Tandai item DITOLAK pengguna sudah dibaca → tidak lagi dihitung di pita "data ditolak" (NFR-08). */
+export async function markRejectedReviewed(userId: string, ids?: readonly string[], now = Date.now()): Promise<number> {
+  const db = fieldDb();
+  const rows = await db.outbox
+    .where("[userId+status]")
+    .equals([userId, "rejected"])
+    .filter((r) => !r.reviewedAt && (!ids || ids.includes(r.id)))
+    .toArray();
+  if (rows.length) await db.outbox.bulkUpdate(rows.map((r) => ({ key: r.id, changes: { reviewedAt: now } })));
+  if (rows.length) notifyChanged();
+  return rows.length;
+}
+
+/** Item terkirim disimpan sebagai riwayat tampilan minimal selama ini… */
+export const OUTBOX_KEEP_DAYS = 7;
+/** …dan sebanyak ini item terbaru per pengguna selalu disisakan. */
+export const OUTBOX_KEEP_RECENT = 100;
+
+/**
+ * Pangkas penyimpanan ponsel (NFR-17, NFR-08): (1) Blob lampiran perintah yang sudah TERKIRIM/konflik (sudah tersimpan
+ * di server) dihapus; (2) item terkirim/konflik — dan ditolak yang sudah dibaca — lebih tua dari `OUTBOX_KEEP_DAYS`
+ * dihapus, menyisakan `OUTBOX_KEEP_RECENT` terbaru per pengguna. Antrean belum terkirim & item ditolak yang belum
+ * dibaca TIDAK pernah dipangkas. Dipanggil worker sinkron setiap putaran berhasil.
+ */
+export async function pruneOutbox(now = Date.now()): Promise<{ attachments: number; items: number }> {
+  const db = fieldDb();
+  return db.transaction("rw", db.outbox, db.attachments, async () => {
+    const uploaded = await db.attachments.where("status").equals("uploaded").toArray();
+    const commandIds = [...new Set(uploaded.map((a) => a.commandId).filter((c): c is string => !!c))];
+    const commands = new Map((await db.outbox.bulkGet(commandIds)).filter((c): c is OutboxItem => !!c).map((c) => [c.id, c]));
+    const doneAtts = uploaded.filter((a) => {
+      if (!a.commandId) return false;
+      const cmd = commands.get(a.commandId);
+      return !cmd || cmd.status === "sent" || cmd.status === "conflict";
+    });
+    const cutoff = now - OUTBOX_KEEP_DAYS * 86_400_000;
+    const users = (await db.outbox.orderBy("userId").uniqueKeys()) as string[];
+    const stale: OutboxItem[] = [];
+    for (const userId of users) {
+      stale.push(
+        ...(await db.outbox
+          .where("[userId+createdAt]")
+          .between([userId, Dexie.minKey], [userId, Dexie.maxKey])
+          .reverse()
+          .offset(OUTBOX_KEEP_RECENT)
+          .filter((r) => r.createdAt < cutoff && (r.status === "sent" || r.status === "conflict" || (r.status === "rejected" && !!r.reviewedAt)))
+          .toArray()),
+      );
+    }
+    const attIds = new Set(doneAtts.map((a) => a.id));
+    for (const item of stale) for (const id of item.attachmentIds) attIds.add(id);
+    if (attIds.size) await db.attachments.bulkDelete([...attIds]);
+    if (stale.length) await db.outbox.bulkDelete(stale.map((r) => r.id));
+    return { attachments: attIds.size, items: stale.length };
+  });
 }
 
 /** Teks status per item (NFR-08). */

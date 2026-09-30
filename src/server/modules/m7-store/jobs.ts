@@ -11,7 +11,7 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 
 import { outlets, products } from "@/db/schema";
-import { registerJob } from "@/server/core/jobs";
+import { inJobTx, registerJob } from "@/server/core/jobs";
 
 import { runPayableReminders } from "./service/payables";
 import { evaluateReorder } from "./service/reorder";
@@ -42,7 +42,8 @@ export function registerJobs(): void {
           .select({ id: products.id })
           .from(products)
           .where(and(eq(products.tenantId, s.tenantId), eq(products.line, "store"), eq(products.status, "active")));
-        created += (await evaluateReorder(db, { tenantId: s.tenantId, outletId: s.id, productIds: ids.map((i) => i.id), now })).length;
+        // D-12 butir 8: satu toko = satu unit kerja (baris pesan ulang + notifikasi kasir atomik).
+        created += (await inJobTx(db, (tx) => evaluateReorder(tx, { tenantId: s.tenantId, outletId: s.id, productIds: ids.map((i) => i.id), now }))).length;
       }
       return { stores: stores.length, created };
     },

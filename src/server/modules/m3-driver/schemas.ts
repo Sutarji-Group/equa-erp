@@ -109,6 +109,11 @@ export const depositSubmitSchema = z.object({
     .object({ completedTripIds: idList, failedTripIds: idList, collectionIds: idList, expenseIds: idList })
     .default({ completedTripIds: [], failedTripIds: [], collectionIds: [], expenseIds: [] }),
   deviceExpectedNet: z.number().int().nullable().optional(),
+  /**
+   * Tanggal setoran yang diajukan (tanggal ringkasan di layar perangkat). Kosong = tanggal bisnis perintah. Lebih awal
+   * dari tanggal bisnis perintah = setoran hari sebelumnya yang belum sempat diajukan (terlambat, US-M3-07 KP-5).
+   */
+  depositDate: z.string().refine(isBusinessDate, { error: "Tanggal setoran harus YYYY-MM-DD." }).nullable().optional(),
 });
 
 export const depositNoteSchema = z.object({
@@ -176,6 +181,25 @@ export const officeFailSchema = z.object({
   failReason: z.enum(["customer_absent", "customer_refused", "location_inaccessible", "truck_broken", "other"]),
   note: optText(300),
   loadedWaterDisposition: z.enum(["carried_to_next", "returned_to_source", "unloaded_at_depot"]),
+});
+
+/** Pelunasan lewat sopir yang tertahan di antrean perangkat rusak/hilang (US-M3-09 KP-5), dicatat Admin Keuangan. */
+export const officeCollectionSchema = z.object({
+  ...officeBase,
+  paymentId: uuid,
+  customerId: uuid,
+  method: z.enum(["cash", "transfer"], { error: "Pilih tunai atau transfer." }),
+  amount: rupiah.min(1, { error: "Jumlah pelunasan harus lebih dari 0." }),
+  /** Kosong = semua faktur terbuka pelanggan, dialokasikan dari yang tertua. */
+  invoiceIds: z.array(uuid).max(50).default([]),
+});
+
+/** Setor atas nama sopir (perangkat rusak/hilang, atau setoran Berjalan yang tertinggal hari sebelumnya). */
+export const officeDepositSchema = z.object({
+  depositId: uuid,
+  reason: officeBase.reason,
+  occurredTime: officeBase.occurredTime,
+  evidenceAttachmentId: uuid.nullable().optional(),
 });
 
 export const confirmIncidentSchema = z.object({

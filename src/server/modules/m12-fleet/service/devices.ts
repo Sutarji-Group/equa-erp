@@ -283,6 +283,9 @@ export async function runDeviceHealthCheck(now: Date, db?: Db): Promise<DeviceHe
             detectedAt: oldest,
             now,
           });
+          // US-M12-01 KP-4 / US-M12-08 KP-2: tanpa peringatan per truk, tetapi GPS ponsel cadangan TETAP diaktifkan
+          // untuk setiap truk basi agar tidak ada truk yang hilang dari peta; dimatikan saat posisi perangkat kembali.
+          for (const t of stale) await startPhoneTracking(tx, { truckId: t.id, reason: "device_dead", setBy: null, now });
           continue;
         }
         for (const t of stale) {

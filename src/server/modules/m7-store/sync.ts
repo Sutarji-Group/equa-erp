@@ -92,11 +92,15 @@ export function registerSync(): void {
     description: "Opname bulanan toko: hitung fisik per barang (saldo sistem pada waktu hitung).",
     handle: async (ctx, payload, meta) => {
       const res = await recordStoreCount(ctx, payload, toFieldWriteMeta(meta));
-      return {
+      const base = {
         objectType: "stock_count",
         objectId: res.stockCount.id,
-        result: { lines: res.lines.map((l) => ({ productId: l.productId, systemQty: l.systemQty, differenceQty: l.differenceQty, differenceValue: l.differenceValue })) },
+        result: { lines: res.lines.map((l) => ({ productId: l.productId, systemQty: l.systemQty, differenceQty: l.differenceQty, differenceValue: l.differenceValue })), lockedProductIds: res.lockedProductIds },
       };
+      // US-M7-05 KP-1: hitung ulang barang yang sudah dihitung tidak mengubah lembar (hanya lewat Admin Keuangan).
+      return res.lockedProductIds.length
+        ? { ...base, status: "conflict" as const, message: `${res.lockedProductIds.length} barang sudah dihitung sebelumnya; hitungan pertama dipakai. Hitung ulang lewat Admin Keuangan.` }
+        : base;
     },
   });
 

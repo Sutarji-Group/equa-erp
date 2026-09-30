@@ -754,8 +754,8 @@ export async function withdrawOpenTrips(tx: Tx, ctx: ActorContext, order: OrderR
   return out;
 }
 
-async function cancelOpenApprovals(tx: Tx, ctx: ActorContext, order: OrderRow, reason: string) {
-  const ids = [order.creditApprovalRequestId, order.underpaymentApprovalRequestId].filter((x): x is string => !!x);
+async function cancelOpenApprovals(tx: Tx, ctx: ActorContext, order: OrderRow, reason: string, opts: { only?: "credit" } = {}) {
+  const ids = (opts.only === "credit" ? [order.creditApprovalRequestId] : [order.creditApprovalRequestId, order.underpaymentApprovalRequestId]).filter((x): x is string => !!x);
   if (!ids.length) return;
   const open = await tx.select({ id: approvalRequests.id }).from(approvalRequests).where(and(inArray(approvalRequests.id, ids), eq(approvalRequests.status, "submitted")));
   for (const a of open) {
@@ -775,10 +775,33 @@ export async function cancelOrder(ctx: ActorContext, orderId: string, input: Can
       throw new ConflictError("ORDER_LOCKED", `Pesanan ${order.number} sudah ${label("order_status", order.status)} dan terkunci; koreksi hanya lewat transaksi pembalik.`);
     }
     const tripRows = await orderTrips(tx, order.id);
-    if (order.status === "in_delivery" || tripRows.some((t) => t.status === "departed" || t.status === "arrived")) {
+    if (tripRows.some((t) => t.status === "departed" || t.status === "arrived")) {
       throw new DomainError("ORDER_IN_DELIVERY", `Pesanan ${order.number} sedang Dalam pengiriman dan tidak dapat dibatalkan dari kantor. Bila pengiriman tidak jadi, sopir menandai rit Gagal.`);
     }
     const reasonText = `${label("order_cancel_reason", data.reason)}${data.note ? `: ${data.note}` : ""}`;
+    // Bab 5.2: pesanan dengan pengiriman terealisasi (ada rit Selesai) tidak pernah menjadi Dibatalkan — hanya SISA rit
+    // yang ditarik permanen, lalu pesanan Selesai (air sudah terkirim & ditagih).
+    if (tripRows.some((t) => t.status === "completed")) {
+      const withdrawn = await withdrawOpenTrips(tx, ctx, order, { permanent: true, reason: `Sisa rit dibatalkan — ${reasonText}` });
+      if (withdrawn.length === 0) throw new DomainError("NO_OPEN_TRIP", `Pesanan ${order.number} tidak punya sisa rit yang dapat dibatalkan.`);
+      await cancelOpenApprovals(tx, ctx, order, `Sisa rit dibatalkan — ${reasonText}`);
+      await tx.update(orders).set({ needsReschedule: false, updatedAt: ctx.now }).where(eq(orders.id, order.id));
+      await auditRecord(tx, {
+        ctx,
+        objectType: "order",
+        objectId: order.id,
+        action: "cancel_remaining",
+        before: { status: order.status },
+        after: { withdrawnTrips: withdrawn.map((t) => t.number) },
+        reason: reasonText,
+        rule: "5.2",
+      });
+      const { order: final } = await recomputeOrderStatus(tx, ctx, order.id, { reason: `Sisa rit dibatalkan — ${reasonText}`, rule: "5.2" });
+      return final;
+    }
+    if (order.status === "in_delivery") {
+      throw new DomainError("ORDER_IN_DELIVERY", `Pesanan ${order.number} sedang Dalam pengiriman dan tidak dapat dibatalkan dari kantor. Bila pengiriman tidak jadi, sopir menandai rit Gagal.`);
+    }
     await withdrawOpenTrips(tx, ctx, order, { permanent: true, reason: `Pesanan dibatalkan — ${reasonText}` });
     const [after] = await tx
       .update(orders)
@@ -884,7 +907,9 @@ export async function changePaymentMethod(
       const check = await evaluateCreditOrder(tx, order.customerId, open.reduce((s, t) => s + t.price, 0), { excludeOrderId: order.id });
       if (!check.ok) return { status: "credit_blocked" as const, check };
     }
-    await cancelOpenApprovals(tx, ctx, order, `Cara bayar diubah ke ${label("payment_method", data.paymentMethod)}`);
+    // US-M2-05 KP-3/KP-6: hanya persetujuan TEMPO yang gugur karena ubah cara bayar; persetujuan "kurang bayar kedua"
+    // (PTB-18) tidak berkaitan dengan cara bayar dan tetap menunggu keputusan pemilik.
+    await cancelOpenApprovals(tx, ctx, order, `Cara bayar diubah ke ${label("payment_method", data.paymentMethod)}`, { only: "credit" });
     const openIds = open.map((t) => t.id);
     await tx.update(trips).set({ paymentMethod: data.paymentMethod, updatedAt: ctx.now }).where(inArray(trips.id, openIds));
     if (order.paymentMethod === "credit") {

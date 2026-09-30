@@ -13,6 +13,7 @@ import { gpsPositions, phoneTrackingFlags } from "@/db/schema";
 import type { ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
 import { DomainError, parseInput } from "@/server/core/errors";
+import * as params from "@/server/core/params";
 import { inTruckScope } from "@/server/core/rbac";
 
 import { phonePositionsSchema } from "../schemas";
@@ -29,7 +30,9 @@ export async function recordPhonePositions(ctx: ActorContext, input: unknown, me
   const data = parseInput(phonePositionsSchema, input, { positions: "Posisi" });
   const tx = meta.tx;
   if (!inTruckScope(ctx, data.truckId)) throw new DomainError("NOT_YOUR_TRUCK", "Posisi hanya untuk truk yang dikemudikan hari ini.");
-  const tenantId = meta.office ? ctx.tenantId : ctx.tenantId;
+  const tenantId = ctx.tenantId;
+  // US-M3-02 KP-5 / US-M12-01 KP-5: ambang akurasi posisi sah dari parameter M12 (sama dengan GPS truk), bukan angka tetap.
+  const maxAccuracyM = (await params.get(tx, "m12.fleet_rules", meta.businessDate, { tenantId })).max_accuracy_m;
   let inserted = 0;
   for (const p of data.positions) {
     const rows = await tx
@@ -46,7 +49,7 @@ export async function recordPhonePositions(ctx: ActorContext, input: unknown, me
         speedKmh: p.speedKmh ?? null,
         heading: p.heading ?? null,
         accuracyM: p.accuracyM ?? null,
-        isValid: p.accuracyM === null || p.accuracyM === undefined || p.accuracyM <= 100,
+        isValid: p.accuracyM === null || p.accuracyM === undefined || p.accuracyM <= maxAccuracyM,
         clockSkewFlagged: meta.clockSkewFlagged,
         tripId: p.tripId ?? null,
         userId: ctx.userId,

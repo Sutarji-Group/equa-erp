@@ -13,6 +13,7 @@
 import "server-only";
 
 import type { EnumValue, ProfitCenter } from "@/lib/labels";
+import { lastDayOfMonth } from "@/lib/time";
 
 import type { Tx } from "@/server/core/db";
 import type { DomainEvent, DomainEventMap, DomainEventType } from "@/server/core/events";
@@ -434,9 +435,17 @@ function waterSupply(e: Ev<"water_supply.confirmed">): EventJournalSpec {
 
 // --- P2/P3 ------------------------------------------------------------------------------------------------------------
 
+/**
+ * Pendapatan langganan sistem L5 diakui pada BULAN LAYANAN (US-P3-09 KP-3, US-M9-02 KP-1): jurnal bertanggal akhir
+ * `periodMonth`, bukan tanggal terbit faktur (tgl 1 bulan berikutnya). Periode bulan layanan sudah Ditutup/Dikunci →
+ * mesin posting memindahkan ke periode terbuka pertama dengan "asal periode" (aturan 4 `posting.ts`).
+ */
 function partnerSubscription(e: Ev<"partner.subscription_invoiced">): EventJournalSpec {
   const p = e.payload;
-  return journal("partner.subscription_invoiced", eventDate(e), "Tagihan langganan sistem mitra", [{ entryKey: "default", amount: p.amount }], { type: "invoice", id: p.invoiceId });
+  const serviceDate = p.periodMonth && /^\d{4}-\d{2}/.test(p.periodMonth) ? lastDayOfMonth(`${p.periodMonth.slice(0, 7)}-01`) : null;
+  const issued = eventDate(e);
+  const date = serviceDate && serviceDate < issued ? serviceDate : issued;
+  return journal("partner.subscription_invoiced", date, "Tagihan langganan sistem mitra", [{ entryKey: "default", amount: p.amount }], { type: "invoice", id: p.invoiceId });
 }
 
 /**

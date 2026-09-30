@@ -45,6 +45,8 @@ import { isUserUsable, loadSessionById, revokeAllSessions, type SessionRow } fro
 import type { ActorContext } from "../context";
 import { getSyncHandler, type SyncCommandInput, type SyncMeta } from "./registry";
 import { recordHealth, type HealthReport } from "./health";
+import { appUpdateMessage, appUpdateRequired } from "./app-version";
+import { logDeviceUsage } from "../auth/devices";
 
 export const MAX_PUSH_BATCH = 50;
 
@@ -424,6 +426,25 @@ export async function processPush(auth: DeviceAuth, body: unknown): Promise<Push
   ensureBootstrapped(); // handler modul terdaftar lewat registerSync()
   const data = parseInput(pushBodySchema, body);
   const now = auth.now;
+  // US-M10-07 KP-4, NFR-32 (S5B): aplikasi di bawah versi minimal → semua perintah "coba lagi" (antrean tertahan di
+  // perangkat sampai diperbarui, tidak ditolak final); laporan kesehatan tetap dicatat.
+  const minVersion = await appUpdateRequired(auth.appVersion, now);
+  if (minVersion) {
+    await logDeviceUsage(getDb(), {
+      tenantId: auth.device.tenantId,
+      deviceId: auth.device.id,
+      userId: auth.user?.id ?? null,
+      event: "update_required",
+      occurredAt: now,
+      appVersion: auth.appVersion,
+      queueCount: data.commands.length,
+      details: { minVersion },
+    });
+    await getDb().update(devices).set({ lastSeenAt: now }).where(eq(devices.id, auth.device.id));
+    if (data.health) await recordHealth(auth, data.health as HealthReport, { silent: true });
+    const message = appUpdateMessage(minVersion);
+    return { ok: true, serverTime: now.toISOString(), results: data.commands.map((c) => ({ id: String((c as { id?: unknown } | null)?.id ?? ""), status: "retry" as const, code: "APP_UPDATE_REQUIRED", message })) };
+  }
   const { minutes_gt } = await getParam(getDb(), "PAR-42", toBusinessDate(now));
   const skewMs = computeClockSkewMs(new Date(data.sentAt), now);
   const results: PushResult[] = [];

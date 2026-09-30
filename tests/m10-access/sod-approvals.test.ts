@@ -11,7 +11,7 @@ import { exportReport } from "@/server/core/export";
 import { FLAG_REGISTRY } from "@/server/core/flags";
 import * as params from "@/server/core/params";
 import { authorize, PERMISSIONS } from "@/server/core/rbac";
-import { createUser, describeApprovalRules, listDenials, roleMatrixView } from "@/server/modules/m10-access";
+import { approvalObjectText, createUser, describeApprovalRules, listDenials, roleMatrixView } from "@/server/modules/m10-access";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
 import { seededContext } from "../helpers/context";
@@ -111,6 +111,16 @@ const PRD_62A: Record<string, [string, "expire" | "escalate" | "none", string | 
 describe("US-M10-04 Alur persetujuan", () => {
   const t = useTestDb({ seed: true });
   beforeAll(() => bootstrapForTests());
+
+  it("US-M10-04 KP-2 NFR-15 kartu persetujuan menampilkan jenis objek Bahasa Indonesia + nomor dokumen, tanpa ID teknis (UUID)", () => {
+    const uuid = "01941f29-7c00-7c86-995f-82b4a1cacb74";
+    expect(approvalObjectText("discrepancy", { number: "SL-26-000012" })).toBe("Selisih SL-26-000012");
+    expect(approvalObjectText("invoice", { invoiceNumber: "F-26-000101" })).toBe("Faktur F-26-000101");
+    const bare = approvalObjectText("deposit", {});
+    expect(bare).toBe("Setoran");
+    expect(bare).not.toContain(uuid);
+    expect(approvalObjectText("jenis_tak_dikenal", null)).toBe("Objek");
+  });
 
   it("US-M10-04 KP-1 seluruh jenis 6.2a terdaftar dengan pemohon, penyetuju, ambang (parameter), tenggat, dan perilaku lewat tenggat", async () => {
     const rules = await describeApprovalRules(t.db, toBusinessDate(new Date()));

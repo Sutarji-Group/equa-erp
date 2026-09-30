@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { approvalRequests, domainEvents, internalTransferLines, internalTransfers, outlets, reorderItems, stockCounts, stockLedger, tenants } from "@/db/schema";
+import { approvalRequests, auditLogs, domainEvents, internalTransferLines, internalTransfers, outlets, reorderItems, stockCountLines, stockCounts, stockLedger, tenants } from "@/db/schema";
 import { EQUA_TENANT_ID, outletId, productId } from "@/db/seed";
 import type { PosReference } from "@/client/m6-pos/contract";
 import type { StoreReference } from "@/client/m7-store/contract";
@@ -10,7 +10,7 @@ import { toBusinessDate } from "@/lib/time";
 import * as approvals from "@/server/core/approvals";
 import { exportReport } from "@/server/core/export";
 import { ForbiddenError } from "@/server/core/errors";
-import { getReorderList, runStoreStockCountCheck, stockCountHistory, submitStoreStockCount, transferReport } from "@/server/modules/m7-store";
+import { getReorderList, recountStoreLine, runStoreStockCountCheck, stockCountHistory, submitStoreStockCount, transferReport } from "@/server/modules/m7-store";
 
 import { bootstrapForTests } from "../helpers/bootstrap";
 import { seededContext } from "../helpers/context";
@@ -98,7 +98,7 @@ describe("US-M7-05 Stok opname dan penyesuaian", () => {
   const t = useTestDb({ seed: true });
   beforeAll(() => bootstrapForTests());
 
-  it("US-M7-05 KP-1 hitung buta per barang: saldo sistem tampil setelah jumlah fisik dimasukkan; selisih jumlah & nilai (harga pokok)", async () => {
+  it("US-M7-05 KP-1 hitung buta per barang: saldo sistem tampil setelah jumlah fisik dimasukkan; selisih jumlah & nilai (harga pokok); baris terkunci; opname harus lengkap (BR-27)", async () => {
     const pos = await makeStore(t.db);
     await stockUp(t.db, pos, [
       { productId: SP.FILTER, quantity: 10, unitCost: 25_000 },
@@ -115,8 +115,20 @@ describe("US-M7-05 Stok opname dan penyesuaian", () => {
     expect(ref.openStockCount?.lines.map((l) => l.productId)).toEqual([SP.FILTER]);
     const [count] = await t.db.select().from(stockCounts).where(eq(stockCounts.id, countId));
     expect(count).toMatchObject({ kind: "monthly_store", status: "counting", periodLabel: toBusinessDate(new Date()).slice(0, 7), countedBy: pos.cashier.userId });
-    // Hitung ulang barang yang sama menimpa baris (masih "Dihitung"); opname kedua di bulan yang sama ditolak.
-    expectApplied(await pos.send("m7.stock_count.count", { stockCountId: countId, lines: [{ productId: SP.FILTER, physicalQty: 9 }, { productId: SP.POMPA, physicalQty: 5 }] }));
+    // BR-27: opname sebagian (POMPA bersaldo belum dihitung) tidak dapat diajukan — tetap "Menghitung".
+    await expect(submitStoreStockCount(finance(), { stockCountId: countId, reasons: [{ productId: SP.FILTER, reason: "lost" }] })).rejects.toThrow(/belum lengkap/);
+    // Hitung buta: baris yang sudah dihitung TERKUNCI — hitung ulang dari POS diabaikan (hitungan pertama dipakai).
+    const again = await pos.send("m7.stock_count.count", { stockCountId: countId, lines: [{ productId: SP.FILTER, physicalQty: 10 }, { productId: SP.POMPA, physicalQty: 5 }] });
+    expect(again.status).toBe("conflict");
+    const lineOf = async (pid: string) => (await t.db.select().from(stockCountLines).where(and(eq(stockCountLines.stockCountId, countId), eq(stockCountLines.productId, pid))))[0]!;
+    expect((await lineOf(SP.FILTER)).physicalQty).toBe(8);
+    expect((await lineOf(SP.POMPA)).physicalQty).toBe(5);
+    // Hitung ulang hanya lewat Admin Keuangan, dengan jejak nilai awal.
+    await expect(recountStoreLine(pos.cashier.ctx, { stockCountId: countId, productId: SP.FILTER, physicalQty: 9, reason: "Dihitung ulang bersama" })).rejects.toBeInstanceOf(ForbiddenError);
+    await recountStoreLine(finance(), { stockCountId: countId, productId: SP.FILTER, physicalQty: 9, reason: "Dihitung ulang bersama kasir" });
+    expect(await lineOf(SP.FILTER)).toMatchObject({ physicalQty: 9, differenceQty: -1 });
+    const [trail] = await t.db.select().from(auditLogs).where(and(eq(auditLogs.objectId, countId), eq(auditLogs.action, "recount")));
+    expect(trail!.before).toMatchObject({ productId: SP.FILTER, physicalQty: 8 });
     expectRejected(await pos.send("m7.stock_count.count", { stockCountId: newId(), lines: [{ productId: SP.POMPA, physicalQty: 5 }] }), /sudah berjalan/);
   });
 

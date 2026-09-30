@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { accessLogs, anonymizationRequests, attachments, customerAddresses, customers, employees, exportLogs, gpsPositions, invoices, tenants, users } from "@/db/schema";
+import { accessLogs, anonymizationRequests, attachments, customerAddresses, customers, employees, exportLogs, gpsPositions, invoices, tenants, truckDaySummaries, unbilledCharges, users } from "@/db/schema";
 import { customerId, employeeId, EQUA_TENANT_ID, truckId, userIdByUsername } from "@/db/seed";
 import { newId } from "@/lib/ids";
 import { toBusinessDate } from "@/lib/time";
@@ -103,6 +103,23 @@ describe("US-M10-06 Data pribadi, retensi, dan pencadangan", () => {
     expect((await t.db.select().from(customers).where(eq(customers.id, cust)))[0]!.anonymizedAt).not.toBeNull();
   });
 
+  it("US-M10-06 KP-2 PTB-36 rit tempo BELUM DITAGIH (pelanggan tagihan bulanan sebelum faktur terbit) juga piutang terbuka → anonimisasi ditunda", async () => {
+    const cust = customerId("PLG-0005");
+    const [charge] = await t.db
+      .insert(unbilledCharges)
+      .values({ tenantId: EQUA_TENANT_ID, customerId: cust, serviceDate: toBusinessDate(new Date()), description: "Rit tempo belum ditagih", amount: 450_000, status: "unbilled" })
+      .returning();
+    const r = await requestAnonymization(seededContext("admin1"), { subjectType: "customer", subjectId: cust, reason: "Permintaan penghapusan lewat WA" });
+    expect(r.request.status).toBe("deferred");
+    expect(r.approval).toBeNull();
+    expect(r.deferredReason).toMatch(/Rp 450\.000 belum ditagih/);
+    expect((await t.db.select().from(customers).where(eq(customers.id, cust)))[0]!.anonymizedAt).toBeNull();
+    // Setelah masuk faktur & lunas → dapat diajukan ulang.
+    await t.db.update(unbilledCharges).set({ status: "billed" }).where(eq(unbilledCharges.id, charge!.id));
+    const again = await resubmitAnonymization(seededContext("admin1"), r.request.id);
+    expect(again.approval).not.toBeNull();
+  });
+
   it("US-M10-06 KP-2 karyawan hanya dianonimkan setelah keluar; kredensial dibersihkan, transaksi tetap", async () => {
     await expect(requestAnonymization(seededContext("admin1"), { subjectType: "employee", subjectId: employeeId("EQ-015"), reason: "Permintaan mantan karyawan" })).rejects.toThrow(/masih aktif/);
     await deactivateUser(seededContext("admin1"), { userId: userIdByUsername("sopir7"), reason: "Keluar" });
@@ -116,7 +133,7 @@ describe("US-M10-06 Data pribadi, retensi, dan pencadangan", () => {
     expect((await notificationsOf(t.db, "pemilik", "anonymization.executed")).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("US-M10-06 KP-3 retensi otomatis: log akses 1 tahun & GPS mentah 12 bulan dihapus lewat jalur retensi; foto > 2 tahun diarsipkan & tetap dapat dibuka", async () => {
+  it("US-M10-06 KP-3 US-M12-01 KP-6 retensi otomatis: log akses 1 tahun & GPS mentah 12 bulan dihapus lewat jalur retensi (ringkasan dulu); foto > 2 tahun diarsipkan & tetap dapat dibuka", async () => {
     const old = new Date(Date.now() - 800 * 86_400_000);
     const [photo] = await t.db
       .insert(attachments)
@@ -141,6 +158,10 @@ describe("US-M10-06 Data pribadi, retensi, dan pencadangan", () => {
     expect(rows[0]!.storageKey).toBe("uji/foto-lama.jpg");
     expect((await t.db.select().from(attachments).where(eq(attachments.id, fresh!.id)))[0]!.archivedAt).toBeNull();
     expect((await t.db.select().from(gpsPositions)).length).toBe(1);
+    // US-M12-01 KP-6 PTB-33: ringkasan hari truk dipastikan SEBELUM posisi mentahnya dihapus (jalur M12).
+    const oldDay = toBusinessDate(new Date(Date.now() - 400 * 86_400_000));
+    const summaries = await t.db.select().from(truckDaySummaries).where(and(eq(truckDaySummaries.truckId, truckId("T1")), eq(truckDaySummaries.businessDate, oldDay)));
+    expect(summaries).toHaveLength(1);
   });
 
   it("US-M10-06 KP-4 status cadangan terakhir tampil ke admin sistem & pemilik; uji pemulihan dicatat (RPO/RTO); gagal diberitahukan", async () => {

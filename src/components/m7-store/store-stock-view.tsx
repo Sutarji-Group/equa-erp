@@ -22,8 +22,12 @@ function StockList() {
   const [q, setQ] = useState("");
   if (!store) return null;
   const rows = searchStoreProducts(store.products, q, 500);
+  // US-M7-05 KP-1 (hitung buta): selama opname bulan berjalan "Menghitung", saldo barang yang belum dihitung disembunyikan.
+  const counting = store.openStockCount?.status === "counting";
+  const countedIds = new Set((store.openStockCount?.lines ?? []).map((l) => l.productId));
   return (
     <PosSection title="Stok barang toko" testId="stok-toko">
+      {counting ? <Banner tone="info">Opname sedang berjalan: saldo barang yang belum dihitung disembunyikan (hitung buta).</Banner> : null}
       <input aria-label="Cari barang" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari nama/kode" className="min-h-12 rounded-xl border-2 border-input bg-background px-3 text-lg" />
       <ul className="flex flex-col divide-y">
         {rows.map((p) => (
@@ -31,8 +35,8 @@ function StockList() {
             <span>
               {p.name} <span className="text-sm text-muted-foreground">({p.code})</span>
             </span>
-            <span className={cn("tabular font-semibold", p.minStock !== null && p.balance <= p.minStock && "text-destructive")}>
-              {p.balance} {p.unit}
+            <span className={cn("tabular font-semibold", !(counting && !countedIds.has(p.id)) && p.minStock !== null && p.balance <= p.minStock && "text-destructive")}>
+              {counting && !countedIds.has(p.id) ? "—" : p.balance} {p.unit}
               {p.minStock !== null ? <span className="text-sm font-normal text-muted-foreground"> · min {p.minStock}</span> : null}
             </span>
           </li>

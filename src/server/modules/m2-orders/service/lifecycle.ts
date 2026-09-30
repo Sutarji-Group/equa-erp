@@ -4,8 +4,9 @@
  * Status pesanan dihitung dari rit-ritnya (rit Gagal tidak dihitung — diganti rit pengganti):
  * - semua rit aktif Selesai → Selesai (terkunci);
  * - ada rit Berangkat/Tiba → Dalam pengiriman;
+ * - sebagian Selesai (pengiriman sudah terealisasi) → Dalam pengiriman, walau sisa ritnya belum terbit (rit pengganti /
+ *   tangki lain hari berbeda) — pesanan tidak dapat Dibatalkan utuh dari kantor; sisa rit ditarik per rit;
  * - ada rit belum bertruk/belum terbit → Baru (termasuk setelah rit gagal: "perlu jadwal ulang");
- * - sebagian Selesai dan sisanya terbit → Dalam pengiriman;
  * - semua rit bertruk & terbit → Terjadwal.
  * "Menunggu persetujuan" dan "Dibatalkan" hanya diubah oleh alurnya sendiri. Setiap transisi berjejak (waktu, pelaku).
  */
@@ -20,7 +21,7 @@ import { toBusinessDate } from "@/lib/time";
 import { record as auditRecord } from "@/server/core/audit";
 import { systemContext, type ActorContext } from "@/server/core/context";
 import type { Tx } from "@/server/core/db";
-import type { DomainEvent } from "@/server/core/events";
+import { emit, type DomainEvent } from "@/server/core/events";
 import { notify } from "@/server/core/notifications";
 import { tripNumber } from "@/server/core/numbering";
 
@@ -37,8 +38,8 @@ export function deriveOrderStatus(tripRows: Pick<TripRow, "status" | "truckId" |
   if (active.length === 0) return "new";
   if (active.every((t) => t.status === "completed")) return "completed";
   if (active.some((t) => t.status === "departed" || t.status === "arrived")) return "in_delivery";
-  if (active.some((t) => t.status === "assigned" && !isTripPublished(t))) return "new";
   if (active.some((t) => t.status === "completed")) return "in_delivery";
+  if (active.some((t) => t.status === "assigned" && !isTripPublished(t))) return "new";
   return "scheduled";
 }
 
@@ -81,6 +82,14 @@ export async function recomputeOrderStatus(
       rule: opts.rule ?? "5.2",
     });
     if (next === "completed") await clearDuplicateFlags(tx, ctx, after!);
+    // Kontrak hand-off M2: `order.status_changed` di SETIAP transisi (juga yang diturunkan dari rit: terbit, berangkat,
+    // selesai, gagal/ditarik) — P2 memakai `to: "scheduled"` untuk konfirmasi pesanan aplikasi (US-P2-02 KP-4).
+    await emit(
+      tx,
+      "order.status_changed",
+      { orderId, number: order.number, customerId: order.customerId, from: order.status, to: next, reason: opts.reason ?? null, cancelReason: null },
+      { ctx, objectType: "order", objectId: orderId },
+    );
   }
   return { order: after!, changed: !!patch.status };
 }
@@ -338,11 +347,13 @@ export async function onTripFailed(tx: Tx, event: DomainEvent<"trip.failed">): P
     await tx.update(orders).set({ needsReschedule: true, updatedAt: ctx.now }).where(eq(orders.id, order.id));
   }
 
-  // BR-24: gagal berturut → konfirmasi ulang wajib untuk pesanan berikutnya pelanggan.
+  // BR-24: gagal berturut → konfirmasi ulang wajib untuk pesanan berikutnya pelanggan. Tidak berlaku untuk pasokan
+  // internal depot (PTB-01; sama dengan createOrder) — truk rusak tidak menghalangi pasokan depot.
   const rules = await orderRules(tx, event.businessDate ?? toBusinessDate(failedAt));
-  const streak = await consecutiveFailures(tx, trip.customerId);
-  const consecutive = Math.max(streak.count, event.payload.consecutiveFailures ?? 0);
-  const needReconfirm = consecutive >= rules.consecutiveFailLimit;
+  const internal = trip.isInternal || order.isInternal;
+  const streak = internal ? { count: 0 } : await consecutiveFailures(tx, trip.customerId);
+  const consecutive = internal ? 0 : Math.max(streak.count, event.payload.consecutiveFailures ?? 0);
+  const needReconfirm = !internal && consecutive >= rules.consecutiveFailLimit;
   if (needReconfirm) {
     const affected = await tx
       .update(orders)

@@ -156,3 +156,23 @@ Butir §11 yang sudah selesai di integrasi: `correction` lintas modul (D-09 buti
 mitra (B-07), `isShiftFullySynced` (B-04), `trip.completed` internal (B-01), stok air awal depot (B-10), laporan portal
 (B-13).
 
+## 13. Perbaikan audit S5B (paket A)
+
+- **Harga master (US-M6-01 KP-1, US-M6-06 KP-4, BR-15)**: harga perangkat diterima hanya bila sama dengan versi harga
+  master dalam jendela katalog offline (`acceptableMasterPrices`; parameter baru `m6.price_rules.offline_price_grace_days`,
+  bawaan 3) — ditandai `priceMismatch`; harga lain ditolak `PRICE_NOT_MASTER`; barang menunggu persetujuan ditolak
+  `PRODUCT_PENDING`.
+- **BR-33**: konfirmasi operator atas pasokan yang sudah diterima otomatis (PAR-61) hanya memancarkan nilai SELISIH
+  (`adjustmentOfAutoAccepted`), tidak ada nilai transfer internal ganda.
+- **US-M6-05 KP-5**: harga transfer internal tidak dapat ditentukan → `water_supply.confirmed.transferPriceMissing` +
+  notifikasi `water_supply.transfer_price_missing` ke Admin Keuangan.
+- **US-M4-06 KP-7 / 7.6.6**: tunai POS tersinkron setelah shift ditutup → `absorbLateCashSale`: setoran shift yang belum
+  diterima dinaikkan kas seharusnya; bila sudah diterima → setoran susulan outlet (`shiftId` null, snapshot
+  `late_cash_after_close`), notifikasi `pos.late_cash_after_close`; hasil sinkron `conflict`.
+- **US-M6-04 KP-4 / BR-27**: opname depot wajib lengkap (`COUNT_INCOMPLETE`).
+- **US-M6-02 KP-3 / US-M6-04 KP-3**: `closeShift` menolak `STOCK_COUNT_REQUIRED` bila ada bahan utama aktif
+  (`consumablesOf`) tanpa stok fisik — pesan menyebut bahan yang belum diisi. Bahan yang ditambahkan master SETELAH
+  shift dibuka (belum ada di katalog perangkat) tidak menahan tutup shift: diterima sebagai `conflict` untuk ditinjau
+  Admin Keuangan. `ConsumableProduct` kini memuat `createdAt`. Pembantu uji `exactClosingStock(shiftId)`
+  (`tests/m6-pos/helpers.ts`; `closeVia` memakainya bila `stock` tidak diberikan).
+- Uji: `tests/m6-pos/audit-fixes.test.ts` (5) + penyesuaian uji penjualan/offline/stok.

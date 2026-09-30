@@ -19,6 +19,7 @@
  * REGISTRI VERSI (hanya core yang menambah; jangan ubah versi lama):
  * - v1: outbox, attachments, refs, credentials, device, meta (F3c)
  * - v2: moduleStore (tinjauan pasca-F3c)
+ * - v3: indeks outbox `[userId+createdAt]` (daftar antrean terbaru & pemangkasan tanpa memuat seluruh riwayat — S5B)
  */
 import Dexie, { type Table } from "dexie";
 
@@ -62,6 +63,8 @@ export type OutboxItem = {
   objectType?: string | null;
   objectId?: string | null;
   result?: unknown;
+  /** Item DITOLAK sudah dibaca pengguna (tidak lagi dihitung di pita merah "data ditolak"). */
+  reviewedAt?: number | null;
 };
 
 export type AttachmentItem = {
@@ -76,6 +79,8 @@ export type AttachmentItem = {
   lng?: number | null;
   status: "pending" | "uploaded" | "failed";
   attempts: number;
+  /** Galat sementara (server/perangkat) → coba lagi setelah waktu ini (backoff). */
+  nextAttemptAt?: number | null;
   uploadedAt?: number | null;
   message?: string | null;
 };
@@ -141,6 +146,9 @@ export class FieldDb extends Dexie {
     });
     this.version(2).stores({
       moduleStore: "[module+key], module, [module+userId]",
+    });
+    this.version(3).stores({
+      outbox: "id, userId, status, [userId+status], createdAt, [userId+createdAt]",
     });
   }
 }

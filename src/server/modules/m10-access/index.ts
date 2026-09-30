@@ -50,6 +50,7 @@ export { initialAccountsStatus, prepareInitialAccountsSignoff, signInitialAccoun
 export { handleEmployeeExited, runExitDateSweep } from "./service/exits";
 export {
   accessChangesOn,
+  accessChangesBetween,
   accessReviewList,
   dailyAccessSummary,
   markAccessReviewed,
@@ -116,7 +117,7 @@ export {
 } from "./service/support";
 
 // --- Pemisahan tugas, persetujuan, audit (US-M10-03/04/05) ---
-export { describeApprovalRules, listAccessLogs, listDenials, roleMatrixView, type AccessLogFilter, type AccessLogItem, type ApprovalRuleView, type DenialSummary } from "./service/logs";
+export { approvalObjectText, describeApprovalRules, listAccessLogs, listDenials, roleMatrixView, type AccessLogFilter, type AccessLogItem, type ApprovalRuleView, type DenialSummary } from "./service/logs";
 
 // --- Data pribadi, retensi, cadangan (US-M10-06) ---
 export {

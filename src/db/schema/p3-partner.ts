@@ -140,6 +140,11 @@ export const partnerContracts = pgTable(
     /** Parameter baru yang berlaku mulai periode berikutnya. */
     pendingTerms: jsonb("pending_terms").$type<Record<string, unknown>>(),
     pendingTermsEffectiveFrom: dateStr("pending_terms_effective_from"),
+    /**
+     * US-P3-04 KP-5: riwayat parameter yang pernah berlaku — `[{ effectiveFrom, before }]` per penerapan (parameter
+     * `before` berlaku untuk bulan layanan < `effectiveFrom`), agar tagihan bulan lalu tetap memakai tarif lamanya.
+     */
+    termsHistory: jsonb("terms_history").$type<Record<string, unknown>[]>(),
     evaluationIntervalMonths: integer("evaluation_interval_months").notNull().default(3),
     nextEvaluationDate: dateStr("next_evaluation_date"),
     terminatedAt: tstz("terminated_at"),

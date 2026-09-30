@@ -201,6 +201,11 @@ export type AccessChangeSummary = { date: string; total: number; byKind: Record<
 /** Rekap perubahan akses tanggal bisnis `date` (dari jejak audit). */
 export async function accessChangesOn(tx: Tx, tenantId: string, date: string): Promise<AccessChangeSummary> {
   const { start, end } = businessDateToUtcRange(date);
+  return accessChangesBetween(tx, tenantId, start, end, date);
+}
+
+/** Perubahan akses (jejak audit objek akses) pada rentang waktu [start, end). */
+export async function accessChangesBetween(tx: Tx, tenantId: string, start: Date, end: Date, date: string = toBusinessDate(end)): Promise<AccessChangeSummary> {
   const rows = await tx
     .select({ objectType: auditLogs.objectType, action: auditLogs.action })
     .from(auditLogs)
@@ -230,7 +235,11 @@ export async function accessChangesOn(tx: Tx, tenantId: string, date: string): P
   return { date, total: rows.length, byKind, lines };
 }
 
-/** Job harian (22.15 WIB, sebelum ringkasan e-mail PAR-55): notifikasi ringkasan perubahan akses ke pemilik. */
+/**
+ * Job harian (22.15 WIB, sebelum ringkasan e-mail PAR-55): notifikasi ringkasan perubahan akses ke pemilik. US-M10-01
+ * KP-7 "SEMUA perubahan": jendela ringkasan = sejak akhir jendela ringkasan terakhir (jejak `access_summary`) sampai
+ * sekarang — perubahan 22.15–24.00 masuk ringkasan berikutnya, tidak hilang.
+ */
 export async function dailyAccessSummary(now: Date = new Date(), db?: Db): Promise<{ tenants: number; notified: number }> {
   const date = toBusinessDate(now);
   return withTx(
@@ -238,17 +247,27 @@ export async function dailyAccessSummary(now: Date = new Date(), db?: Db): Promi
       const tenants = await tx.selectDistinct({ tenantId: users.tenantId }).from(users);
       let notified = 0;
       for (const { tenantId } of tenants) {
-        const summary = await accessChangesOn(tx, tenantId, date);
+        const [last] = await tx
+          .select({ after: auditLogs.after, serverTime: auditLogs.serverTime })
+          .from(auditLogs)
+          .where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.objectType, "access_summary")))
+          .orderBy(desc(auditLogs.serverTime))
+          .limit(1);
+        const lastEnd = last ? new Date(String((last.after as { windowEnd?: string } | null)?.windowEnd ?? last.serverTime.toISOString())) : null;
+        // Tanpa ringkasan sebelumnya: mulai awal hari kemarin (menutup jendela yang mungkin terlewat).
+        const start = lastEnd && lastEnd < now ? lastEnd : businessDateToUtcRange(addDays(date, -1)).start;
+        const summary = await accessChangesBetween(tx, tenantId, start, now, date);
         if (summary.total === 0) continue;
+        const fromDate = toBusinessDate(start);
         await notify(tx, {
           event: "access.daily_summary",
           tenantId,
-          title: `Perubahan akses hari ini: ${summary.total}`,
+          title: `Perubahan akses sejak ringkasan terakhir: ${summary.total}`,
           body: summary.lines.slice(0, 12).join("; "),
           objectType: "access_summary",
           objectId: date,
           groupKey: `access.daily_summary:${date}`,
-          link: `/audit?dari=${date}&sampai=${date}`,
+          link: `/audit?dari=${fromDate}&sampai=${date}`,
           now,
         });
         await auditRecord(tx, {
@@ -256,7 +275,7 @@ export async function dailyAccessSummary(now: Date = new Date(), db?: Db): Promi
           objectType: "access_summary",
           objectId: date,
           action: "create",
-          after: { total: summary.total, byKind: summary.byKind },
+          after: { total: summary.total, byKind: summary.byKind, windowStart: start.toISOString(), windowEnd: now.toISOString() },
           rule: "US-M10-01 KP-7",
         });
         notified++;

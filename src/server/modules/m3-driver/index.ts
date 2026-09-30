@@ -11,7 +11,8 @@
  *   `reopenDriverDeposit(ctx, { depositId, reason })` (US-M3-07 KP-2), `cashOnHand`/`dayFigures` (angka seharusnya).
  * - M4/M5/M11/M12/M6/M1/M2: event `trip.departed|arrived|completed|failed`, `trip.payment_recorded`, `collection.recorded`,
  *   `trip.expense_recorded`, `deposit.submitted` (payload mandiri PTB-47).
- * - Kantor: `officeCompleteTrip`/`officeFailTrip` ("dicatat kantor", Bab 6.1), `confirmIncident` (truk rusak → Perbaikan).
+ * - Kantor: `officeCompleteTrip`/`officeFailTrip`/`officeRecordCollection`/`officeSubmitDeposit` ("dicatat kantor",
+ *   Bab 6.1, US-M3-09 KP-5), `confirmIncident` (truk rusak → Perbaikan).
  */
 import "server-only";
 
@@ -34,7 +35,7 @@ export { driverLock } from "./service/common";
 export type { DriverLock } from "./service/common";
 
 // --- Kantor: dicatat kantor, kendala, laporan ------------------------------------------------------------------------
-export { describeOfficeEntry, officeCompleteTrip, officeEntryBoard, officeEntryReport, officeFailTrip, uploadOfficeEvidence } from "./service/office";
+export { describeOfficeEntry, officeCompleteTrip, officeEntryBoard, officeEntryReport, officeFailTrip, officeRecordCollection, officeSubmitDeposit, uploadOfficeEvidence } from "./service/office";
 export type { OfficeDeviceRow, OfficeEntryReportRow, OfficeTripRow } from "./service/office";
 export { confirmIncident, listIncidents } from "./service/incidents";
 // Tambahan S5 (B-34): koreksi rit & pembalik pembayaran rit oleh Admin Keuangan (FR-M3-07, BR-38).
@@ -55,7 +56,8 @@ export { requestFieldCredit } from "./service/payments";
 export { recordCollection } from "./service/collections";
 export { explainFleetEvent, reportIncident } from "./service/incidents";
 export { recordExpense } from "./service/expenses";
-export { addDepositorNote, submitDeposit } from "./service/deposits";
+export { addDepositorNote, depositHolderConditions, submitDeposit } from "./service/deposits";
+export type { SubmitDepositResult } from "./service/deposits";
 export { recordReceipt } from "./service/receipts";
 export { phoneTrackingActive, recordPhonePositions } from "./service/gps";
 export { fromSyncMeta } from "./service/common";

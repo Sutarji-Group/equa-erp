@@ -121,3 +121,9 @@ dasar simulasi zona K23; bukan harga transaksi). Tabel lain sudah ada sejak S0.
   `tests/m1-master/coordinate-device.test.ts`.
 - **B-18/B-24**: formulir `/master/*` memakai `useFlashActionState` (pesan sukses tidak hilang setelah revalidasi) dan
   penjaga unggah bersama (4 MB, kompresi foto).
+
+## 14. Perbaikan audit S5B (paket A)
+
+- **US-M1-01 KP-4 / BR-04**: mengubah segmen pelanggan berstatus selain Tunai TIDAK mengubah `creditLimit`. Bila batas
+  bawaan segmen baru berbeda dan pengubah berizin, sistem mengajukan `credit_terms_change` ke pemilik; hasil layanan
+  memuat `creditTermsApproval`. Uji: `tests/m1-master/credit.test.ts` (KP-4 BR-04).

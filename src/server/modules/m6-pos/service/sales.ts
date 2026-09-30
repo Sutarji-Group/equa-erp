@@ -10,13 +10,13 @@
  */
 import "server-only";
 
-import { and, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { approvalRequests, posSaleLines, posSales, products, shifts } from "@/db/schema";
+import { approvalRequests, posSaleLines, posSales, productPrices, products, shifts } from "@/db/schema";
 import { enumValues, label } from "@/lib/labels";
 import { formatRupiah, zRupiahNonNegative } from "@/lib/money";
-import { businessDateToUtcRange, wibToUtc, type BusinessDate } from "@/lib/time";
+import { addDays, businessDateToUtcRange, wibToUtc, type BusinessDate } from "@/lib/time";
 
 import * as approvals from "@/server/core/approvals";
 import type { ApprovalRow } from "@/server/core/approvals";
@@ -44,11 +44,42 @@ import {
   type ShiftRow,
 } from "./common";
 import { posKindPolicy, type PosKindPolicy } from "./policy";
-import { checkCashLimit } from "./shifts";
+import { absorbLateCashSale, checkCashLimit } from "./shifts";
 
 // =====================================================================================================================
 // Transaksi
 // =====================================================================================================================
+
+/**
+ * Harga master yang SAH untuk transaksi POS (US-M6-01 KP-1, US-M6-06 KP-4, BR-15): harga jenis `kind` yang berlaku
+ * (khusus outlet, bila tidak ada harga umum tenant) pada salah satu hari dalam jendela katalog offline
+ * `m6.price_rules.offline_price_grace_days` sebelum tanggal transaksi. Harga di luar himpunan ini tidak pernah dari master.
+ */
+export async function acceptableMasterPrices(
+  tx: Tx,
+  input: { productId: string; kind: string; date: BusinessDate; outletId: string; tenantId: string },
+): Promise<Set<number>> {
+  const rules = await params.get(tx, "m6.price_rules", input.date, { tenantId: input.tenantId });
+  const rows = await tx
+    .select({ price: productPrices.price, outletId: productPrices.outletId, effectiveFrom: productPrices.effectiveFrom })
+    .from(productPrices)
+    .where(
+      and(
+        eq(productPrices.productId, input.productId),
+        sql`${productPrices.kind} = ${input.kind}`,
+        eq(productPrices.status, "active"),
+        lte(productPrices.effectiveFrom, input.date),
+        or(isNull(productPrices.outletId), eq(productPrices.outletId, input.outletId)),
+      ),
+    )
+    .orderBy(desc(productPrices.effectiveFrom), desc(productPrices.createdAt));
+  const out = new Set<number>();
+  for (let d = addDays(input.date, -rules.offline_price_grace_days); d <= input.date; d = addDays(d, 1)) {
+    const pick = rows.find((r) => r.outletId === input.outletId && r.effectiveFrom <= d) ?? rows.find((r) => r.outletId === null && r.effectiveFrom <= d);
+    if (pick) out.add(pick.price);
+  }
+  return out;
+}
 
 export const saleLineSchema = z
   .object({
@@ -143,14 +174,27 @@ export async function recordSale(ctx: ActorContext, input: RecordSaleInput, meta
     const p = byId.get(l.productId);
     if (!p || p.tenantId !== outlet.tenantId) throw new NotFoundError("Produk tidak ditemukan untuk tenant ini."); // NFR-30
     if (p.line !== policy.productLine) throw new DomainError("PRODUCT_LINE_MISMATCH", `${p.name} bukan produk ${policy.label.toLowerCase()}.`);
+    if (p.status === "pending_approval") throw new DomainError("PRODUCT_PENDING", `${p.name} masih menunggu persetujuan Admin Keuangan dan belum dapat dijual.`);
     let productPriceId: string | null = null;
+    let masterPrice: number | null = null;
     try {
       const master = await resolveProductPrice(tx, { productId: p.id, kind: priceKind, date: meta.businessDate, tenantId: outlet.tenantId, outletId: outlet.id });
       productPriceId = master.priceId;
-      if (master.unitPrice !== l.unitPrice) priceMismatch = true;
+      masterPrice = master.unitPrice;
     } catch (error) {
-      if (!(error instanceof DomainError)) throw error;
-      priceMismatch = true; // produk dinonaktifkan/harga belum ada setelah perangkat mengunduh katalog
+      if (!(error instanceof DomainError)) throw error; // produk dinonaktifkan/harga belum ada setelah perangkat mengunduh katalog
+    }
+    if (masterPrice !== l.unitPrice) {
+      // US-M6-06 KP-4: harga katalog perangkat yang masih versi lama (offline) diterima & ditandai; harga lain DITOLAK —
+      // operator tidak dapat mengubah harga (US-M6-01 KP-1), batas diskon & harga mitra tidak dapat dilewati (BR-17/18).
+      const valid = await acceptableMasterPrices(tx, { productId: p.id, kind: priceKind, date: meta.businessDate, outletId: outlet.id, tenantId: outlet.tenantId });
+      if (!valid.has(l.unitPrice)) {
+        throw new DomainError(
+          "PRICE_NOT_MASTER",
+          `Harga ${p.name} ${formatRupiah(l.unitPrice)} tidak sesuai harga master${masterPrice !== null ? ` (${formatRupiah(masterPrice)})` : ""}. Tekan "Kirim sekarang" untuk mengunduh harga terbaru, lalu catat ulang transaksi.`,
+        );
+      }
+      priceMismatch = true;
     }
     lineValues.push({ productId: p.id, quantity: l.quantity, unitPrice: l.unitPrice, lineTotal: l.quantity * l.unitPrice, productPriceId, gallonSizeL: p.gallonSizeL });
   }
@@ -257,6 +301,11 @@ export async function recordSale(ctx: ActorContext, input: RecordSaleInput, meta
     return { sale: sale!, lines, conflict: conflicts.length ? conflicts.join(" ") : null, priceMismatch, cashAlert: false };
   }
   const cashAlert = await applySaleEffects(tx, ctx, { outlet, policy, shift, sale: sale!, lineValues, shiftClosed });
+  if (shiftClosed && sale!.paymentMethod === "cash") {
+    // US-M4-06 KP-7 / Bab 5.3: tunai yang tersinkron setelah shift ditutup tidak boleh hilang dari setoran.
+    const late = await absorbLateCashSale(tx, ctx, { outlet, shift, sale: sale! });
+    if (late) conflicts.push(late.message);
+  }
   return { sale: sale!, lines, conflict: conflicts.length ? conflicts.join(" ") : null, priceMismatch, cashAlert };
 }
 

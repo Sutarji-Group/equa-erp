@@ -80,7 +80,7 @@ Status: **Lulus** = lulus pada run penuh `pnpm test:e2e` di DB segar 30 Sep 2026
 | --- | --- | --- | --- | --- |
 | 1 | Penerimaan barang dari nota pemasok (nomor, foto, baris, total) | US-M7-02 KP-1 | "Penerimaan 200 tutup galon dari nota pemasok" | Lulus |
 | 2 | Jual harga mitra, harga umum (TANPA SINYAL, diskon 5 % beralasan), tempo mitra (sisa batas) | US-M7-01 KP-1, KP-2, KP-3; US-M7-04 KP-2 | "Jual harga mitra, harga umum, dan tempo mitra" | Lulus |
-| 3 | Opname bulanan hitung buta → penyesuaian beralasan → persetujuan pemilik | US-M7-05 KP-1, KP-2 | "Opname bulanan …", "Admin Keuangan mengajukan penyesuaian opname …" | Lulus |
+| 3 | Opname bulanan hitung buta (SELURUH barang toko dihitung — opname sebagian ditolak saat diajukan, S5B) → penyesuaian beralasan → persetujuan pemilik | US-M7-05 KP-1, KP-2 | "Opname bulanan …", "Admin Keuangan mengajukan penyesuaian opname …" | Lulus |
 | 4 | Transfer internal ke depot D05 → diterima operator depot | US-M7-06 KP-1 | "Transfer internal 50 tutup galon ke D05 …" | Lulus |
 | 5 | Tutup shift toko (tempo tidak masuk laci) & serah setoran | US-M7-09 KP-1, KP-2 | "Tutup shift toko & serah setoran" | Lulus |
 

@@ -134,6 +134,35 @@ export default async function PortalHomePage({ searchParams }: { searchParams: P
             </ul>
           </div>
         </SectionCard>
+        <SectionCard
+          title="Versi aplikasi POS outlet"
+          description="Tablet dengan versi di bawah versi minimal tidak dapat mengirim data sampai diperbarui (data tetap tersimpan di tablet)."
+        >
+          <div data-testid="versi-pos-mitra" className="grid gap-2 text-sm">
+            <p>
+              Versi minimal berlaku: <span className="font-semibold tabular">{home.posVersion.minVersion}</span>
+            </p>
+            {home.posVersion.next ? (
+              <p>
+                Versi minimal berikutnya <span className="font-semibold tabular">{home.posVersion.next.version}</span> berlaku mulai{" "}
+                <span className="font-semibold">{formatTanggal(home.posVersion.next.effectiveFrom)}</span> — perbarui semua tablet sebelum tanggal itu.
+              </p>
+            ) : null}
+            {home.posVersion.devices.length ? (
+              <ul className="grid gap-1">
+                {home.posVersion.devices.map((d) => (
+                  <li key={d.id} className="flex flex-wrap items-center gap-2">
+                    <span>{d.name}</span>
+                    <span className="text-muted-foreground tabular">{d.appVersion ?? "versi belum diketahui"}</span>
+                    {d.belowMin ? <ToneBadge tone="danger">Wajib diperbarui</ToneBadge> : d.belowNext ? <ToneBadge tone="warning">Perbarui sebelum tenggat</ToneBadge> : d.appVersion ? <ToneBadge tone="success">Sesuai</ToneBadge> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-muted-foreground">Belum ada tablet terdaftar.</p>
+            )}
+          </div>
+        </SectionCard>
         <SectionCard title="Hak baca EQUA atas data Anda" description="Sesuai perjanjian kemitraan. EQUA tidak melihat data pengguna atau kas kecil mitra.">
           <ul className="list-inside list-disc text-sm" data-testid="hak-baca-equa">
             {home.readRights.map((r) => (

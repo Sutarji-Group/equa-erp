@@ -193,7 +193,7 @@ export function registerReports(): void {
     ],
     fetch: async (ctx, f: Range, { tx }) => {
       const rows = await officeEntryReport(ctx, f, { tx });
-      const kindLabel = { trip_completed: "Rit Selesai", trip_failed: "Rit Gagal", collection: "Pelunasan" } as const;
+      const kindLabel = { trip_completed: "Rit Selesai", trip_failed: "Rit Gagal", collection: "Pelunasan", deposit: "Setor" } as const;
       return { rows: rows.map((r) => ({ ...r, kindLabel: kindLabel[r.kind] })), summary: [{ label: "Jumlah pencatatan kantor", value: rows.length, type: "number" }] };
     },
   });

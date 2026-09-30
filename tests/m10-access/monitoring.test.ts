@@ -1,11 +1,12 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { auditLogs, devices, incidents, jobRuns, supportTickets } from "@/db/schema";
-import { deviceId, EQUA_TENANT_ID, userIdByUsername } from "@/db/seed";
+import { auditLogs, deviceUsageLogs, devices, incidents, jobRuns, supportTickets, syncCommands } from "@/db/schema";
+import { deviceId, EQUA_TENANT_ID, SEED_DEMO_PIN, userIdByUsername } from "@/db/seed";
 import { toBusinessDate, wibToUtc } from "@/lib/time";
 import { ForbiddenError } from "@/server/core/errors";
-import { compareVersions, minSupportedVersion } from "@/server/core/sync";
+import { pinLogin } from "@/server/core/auth";
+import { compareVersions, minSupportedVersion, processPush } from "@/server/core/sync";
 import {
   acknowledgeIncident,
   answerSupportTicket,
@@ -157,5 +158,23 @@ describe("US-M10-07 Kesehatan perangkat, sinkron, dan pemantauan", () => {
     expect(view.items.find((i) => i.id === deviceId("HP-T5"))!.belowMinVersion).toBe(true);
     const trail = await t.db.select().from(auditLogs).where(and(eq(auditLogs.objectType, "parameter"), eq(auditLogs.objectId, "app.min_supported_version")));
     expect(trail.at(-1)).toMatchObject({ rule: "NFR-32", actorUserId: userIdByUsername("admin1") });
+  });
+
+  it("US-M10-07 KP-4 NFR-32 versi minimal ditegakkan SERVER: kiriman dari aplikasi lama dijawab 'perbarui aplikasi' (antrean tetap, tidak ditolak), login PIN daring ditolak, kejadian tercatat di log perangkat", async () => {
+    // Versi minimal 0.2.0 dari uji sebelumnya.
+    const hp = await fieldDevice("HP-T4");
+    const sopir = await hp.login("sopir4");
+    const old = { ...(await hp.auth()), appVersion: "0.1.3" };
+    const cmd = hp.command(sopir, "core.ping", { note: "aplikasi lama" });
+    const res = await processPush(old, { commands: [cmd], sentAt: new Date().toISOString() });
+    expect(res.results[0]).toMatchObject({ id: cmd.id, status: "retry", code: "APP_UPDATE_REQUIRED" });
+    expect(res.results[0]!.message).toMatch(/perlu diperbarui ke versi 0\.2\.0/);
+    expect(await t.db.select().from(syncCommands).where(eq(syncCommands.id, cmd.id))).toHaveLength(0);
+    const logs = await t.db.select().from(deviceUsageLogs).where(and(eq(deviceUsageLogs.deviceId, hp.deviceId), eq(deviceUsageLogs.event, "update_required")));
+    expect(logs[0]).toMatchObject({ appVersion: "0.1.3" });
+    await expect(pinLogin(old, { userId: userIdByUsername("sopir4"), pin: SEED_DEMO_PIN })).rejects.toMatchObject({ code: "APP_UPDATE_REQUIRED", status: 426 });
+    // Setelah diperbarui: perintah yang sama diterapkan.
+    const updated = { ...(await hp.auth()), appVersion: "0.2.0" };
+    expect((await processPush(updated, { commands: [cmd], sentAt: new Date().toISOString() })).results[0]!.status).toBe("applied");
   });
 });

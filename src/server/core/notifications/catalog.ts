@@ -200,6 +200,9 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
   e("customer_app.complaint_submitted", "Keluhan pelanggan baru", "normal", ["dispatcher", "finance_admin"], "Tanggapan pertama ≤ PAR-75 jam layanan", "US-P2-06 KP-2, PAR-75"),
   e("customer_app.complaint_overdue", "Keluhan pelanggan belum ditanggapi lewat tenggat", "high", ["dispatcher", "finance_admin", "owner"], "Tanggapi keluhan sekarang", "US-P2-06 KP-2, PAR-75"),
   e("customer_app.payment_succeeded", "Pembayaran digital pelanggan berhasil", "info", ["finance_admin"], "Cocokkan dengan settlement bank di Kas > Transfer masuk", "US-P2-04 KP-3, PTB-50"),
+  // --- Tambahan S5-B (perbaikan audit PRD, paket A) — hanya tambah ---
+  e("pos.late_cash_after_close", "Tunai POS tersinkron setelah shift ditutup", "normal", ["finance_admin"], "Periksa setoran shift/setoran susulan outlet saat tutup kas", "US-M4-06 KP-7, Bab 5.3, 7.6.6"),
+  e("water_supply.transfer_price_missing", "Harga transfer internal pasokan depot tidak dapat ditentukan", "high", ["finance_admin"], "Lengkapi zona/tarif/komponen BBM depot di Data master, lalu catat jurnal transfer internal", "US-M6-05 KP-5, BR-33"),
 ];
 
 /** Aturan tambahan per kode (tenggat 6.3 & lingkup unit) — dipisah agar daftar di atas tetap ringkas. */
