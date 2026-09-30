@@ -17,6 +17,8 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       DB_DRIVER: pglite
+      # tsc atas seluruh proyek butuh ±2,4 GB heap; batas bawaan Node di runner ±2 GB → OOM (exit 134).
+      NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v4
 

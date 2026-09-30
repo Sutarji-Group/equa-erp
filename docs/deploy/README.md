@@ -110,6 +110,7 @@ pnpm dlx web-push generate-vapid-keys   # VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY
 | `GPS_INGEST_TOKEN` | wajib | wajib | token vendor GPS → `/api/gps/ingest/<vendor>` |
 | `ALLOW_DEV_SECRETS` | **KOSONG** | **KOSONG** | hanya E2E lokal; ditolak di `VERCEL_ENV=production` |
 | `E2E_CLOCK_OVERRIDE` | **KOSONG** | **KOSONG** | hanya uji E2E lokal; ditolak di deploy Vercel |
+| `NODE_OPTIONS` | disarankan | disarankan | `--max-old-space-size=4096` — pemeriksaan tipe `next build` atas seluruh proyek butuh ±2,4 GB heap; batas bawaan Node di mesin build 8 GB bisa ±2 GB → build gagal "JavaScript heap out of memory". CI GitHub Actions sudah memasangnya (`.github/workflows/ci.yml`) |
 | `BLOB_READ_WRITE_TOKEN` | wajib | wajib | diisi integrasi Vercel Blob (§5) |
 | `RESEND_API_KEY` | wajib | opsional | kunci Resend produksi (§5) |
 | `EMAIL_FROM` | wajib | opsional | mis. `EQUA <noreply@equa.co.id>` — **domain harus terverifikasi di Resend** (B-77) |

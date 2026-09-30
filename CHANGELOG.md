@@ -6,7 +6,12 @@ dan penomoran [Semantic Versioning](https://semver.org/lang/id/). Catatan rilis 
 
 ## [Belum dirilis]
 
-- (kosong)
+### Diperbaiki
+
+- **CI Typecheck gagal kehabisan memori** (`JavaScript heap out of memory`, exit 134): `tsc` atas seluruh proyek
+  butuh ±2,4 GB heap, sedangkan batas bawaan Node di runner GitHub ±2 GB. Skrip `pnpm typecheck` kini menjalankan
+  `tsc` dengan `--max-old-space-size=4096`, job CI memasang `NODE_OPTIONS=--max-old-space-size=4096` (juga untuk
+  lint & uji), dan panduan deploy menyarankan variabel yang sama untuk build Vercel.
 
 ## [1.0.1] — 2026-09-30
 
