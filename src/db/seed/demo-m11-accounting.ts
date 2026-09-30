@@ -6,7 +6,7 @@
  *    pengeluaran rit lain, setor bank outlet/sopir, selisih kas kantor & kas kecil, nota kredit per lini, uang muka,
  *    alokasi L1 & biaya bersama, pelepasan aset, ekuitas penyeimbang saldo awal). Ditinjau akuntan sebelum go-live (K9).
  * 2. `seedDemoM11Accounting` — data demo agar layar Akuntansi tidak kosong: jurnal contoh bulan berjalan (nomor
- *    berawalan `JD-` agar tidak memakai urutan resmi `J-YYMM-NNNNN`), jurnal berulang sewa, dua aset tetap.
+ *    berawalan `JD-` agar tidak memakai urutan resmi `J-YYMM-NNNNNN`), jurnal berulang sewa, dua aset tetap.
  *    Tanggal cut-over TIDAK diisi (tetap keputusan pemilik). Seperti demo modul lain, data transaksi demo dilewati di
  *    DB uji (`VITEST`/`NODE_ENV=test`) kecuali `force`.
  */
@@ -583,7 +583,7 @@ export async function seedDemoM11Accounting(
         await jt.insert(journals).values({
           id,
           tenantId: EQUA_TENANT_ID,
-          number: `JD-${yymm}-${String(i + 1).padStart(5, "0")}`,
+          number: `JD-${yymm}-${String(i + 1).padStart(6, "0")}`,
           kind: j.kind,
           status: "posted",
           journalDate:

@@ -2,7 +2,7 @@
  * M11 — Akuntansi & Pajak (PRD 7.11): pusat laba (L1–L5, SHARED), bagan akun, pemetaan peristiwa → akun, jurnal
  * (otomatis/manual/saldo awal/akrual/penyusutan/alokasi) + baris ber-dimensi pusat laba & outlet, antrean jurnal,
  * periode, aset tetap & penyusutan, rekonsiliasi bank/kas, pengaturan pajak, template ekspor, saldo awal, alokasi biaya.
- * Nomor jurnal `J-YYMM-NNNNN` (D-04).
+ * Nomor jurnal `J-YYMM-NNNNNN` (D-04; 6 digit sejak v1.0.1 — D-14).
  */
 import { relations, sql } from "drizzle-orm";
 import {

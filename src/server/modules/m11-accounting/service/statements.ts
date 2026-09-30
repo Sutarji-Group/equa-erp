@@ -20,6 +20,7 @@ import { canonicalJson } from "@/server/core/audit";
 import type { ActorContext } from "@/server/core/context";
 import { getDb, type Tx } from "@/server/core/db";
 import { DomainError } from "@/server/core/errors";
+import { docNumberOrder } from "@/server/core/numbering";
 import { resolveMapping } from "@/server/core/ledger";
 import { authorize } from "@/server/core/rbac";
 
@@ -653,7 +654,7 @@ export async function computeLedger(
   const credit = Number(tot?.c ?? 0);
   const limit = Math.max(1, Math.min(Math.trunc(page.limit ?? LEDGER_MAX_ROWS), LEDGER_MAX_ROWS));
   const offset = Math.max(0, Math.min(Math.trunc(page.offset ?? 0), Math.max(0, total - 1)));
-  const order = [asc(journals.journalDate), asc(journals.number), asc(journalLines.lineNo)];
+  const order = [asc(journals.journalDate), ...docNumberOrder(journals.number), asc(journalLines.lineNo)];
   let pageOpening = opening;
   if (offset > 0) {
     const before = tx

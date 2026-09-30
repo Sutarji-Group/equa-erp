@@ -27,6 +27,7 @@ import { ctxBusinessDate, systemContext, type ActorContext } from "@/server/core
 import { getDb, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, ValidationError, parseInput } from "@/server/core/errors";
 import { notify } from "@/server/core/notifications";
+import { docNumberOrder } from "@/server/core/numbering";
 import * as params from "@/server/core/params";
 import { authorize, can, runService } from "@/server/core/rbac";
 import { linkAttachment } from "@/server/core/storage";
@@ -463,7 +464,7 @@ export async function ownerReviewList(ctx: ActorContext, filter: { periodId: str
     .select()
     .from(journals)
     .where(and(eq(journals.tenantId, ctx.tenantId), eq(journals.periodId, filter.periodId), eq(journals.requiresOwnerReview, true), eq(journals.status, "posted")))
-    .orderBy(asc(journals.journalDate), asc(journals.number));
+    .orderBy(asc(journals.journalDate), ...docNumberOrder(journals.number));
 }
 
 const markSchema = z.object({ periodId: z.uuid(), note: z.string().trim().max(300).nullable().optional() }).strict();

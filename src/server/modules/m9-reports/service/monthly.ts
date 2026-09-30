@@ -34,6 +34,7 @@ import { getDb, withTx, type Tx } from "@/server/core/db";
 import { DomainError, NotFoundError, parseInput } from "@/server/core/errors";
 import { exportReport, type ExportResult } from "@/server/core/export";
 import { notify } from "@/server/core/notifications";
+import { docNumberOrder } from "@/server/core/numbering";
 import * as params from "@/server/core/params";
 import { authorize } from "@/server/core/rbac";
 import { put, readAttachment } from "@/server/core/storage";
@@ -658,7 +659,7 @@ export async function monthlyDrilldown(
       .innerJoin(journals, eq(journals.id, journalLines.journalId))
       .where(and(...conds))
       .groupBy(journals.id)
-      .orderBy(asc(journals.journalDate), asc(journals.number))
+      .orderBy(asc(journals.journalDate), ...docNumberOrder(journals.number))
       .limit(500);
     const links = await sourceLinks(db, rows.map((r) => ({ sourceObjectType: r.sourceObjectType, sourceObjectId: r.sourceObjectId, journalId: r.journalId, kind: r.kind })));
     journalRows = rows.map((r) => ({

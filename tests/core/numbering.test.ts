@@ -1,8 +1,12 @@
+import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { documentSequences } from "@/db/schema";
 import { EQUA_TENANT_ID } from "@/db/seed";
+import { newId } from "@/lib/ids";
 import { withTx } from "@/server/core/db";
-import { assignOfficialNumber, formatDocNumber, nextNumber, sequenceScopeKey, tripNumber } from "@/server/core/numbering";
+import { DomainError } from "@/server/core/errors";
+import { assignOfficialNumber, DOC_TYPES, formatDocNumber, nextNumber, sequenceScopeKey, tripNumber } from "@/server/core/numbering";
 
 import { useTestDb } from "../helpers/db";
 import { ensureTenant } from "../helpers/factories";
@@ -18,7 +22,7 @@ describe("D-04 format nomor dokumen (murni)", () => {
     expect(formatDocNumber("approval", 9, "2026-09-28")).toBe("A-26-000009");
     expect(formatDocNumber("purchase_receipt", 3, "2026-09-28")).toBe("NB-26-000003");
     expect(formatDocNumber("internal_transfer", 12, "2026-09-28")).toBe("TI-26-00012");
-    expect(formatDocNumber("journal", 5, "2026-09-28")).toBe("J-2609-00005");
+    expect(formatDocNumber("journal", 5, "2026-09-28")).toBe("J-2609-000005");
     expect(formatDocNumber("pos_sale", 42, "2026-09-28", { ...E, outletCode: "D01" })).toBe("D01-260928-0042");
   });
 
@@ -32,6 +36,25 @@ describe("D-04 format nomor dokumen (murni)", () => {
     expect(sequenceScopeKey("order", instant)).toBe("27");
     expect(sequenceScopeKey("pos_sale", instant, { outletCode: "TK1" })).toBe("TK1-270101");
     expect(sequenceScopeKey("journal", instant)).toBe("2701");
+  });
+
+  it("D-14 B-87 nomor jurnal J-YYMM-NNNNNN (6 digit, kapasitas 999.999/bulan/tenant)", () => {
+    expect(DOC_TYPES.journal).toMatchObject({ prefix: "J", digits: 6, scope: "year_month" });
+    expect(formatDocNumber("journal", 1, "2026-10-01")).toBe("J-2610-000001");
+    expect(formatDocNumber("journal", 99_999, "2026-10-31")).toBe("J-2610-099999");
+    expect(formatDocNumber("journal", 100_000, "2026-10-31")).toBe("J-2610-100000");
+    expect(formatDocNumber("journal", 999_999, "2026-10-31")).toBe("J-2610-999999");
+    expect(formatDocNumber("journal", 123_456, "2026-10-31")).toMatch(/^J-\d{4}-\d{6}$/);
+    const err = (() => {
+      try {
+        formatDocNumber("journal", 1_000_000, "2026-10-31");
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(err).toBeInstanceOf(DomainError);
+    expect((err as DomainError).code).toBe("SEQUENCE_EXHAUSTED");
+    expect((err as DomainError).message).toMatch(/maksimal 999999/);
   });
 
   it("D-04 nomor POS wajib kode outlet", () => {
@@ -89,6 +112,44 @@ describe("nextNumber (PGlite)", () => {
     const c = await withTx((tx) => nextNumber(tx, "pos_sale", "2026-08-01", { tenantId: EQUA_TENANT_ID, outletCode: "D01" }));
     expect([a, b, c]).toEqual(["D01-260801-0001", "D01-260801-0001", "D01-260801-0002"]);
     await expect(withTx((tx) => nextNumber(tx, "order", "2026-08-01", {} as never))).rejects.toThrow(/tenantId wajib/);
+  });
+
+  /** Setel penghitung langsung (tanpa membuat 100 rb baris) — kunci lingkup dari API numbering. */
+  async function setCounter(kind: "journal", date: string, value: number) {
+    const scopeKey = sequenceScopeKey(kind, date);
+    await t.db
+      .insert(documentSequences)
+      .values({ id: newId(), tenantId: EQUA_TENANT_ID, kind, scopeKey, lastValue: value })
+      .onConflictDoUpdate({
+        target: [documentSequences.tenantId, documentSequences.kind, documentSequences.scopeKey],
+        set: { lastValue: value },
+      });
+  }
+
+  it("D-14 B-87 nomor jurnal ke-100.000 dalam sebulan terbit tanpa SEQUENCE_EXHAUSTED (format J-YYMM-NNNNNN)", async () => {
+    await setCounter("journal", "2026-11-01", 99_999);
+    const n100k = await withTx((tx) => nextNumber(tx, "journal", "2026-11-30", E));
+    const next = await withTx((tx) => nextNumber(tx, "journal", "2026-11-30", E));
+    expect([n100k, next]).toEqual(["J-2611-100000", "J-2611-100001"]);
+    expect(n100k).toMatch(/^J-\d{4}-\d{6}$/);
+    // Batas baru: 999.999 → nomor berikutnya ditolak dengan pesan berisi tindakan (bukan kode teknis).
+    await setCounter("journal", "2026-11-01", 999_998);
+    expect(await withTx((tx) => nextNumber(tx, "journal", "2026-11-30", E))).toBe("J-2611-999999");
+    await expect(withTx((tx) => nextNumber(tx, "journal", "2026-11-30", E))).rejects.toMatchObject({ code: "SEQUENCE_EXHAUSTED" });
+    // Bulan lain tetap mulai dari 1.
+    expect(await withTx((tx) => nextNumber(tx, "journal", "2026-12-01", E))).toBe("J-2612-000001");
+  });
+
+  it("D-14 B-87 nomor jurnal 5 digit yang sudah terbit tidak diubah; urutan bulan berjalan berlanjut dengan 6 digit", async () => {
+    // Keadaan v1.0: penghitung Januari 2027 sudah menerbitkan J-2701-00001 … J-2701-01234.
+    await setCounter("journal", "2027-01-01", 1_234);
+    const n = await withTx((tx) => nextNumber(tx, "journal", "2027-01-15", E));
+    expect(n).toBe("J-2701-001235");
+    const [row] = await t.db
+      .select({ v: documentSequences.lastValue })
+      .from(documentSequences)
+      .where(and(eq(documentSequences.tenantId, EQUA_TENANT_ID), eq(documentSequences.kind, "journal"), eq(documentSequences.scopeKey, "2701")));
+    expect(Number(row?.v)).toBe(1_235);
   });
 
   it("D-04 nomor resmi dokumen perangkat memakai TANGGAL BISNIS perangkat (POS 31 Des tersinkron 1 Jan)", async () => {

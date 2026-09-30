@@ -79,7 +79,7 @@ describe("Jurnal otomatis (ledger.ts, US-M11-02, FR-M11-10)", () => {
     });
     expect(result.first.status).toBe("posted");
     if (result.first.status !== "posted") return;
-    expect(result.first.number).toBe("J-2609-00001");
+    expect(result.first.number).toBe("J-2609-000001");
     expect(result.first.originPeriod).toBeNull();
     expect(result.again).toMatchObject({ status: "duplicate", journalId: result.first.journalId });
     const lines = await t.db.select().from(journalLines).where(eq(journalLines.journalId, result.first.journalId)).orderBy(journalLines.lineNo);
