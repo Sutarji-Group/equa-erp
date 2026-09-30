@@ -170,6 +170,9 @@ mitra (B-07), `isShiftFullySynced` (B-04), `trip.completed` internal (B-01), sto
   diterima dinaikkan kas seharusnya; bila sudah diterima → setoran susulan outlet (`shiftId` null, snapshot
   `late_cash_after_close`), notifikasi `pos.late_cash_after_close`; hasil sinkron `conflict`.
 - **US-M6-04 KP-4 / BR-27**: opname depot wajib lengkap (`COUNT_INCOMPLETE`).
-- Uji: `tests/m6-pos/audit-fixes.test.ts` (4) + penyesuaian uji penjualan/offline/stok.
-- Terbuka: tutup shift tanpa stok fisik ketiga bahan utama masih diterima server (hanya diwajibkan UI) — lihat laporan
-  S5B (penegakan server mengubah hasil banyak uji lintas paket & perlu keputusan perlakuan offline).
+- **US-M6-02 KP-3 / US-M6-04 KP-3**: `closeShift` menolak `STOCK_COUNT_REQUIRED` bila ada bahan utama aktif
+  (`consumablesOf`) tanpa stok fisik — pesan menyebut bahan yang belum diisi. Bahan yang ditambahkan master SETELAH
+  shift dibuka (belum ada di katalog perangkat) tidak menahan tutup shift: diterima sebagai `conflict` untuk ditinjau
+  Admin Keuangan. `ConsumableProduct` kini memuat `createdAt`. Pembantu uji `exactClosingStock(shiftId)`
+  (`tests/m6-pos/helpers.ts`; `closeVia` memakainya bila `stock` tidak diberikan).
+- Uji: `tests/m6-pos/audit-fixes.test.ts` (5) + penyesuaian uji penjualan/offline/stok.

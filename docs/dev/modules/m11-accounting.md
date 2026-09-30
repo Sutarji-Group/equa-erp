@@ -68,7 +68,7 @@ bersumber selisih), `petty_cash.recorded`, `restitution.settled`, `restitution.s
 `payment.reversed`, `customer_advance.refunded`, `pos_sale.recorded` (depot L3 per outlet; toko L4 + diskon + HPP),
 `pos_sale.voided`, `store_return.recorded`, `consumable.usage_posted/received/receipt_reversed`, `stock.adjusted`,
 `internal_transfer.sent`, `purchase_receipt.recorded` (saldo awal utang dilewati), `purchase_receipt.corrected`,
-`supplier_payment.recorded`, `water_supply.confirmed` (transfer internal L2 → L3), `partner.subscription_invoiced` (L5),
+`supplier_payment.recorded`, `water_supply.confirmed` (transfer internal L2 → L3), `partner.subscription_invoiced` (L5; bertanggal akhir bulan layanan `periodMonth` — S5B paket A),
 `digital_payment.succeeded` (bila `customerPaymentId` terisi hanya biaya gerbang — pelunasan/uang muka dari
 `collection.recorded` kanal `digital`; integrasi P3+P2, B-62). Peristiwa sengaja tidak dijurnal: `SKIPPED_EVENTS` (constants.ts; tampil di layar
 pemetaan).
@@ -178,3 +178,6 @@ Untuk paket B (B-65): `trip.completed` rit prabayar digital membawa `prepaidAmou
   parameter `m11.it_cost_report` (tambahan registri parameter) + biaya pesan WhatsApp (`p2.waCostForMonth`) vs anggaran;
   laporan ekspor terdaftar, tampil di `/akuntansi/laporan`. Uji `tests/m11-accounting/tax.test.ts` (`B-67 …`).
 - **B-57** (kategori arus kas) tetap menunggu tinjauan akuntan saat UAT.
+- **S5B paket A (perubahan kecil di M11, dilaporkan)**: `partnerSubscription` di `service/auto-journals.ts` memakai
+  tanggal akhir `periodMonth` (bulan layanan) bila lebih awal dari tanggal terbit (US-P3-09 KP-3, US-M9-02 KP-1). Uji
+  `tests/p3-partner/billing.test.ts`.

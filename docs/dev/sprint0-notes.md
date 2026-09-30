@@ -228,3 +228,10 @@ API YANG BERUBAH (breaking — modul WAJIB mengikuti):
   `[userId+createdAt]`; `useSyncStatus`/`useReference`/`useOutbox`/`listOutbox` memakai indeks. Komponen bersama
   `src/components/field/outbox-item-actions.tsx` di daftar antrean sopir, POS, produksi & beranda lapangan.
   `FieldApiError.issues` (isian validasi server). Uji: `tests/client/offline-resilience.test.ts`.
+- **Audit D-12 butir 8 (job terjadwal) — paket A + inti**: semua job M1, M2, M3, M6, M7, M8, M10, M12, P3 & inti
+  menjalankan tulisannya di dalam transaksi (`withTx`/`inJobTx` seluruh job atau per unit kerja). Pengecualian yang
+  disengaja dan aman: `core.auth.purge_sessions` (satu pernyataan DELETE, atomik sendiri), `core.notifications.daily_digest`
+  (satu UPDATE `emailedAt` setelah e-mail terkirim), `core.notifications.push_pending` (tiap UPDATE `pushedAt`/`revokedAt`
+  berdiri sendiri & idempoten di sekitar panggilan jaringan push — tidak dibungkus transaksi agar tidak menahan koneksi
+  selama I/O luar), `core.audit.checkpoint` (tanpa tulisan DB). `core.approvals.expire_due` sudah per permintaan
+  `withTx`. Uji runner: `tests/core/jobs-tx.test.ts`.

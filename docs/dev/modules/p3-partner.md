@@ -170,5 +170,10 @@ status kredit pelanggan mitra (batas kredit kontrak).
   `portalEnabled(tx, c.tenantId)`.
 - **Versi POS di portal (PRD 9.7, NFR-32)**: `portalHome.posVersion` (`partnerPosVersion`: versi minimal berlaku,
   versi berikutnya + tanggal, versi per tablet mitra) + kartu "Versi aplikasi POS outlet" di beranda portal.
-- Terbuka (lihat laporan S5B): jurnal pendapatan L5 bertanggal bulan layanan (M11, paket B); mitra dua outlet (dua
-  pelanggan M1, satu kontrak).
+- **Pendapatan L5 pada bulan layanan (US-P3-09 KP-3, US-M9-02 KP-1)**: M11 `partnerSubscription`
+  (`src/server/modules/m11-accounting/service/auto-journals.ts`) menjurnal `partner.subscription_invoiced` bertanggal
+  akhir `periodMonth` (bukan tanggal terbit faktur tgl 1 bulan berikutnya); periode bulan layanan yang sudah
+  Ditutup/Dikunci → mesin posting memindahkan ke periode terbuka pertama dengan "asal periode". Uji:
+  `tests/p3-partner/billing.test.ts` (KP-3 bulan LAYANAN).
+- Terbuka (lihat laporan S5B): mitra dua outlet (PRD 9.7 — dua pelanggan M1, satu kontrak; batas kredit bersama &
+  gabungan faktur lintas pelanggan mitra perlu perubahan model kontrak/eksposur M5).
