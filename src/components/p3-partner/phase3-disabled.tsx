@@ -8,7 +8,7 @@ export function Phase3Disabled({ what }: { what: string }) {
     <EmptyState
       icon={Lock}
       title="Portal kemitraan lengkap belum diaktifkan"
-      description={`${what} adalah bagian portal kemitraan Tahap 3. Pemilik mengaktifkan flag "Portal kemitraan lengkap" (Pengaturan) setelah prasyarat Bab 9.1 terpenuhi. Paket Minimum Mitra Fase 1 tetap berjalan.`}
+      description={`${what} adalah bagian portal kemitraan Tahap 3. Pemilik mengaktifkan "Portal kemitraan lengkap (Tahap 3)" di Pengaturan > Parameter, bagian Fitur bertahap (global atau per tenant mitra) setelah prasyarat Bab 9.1 terpenuhi. Paket Minimum Mitra Fase 1 tetap berjalan.`}
     />
   );
 }

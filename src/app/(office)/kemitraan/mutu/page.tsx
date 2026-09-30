@@ -36,7 +36,7 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? "
 export default async function QualityPage({ searchParams }: { searchParams: Promise<{ bulan?: string }> }) {
   const sp = await searchParams;
   const { ctx } = await requirePermission(["p3.quality_checklist.read", "p3.partner_score.read"]);
-  if (!(await phase3Enabled())) {
+  if (!(await phase3Enabled(ctx.tenantId))) {
     return (
       <div className="grid gap-6">
         <PageHeader title="Mutu & audit mitra" />

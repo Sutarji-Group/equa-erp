@@ -1,4 +1,4 @@
-import { inArray, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -6,15 +6,18 @@ import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { ToneBadge } from "@/components/shared/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { employees, users } from "@/db/schema";
+import { employees, featureFlags, tenants, users } from "@/db/schema";
 import { formatRupiah } from "@/lib/money";
 import { formatTanggal, formatTanggalJam, toBusinessDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { requirePermission } from "@/server/core/auth/office";
+import { hasRole } from "@/server/core/context";
 import { getDb } from "@/server/core/db";
+import * as flags from "@/server/core/flags";
 import * as params from "@/server/core/params";
 import { can } from "@/server/core/rbac";
 
+import { FeatureFlagForm } from "./feature-flag-form";
 import { ParamEditForm } from "./param-edit-form";
 
 export const metadata: Metadata = { title: "Parameter" };
@@ -148,6 +151,83 @@ export default async function ParameterPage({ searchParams }: PageProps<"/pengat
           ))}
         </TableBody>
       </Table>
+      {hasRole(ctx, "owner") ? <FeatureFlagsSection /> : null}
     </>
+  );
+}
+
+/**
+ * Tambahan S5-C: fitur bertahap (feature flag) yang dinyalakan pemilik setelah gerbang aktivasi terpenuhi
+ * (docs/uat/gerbang-tahap.md) — global atau per tenant. Flag yang punya layar khusus dengan pemeriksaan tambahan
+ * TIDAK diubah di sini: jurnal otomatis M11 ("Aktifkan M11" di Akuntansi > Pemetaan, cek pemetaan wajib), ganti rugi
+ * karyawan (Kas > Ganti rugi), deteksi di luar jadwal per truk (Armada).
+ */
+const MANAGED_FLAGS = ["phase2.customer_app", "phase3.partner_portal", "approvals.delegation", "partner.franchise_terms"] as const;
+
+const FLAG_LABELS: Record<(typeof MANAGED_FLAGS)[number], string> = {
+  "phase2.customer_app": "Aplikasi pelanggan (Tahap 2)",
+  "phase3.partner_portal": "Portal kemitraan lengkap (Tahap 3)",
+  "approvals.delegation": "Pendelegasian persetujuan",
+  "partner.franchise_terms": "Istilah \"waralaba\"",
+};
+
+async function FeatureFlagsSection() {
+  const db = getDb();
+  const tenantRows = await db
+    .select({ id: tenants.id, name: tenants.name, kind: tenants.kind })
+    .from(tenants)
+    .where(eq(tenants.isActive, true))
+    .orderBy(asc(tenants.kind), asc(tenants.name));
+  const overrides = await db
+    .select({ key: featureFlags.key, refId: featureFlags.scopeRefId, enabled: featureFlags.enabled, reason: featureFlags.reason })
+    .from(featureFlags)
+    .where(and(eq(featureFlags.scopeType, "tenant"), inArray(featureFlags.key, [...MANAGED_FLAGS])));
+  const tenantName = new Map(tenantRows.map((t) => [t.id, t.name]));
+  const rows = await Promise.all(
+    MANAGED_FLAGS.map(async (key) => ({
+      key,
+      label: FLAG_LABELS[key],
+      description: flags.FLAG_REGISTRY[key].description,
+      global: await flags.isEnabled(db, key),
+      tenantScope: (flags.FLAG_REGISTRY[key].scopes as readonly string[]).includes("tenant"),
+      perTenant: overrides.filter((o) => o.key === key),
+    })),
+  );
+  return (
+    <SectionCard
+      title="Fitur bertahap (feature flag)"
+      description="Nyalakan Tahap 2/Tahap 3 hanya setelah prasyarat gerbang aktivasi terpenuhi dan berita acara ditandatangani. Pengaturan per tenant mengalahkan pengaturan global. Setiap perubahan berjejak."
+      className="mt-6"
+    >
+      <Table className="mb-6">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Fitur</TableHead>
+            <TableHead>Global</TableHead>
+            <TableHead>Pengaturan per tenant</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r) => (
+            <TableRow key={r.key}>
+              <TableCell className="max-w-xs whitespace-normal">
+                <div className="font-medium">{r.label}</div>
+                <div className="text-xs text-muted-foreground">{r.description}</div>
+              </TableCell>
+              <TableCell>{r.global ? <ToneBadge tone="success">Nyala</ToneBadge> : <ToneBadge tone="muted">Mati</ToneBadge>}</TableCell>
+              <TableCell className="max-w-md whitespace-normal text-sm">
+                {r.perTenant.length === 0
+                  ? "—"
+                  : r.perTenant.map((o) => `${tenantName.get(o.refId ?? "") ?? "Tenant nonaktif"}: ${o.enabled ? "nyala" : "mati"}`).join(" · ")}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <FeatureFlagForm
+        flags={rows.map((r) => ({ key: r.key, label: r.label, tenantScope: r.tenantScope }))}
+        tenants={tenantRows.map((t) => ({ id: t.id, name: `${t.name}${t.kind === "owner" ? " (EQUA)" : " (mitra)"}` }))}
+      />
+    </SectionCard>
   );
 }

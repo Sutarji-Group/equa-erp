@@ -32,7 +32,7 @@ const bpPct = (bp: number) => `${(bp / 100).toLocaleString("id-ID", { maximumFra
 export default async function ContractsPage({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
   const sp = await searchParams;
   const { ctx } = await requirePermission("p3.partner_contract.read");
-  const [rows, phase3] = await Promise.all([p3.listContracts(ctx), phase3Enabled()]);
+  const [rows, phase3] = await Promise.all([p3.listContracts(ctx), phase3Enabled(ctx.tenantId)]);
   const canCreate = can(ctx, "p3.partner_contract.create");
   const canUpdate = can(ctx, "p3.partner_contract.update");
   const options = canCreate ? await p3.partnerFormOptions(ctx) : null;

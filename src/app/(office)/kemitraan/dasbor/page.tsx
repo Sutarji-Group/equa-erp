@@ -33,7 +33,7 @@ const RISK_TONE = { low: "success", medium: "warning", high: "danger" } as const
 export default async function PartnerDashboardPage({ searchParams }: { searchParams: Promise<{ bulan?: string }> }) {
   const sp = await searchParams;
   const { ctx } = await requirePermission(["p3.partner.read", "p3.partner_score.read"]);
-  if (!(await phase3Enabled())) {
+  if (!(await phase3Enabled(ctx.tenantId))) {
     return (
       <div className="grid gap-6">
         <PageHeader title="Dashboard kemitraan" />

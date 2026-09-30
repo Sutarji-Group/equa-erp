@@ -34,7 +34,7 @@ const LEVELS = [
 export default async function SanctionsPage({ searchParams }: { searchParams: Promise<{ status?: string; mitra?: string; id?: string }> }) {
   const sp = await searchParams;
   const { ctx } = await requirePermission(["p3.sanction.propose", "p3.partner.read"]);
-  if (!(await phase3Enabled())) {
+  if (!(await phase3Enabled(ctx.tenantId))) {
     return (
       <div className="grid gap-6">
         <PageHeader title="Sanksi mitra" />
