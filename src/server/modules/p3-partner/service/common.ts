@@ -152,6 +152,50 @@ export async function latestContractFor(tx: Tx, partnerTenantId: string): Promis
   return row ?? null;
 }
 
+/** Status kontrak yang pernah berlaku (bukan Draf/ditolak) — dasar penentuan kontrak utama tenant. */
+const EFFECTIVE_CONTRACT_STATUSES = ["active", "extended", "ended", "terminated"] as const;
+
+/**
+ * Tambahan S5-C (D-13 butir 1, PRD 9.7 "mitra dua outlet"): outlet depot tenant mitra yang DICAKUP satu kontrak.
+ * Model v1.0 = satu kontrak per outlet (tiap outlet = satu pelanggan mitra, `customers.partner_outlet_id`):
+ * - outlet yang tertaut ke pelanggan kontrak ini → tercakup;
+ * - outlet yang tertaut ke pelanggan mitra LAIN → milik kontrak pelanggan itu (tidak tercakup);
+ * - outlet tanpa pelanggan mitra tertaut → tercakup kontrak UTAMA tenant pada rentang itu (kontrak berlaku
+ *   tertua yang beririsan `from..to`), sehingga mitra satu kontrak tetap ditagih untuk semua outletnya seperti semula.
+ * Dipakai tagihan langganan (per outlet), aktivasi kontrak (mulai tagih & wilayah eksklusif per outlet), onboarding.
+ */
+export async function contractOutlets(tx: Tx, contract: ContractRow, range: { from: BusinessDate; to: BusinessDate }): Promise<OutletRow[]> {
+  const outletRows = await tenantOutlets(tx, contract.tenantId, { depotOnly: true });
+  if (outletRows.length === 0) return [];
+  const linked = await tx
+    .select({ id: customers.id, outletId: customers.partnerOutletId })
+    .from(customers)
+    .where(and(eq(customers.isEquaPartner, true), eq(customers.partnerTenantId, contract.tenantId)));
+  const ownerOfOutlet = new Map(linked.filter((c) => c.outletId).map((c) => [c.outletId!, c.id]));
+  const unlinked = outletRows.filter((o) => !ownerOfOutlet.has(o.id));
+  let isPrimary = false;
+  if (unlinked.length > 0) {
+    const candidates = await tx
+      .select({ id: partnerContracts.id })
+      .from(partnerContracts)
+      .where(
+        and(
+          eq(partnerContracts.tenantId, contract.tenantId),
+          or(eq(partnerContracts.id, contract.id), inArray(partnerContracts.status, [...EFFECTIVE_CONTRACT_STATUSES])),
+          lte(partnerContracts.startDate, range.to),
+          gte(partnerContracts.endDate, range.from),
+        ),
+      )
+      .orderBy(asc(partnerContracts.startDate), asc(partnerContracts.createdAt), asc(partnerContracts.number))
+      .limit(1);
+    isPrimary = candidates[0]?.id === contract.id;
+  }
+  return outletRows.filter((o) => {
+    const owner = ownerOfOutlet.get(o.id);
+    return owner ? owner === contract.customerId : isPrimary;
+  });
+}
+
 export async function contractsLiveOn(tx: Tx, from: BusinessDate, to: BusinessDate): Promise<ContractRow[]> {
   return tx
     .select()

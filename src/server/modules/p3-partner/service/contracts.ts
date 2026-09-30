@@ -35,6 +35,7 @@ import {
   addMonths,
   assertOwnerTenant,
   bpToPercent,
+  contractOutlets,
   loadContract,
   loadPartnerTenant,
   notifyOnce,
@@ -42,7 +43,6 @@ import {
   partnerRules,
   percentToBp,
   portalEnabled,
-  tenantOutlets,
   type ContractRow,
 } from "./common";
 import { createOnboardingForContract } from "./onboarding";
@@ -191,12 +191,24 @@ export async function createContract(ctx: ActorContext, input: CreateContractInp
     if (!c.isEquaPartner || c.partnerTenantId !== tenant.id) {
       throw ValidationError.field("customerId", "Tautkan pelanggan ke tenant & outlet mitra ini terlebih dahulu (US-P3-08 KP-1).");
     }
+    // D-13 butir 1 (PRD 9.7 mitra dua outlet): satu kontrak berlaku PER OUTLET — kontrak lain tenant yang sama hanya
+    // menghalangi bila untuk pelanggan/outlet yang sama (tiap outlet = satu pelanggan mitra, `partner_outlet_id`).
     const overlapping = await tx
-      .select({ id: partnerContracts.id, number: partnerContracts.number, status: partnerContracts.status, approvalRequestId: partnerContracts.approvalRequestId })
+      .select({
+        id: partnerContracts.id,
+        number: partnerContracts.number,
+        status: partnerContracts.status,
+        approvalRequestId: partnerContracts.approvalRequestId,
+        customerId: partnerContracts.customerId,
+        outletId: customers.partnerOutletId,
+      })
       .from(partnerContracts)
+      .innerJoin(customers, eq(customers.id, partnerContracts.customerId))
       .where(and(eq(partnerContracts.tenantId, tenant.id), inArray(partnerContracts.status, ["draft", "active", "extended"])));
     for (const o of overlapping) {
-      if (o.status !== "draft") throw new DomainError("CONTRACT_ACTIVE_EXISTS", `Mitra ini masih punya kontrak ${o.number} berstatus ${label("partner_contract_status", o.status)}. Ajukan perubahan parameter, bukan kontrak baru.`);
+      const sameOutlet = o.customerId === c.id || !o.outletId || !c.partnerOutletId || o.outletId === c.partnerOutletId;
+      if (!sameOutlet) continue;
+      if (o.status !== "draft") throw new DomainError("CONTRACT_ACTIVE_EXISTS", `Outlet mitra ini masih punya kontrak ${o.number} berstatus ${label("partner_contract_status", o.status)}. Ajukan perubahan parameter, bukan kontrak baru.`);
       const req = o.approvalRequestId ? await approvals.getApproval(tx, o.approvalRequestId) : null;
       if (req?.status === "submitted") throw new DomainError("CONTRACT_PENDING_EXISTS", `Kontrak ${o.number} masih menunggu persetujuan pemilik.`);
     }
@@ -389,8 +401,9 @@ export async function activateContract(tx: Tx, ctx: ActorContext, contractId: st
     effects.customer = after;
   }
 
-  // Outlet aktif: mulai ditagih langganan sejak maks(tanggal mulai kontrak, tanggal aktif outlet).
-  const outletRows = await tenantOutlets(tx, contract.tenantId, { depotOnly: true });
+  // Outlet aktif YANG DICAKUP kontrak ini (D-13 butir 1: satu kontrak per outlet): mulai ditagih langganan sejak
+  // maks(tanggal mulai kontrak, tanggal aktif outlet) + wilayah eksklusif per outlet.
+  const outletRows = await contractOutlets(tx, { ...contract, status: "active" }, { from: contract.startDate, to: contract.endDate });
   let billing = 0;
   let territories = 0;
   for (const o of outletRows) {

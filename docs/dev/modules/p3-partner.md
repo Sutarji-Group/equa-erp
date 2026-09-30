@@ -177,3 +177,24 @@ status kredit pelanggan mitra (batas kredit kontrak).
   `tests/p3-partner/billing.test.ts` (KP-3 bulan LAYANAN).
 - Terbuka (lihat laporan S5B): mitra dua outlet (PRD 9.7 — dua pelanggan M1, satu kontrak; batas kredit bersama &
   gabungan faktur lintas pelanggan mitra perlu perubahan model kontrak/eksposur M5).
+
+## 11. S5-C — uji penerimaan "PRD 9.7 mitra dua outlet" (D-13 butir 1, B-82)
+
+- **Uji baru** `tests/p3-partner/two-outlets.test.ts`: satu tenant mitra dengan dua outlet → dua kontrak (satu per
+  outlet; tiap outlet = satu pelanggan mitra dengan batas kredit & faktur sendiri), wilayah eksklusif per outlet,
+  tagihan langganan per outlet (idempoten), portal pemilik mitra melihat tagihan kedua outlet, isolasi antar tenant
+  (mitra lain ditolak `ForbiddenError`). Kontrak kedua untuk outlet yang SAMA tetap ditolak (`CONTRACT_ACTIVE_EXISTS`).
+- **Uji semula GAGAL** (`createContract` menolak kontrak kedua per TENANT; tagihan & wilayah menghitung SEMUA outlet
+  tenant per kontrak). **Perbaikan minimal** (tanpa perubahan skema, tanpa batas kredit bersama/faktur gabungan):
+  - `common.ts` `contractOutlets(tx, contract, { from, to })` — outlet yang dicakup satu kontrak: outlet tertaut ke
+    pelanggan kontrak ini; outlet tertaut ke pelanggan mitra LAIN dikecualikan; outlet tanpa pelanggan tertaut ikut
+    kontrak UTAMA tenant (kontrak berlaku tertua pada rentang) → mitra satu kontrak tetap ditagih semua outletnya
+    seperti sebelumnya (uji `billing.test.ts` tetap hijau).
+  - `contracts.ts` `createContract`: cek tumpang tindih per outlet/pelanggan (bukan per tenant); `activateContract`:
+    mulai tagih & wilayah eksklusif hanya untuk outlet yang dicakup.
+  - `billing.ts` `computePartnerBill`: outlet & omzet royalti hanya outlet yang dicakup kontrak.
+  - `onboarding.ts` `createOnboardingForContract`: daftar periksa hanya untuk outlet kontrak itu yang belum Aktif.
+- **Batasan v1.0 (dicatat, bukan cacat)**: tampilan ringkas yang memakai "kontrak terbaru tenant"
+  (`latestContractFor`/`activeContractFor` — beranda portal, dasbor mitra, mutu, sanksi, diskon air Opsi A Tahap 3)
+  menampilkan satu kontrak saja; untuk mitra dua outlet dengan parameter kontrak berbeda, pembina memeriksa rincian
+  per kontrak di `/kemitraan/kontrak`. Batas kredit bersama & faktur gabungan lintas outlet tidak dibangun (D-13).
