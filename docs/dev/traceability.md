@@ -8,7 +8,7 @@
 
 - **Prioritas M:** 490/490 KP (100.0%) · story: 94 lengkap, 0 sebagian, 0 belum
 - **Semua prioritas:** 552/554 KP (99.6%) · story: 113 lengkap, 0 sebagian, 1 belum
-- Uji dipindai: 1375 judul di 226 berkas; 1135 judul merujuk user story.
+- Uji dipindai: 1417 judul di 233 berkas; 1173 judul merujuk user story.
 
 | Modul | Story | Lengkap | Sebagian | Belum | KP tercakup | % |
 |---|---:|---:|---:|---:|---:|---:|
@@ -85,11 +85,11 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
 | US-M4-01 | Melihat posisi kas harian per sumber | M | 5/5 | lengkap | — | 10 |
-| US-M4-02 | Menerima setoran dan menghitung selisih | M | 10/10 | lengkap | — | 22 |
-| US-M4-03 | Menindaklanjuti selisih dan mencatat ganti rugi | M | 6/6 | lengkap | — | 14 |
-| US-M4-04 | Mencatat dan mencocokkan transfer masuk | M | 5/5 | lengkap | — | 19 |
-| US-M4-05 | Kas kantor, setor ke bank, dan kas kecil | M | 3/3 | lengkap | — | 8 |
-| US-M4-06 | Menutup kas harian dan menerbitkan ringkasan H+0 | M | 7/7 | lengkap | — | 15 |
+| US-M4-02 | Menerima setoran dan menghitung selisih | M | 10/10 | lengkap | — | 24 |
+| US-M4-03 | Menindaklanjuti selisih dan mencatat ganti rugi | M | 6/6 | lengkap | — | 15 |
+| US-M4-04 | Mencatat dan mencocokkan transfer masuk | M | 5/5 | lengkap | — | 22 |
+| US-M4-05 | Kas kantor, setor ke bank, dan kas kecil | M | 3/3 | lengkap | — | 12 |
+| US-M4-06 | Menutup kas harian dan menerbitkan ringkasan H+0 | M | 7/7 | lengkap | — | 19 |
 
 ## M5 — Piutang & Penagihan
 
@@ -97,12 +97,12 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M5-01 | Piutang terbentuk otomatis dari pengiriman dan penjualan tempo | M | 6/6 | lengkap | — | 29 |
-| US-M5-02 | Mencatat pelunasan dan alokasinya | M | 5/5 | lengkap | — | 21 |
-| US-M5-03 | Kontrol jatuh tempo dan status Ditahan | M | 6/6 | lengkap | — | 17 |
-| US-M5-04 | Laporan umur piutang dan kartu piutang | M | 4/4 | lengkap | — | 14 |
+| US-M5-01 | Piutang terbentuk otomatis dari pengiriman dan penjualan tempo | M | 6/6 | lengkap | — | 33 |
+| US-M5-02 | Mencatat pelunasan dan alokasinya | M | 5/5 | lengkap | — | 22 |
+| US-M5-03 | Kontrol jatuh tempo dan status Ditahan | M | 6/6 | lengkap | — | 20 |
+| US-M5-04 | Laporan umur piutang dan kartu piutang | M | 4/4 | lengkap | — | 15 |
 | US-M5-05 | Pengingat jatuh tempo lewat WA | S | 3/3 | lengkap | — | 9 |
-| US-M5-06 | Faktur bulanan untuk pelanggan tagihan bulanan | M | 5/5 | lengkap | — | 9 |
+| US-M5-06 | Faktur bulanan untuk pelanggan tagihan bulanan | M | 5/5 | lengkap | — | 11 |
 | US-M5-07 | Saldo awal piutang saat cut-over | M | 3/3 | lengkap | — | 6 |
 
 ## M6 — Penjualan Depot (POS)
@@ -115,7 +115,7 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M6-02 | Buka dan tutup shift dengan kas dan stok fisik; setoran outlet | M | 7/7 | lengkap | — | 15 |
 | US-M6-03 | Void dengan alasan | M | 5/5 | lengkap | — | 11 |
 | US-M6-04 | Stok bahan habis pakai dan opname mingguan | M | 6/6 | lengkap | — | 9 |
-| US-M6-05 | Menerima pasokan air dan neraca air outlet | M | 6/6 | lengkap | — | 15 |
+| US-M6-05 | Menerima pasokan air dan neraca air outlet | M | 6/6 | lengkap | — | 16 |
 | US-M6-06 | Bekerja tanpa sinyal | M | 5/5 | lengkap | — | 15 |
 | US-M6-07 | Paket standar multi-tenant | M | 6/6 | lengkap | — | 14 |
 
@@ -155,9 +155,9 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M9-01 | Dashboard H+0 | M | 7/7 | lengkap | — | 14 |
-| US-M9-02 | Laporan bulanan laba kotor per lini dan konsolidasi | M | 6/6 | lengkap | — | 13 |
-| US-M9-03 | Ekspor Excel/PDF | M | 4/4 | lengkap | — | 21 |
+| US-M9-01 | Dashboard H+0 | M | 7/7 | lengkap | — | 15 |
+| US-M9-02 | Laporan bulanan laba kotor per lini dan konsolidasi | M | 6/6 | lengkap | — | 15 |
+| US-M9-03 | Ekspor Excel/PDF | M | 4/4 | lengkap | — | 22 |
 | US-M9-04 | Kotak masuk pengecualian dan pengaturan notifikasi pemilik | S | 4/4 | lengkap | — | 15 |
 | US-M9-05 | Kinerja per sopir/truk dan per depot/operator | S | 4/4 | lengkap | — | 6 |
 | US-M9-06 | Tren mingguan/bulanan | S | 3/3 | lengkap | — | 3 |
@@ -174,8 +174,8 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 | US-M10-03 | Pemisahan tugas dipaksakan | M | 4/4 | lengkap | — | 26 |
 | US-M10-04 | Alur persetujuan | M | 6/6 | lengkap | — | 24 |
 | US-M10-05 | Jejak audit | M | 6/6 | lengkap | — | 22 |
-| US-M10-06 | Data pribadi, retensi, dan pencadangan | M | 6/6 | lengkap | — | 14 |
-| US-M10-07 | Kesehatan perangkat, sinkron, dan pemantauan | M | 4/4 | lengkap | — | 16 |
+| US-M10-06 | Data pribadi, retensi, dan pencadangan | M | 6/6 | lengkap | — | 16 |
+| US-M10-07 | Kesehatan perangkat, sinkron, dan pemantauan | M | 4/4 | lengkap | — | 18 |
 
 ## M11 — Akuntansi & Pajak
 
@@ -183,16 +183,16 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-M11-01 | Bagan akun dan pusat laba | M | 5/5 | lengkap | — | 10 |
-| US-M11-02 | Jurnal otomatis dari seluruh transaksi operasional | M | 5/5 | lengkap | — | 36 |
+| US-M11-01 | Bagan akun dan pusat laba | M | 5/5 | lengkap | — | 12 |
+| US-M11-02 | Jurnal otomatis dari seluruh transaksi operasional | M | 5/5 | lengkap | — | 38 |
 | US-M11-03 | Jurnal manual dengan lampiran dan persetujuan | M | 6/6 | lengkap | — | 13 |
-| US-M11-04 | Buku besar dan laporan keuangan | M | 5/5 | lengkap | — | 15 |
-| US-M11-05 | Aset tetap dan penyusutan otomatis | M | 5/5 | lengkap | — | 7 |
-| US-M11-06 | Rekonsiliasi bank dan kas | M | 4/4 | lengkap | — | 5 |
+| US-M11-04 | Buku besar dan laporan keuangan | M | 5/5 | lengkap | — | 16 |
+| US-M11-05 | Aset tetap dan penyusutan otomatis | M | 5/5 | lengkap | — | 8 |
+| US-M11-06 | Rekonsiliasi bank dan kas | M | 4/4 | lengkap | — | 7 |
 | US-M11-07 | Utang usaha kepada pemasok | S | 3/3 | lengkap | — | 3 |
 | US-M11-08 | Pelaporan pajak PT non-PKP dan pemantauan batas PKP | M | 5/5 | lengkap | — | 7 |
-| US-M11-09 | Saldo awal dan cut-over akuntansi | M | 4/4 | lengkap | — | 10 |
-| US-M11-10 | Tutup dan kunci periode | M | 5/5 | lengkap | — | 11 |
+| US-M11-09 | Saldo awal dan cut-over akuntansi | M | 4/4 | lengkap | — | 11 |
+| US-M11-10 | Tutup dan kunci periode | M | 5/5 | lengkap | — | 12 |
 
 ## M12 — Pelacakan Armada / GPS
 
@@ -215,14 +215,14 @@ Status: **lengkap** = semua KP punya uji; **sebagian** = sebagian KP punya uji; 
 
 | US | Judul | Prio | KP tercakup | Status | KP belum teruji | Uji |
 |---|---|:-:|---:|---|---|---:|
-| US-P2-01 | Mendaftar dengan verifikasi nomor WA dan menyimpan alamat | M | 5/5 | lengkap | — | 10 |
-| US-P2-02 | Memesan air truk dengan tanggal/slot dan harga transparan | M | 6/6 | lengkap | — | 16 |
-| US-P2-03 | Memantau status dan posisi truk | M | 5/5 | lengkap | — | 12 |
-| US-P2-04 | Riwayat, struk, tagihan, dan pembayaran digital | M | 5/5 | lengkap | — | 16 |
+| US-P2-01 | Mendaftar dengan verifikasi nomor WA dan menyimpan alamat | M | 5/5 | lengkap | — | 13 |
+| US-P2-02 | Memesan air truk dengan tanggal/slot dan harga transparan | M | 6/6 | lengkap | — | 17 |
+| US-P2-03 | Memantau status dan posisi truk | M | 5/5 | lengkap | — | 15 |
+| US-P2-04 | Riwayat, struk, tagihan, dan pembayaran digital | M | 5/5 | lengkap | — | 17 |
 | US-P2-05 | Langganan berkala dan pengingat isi ulang | S | 3/3 | lengkap | — | 4 |
 | US-P2-06 | Penilaian layanan dan keluhan | S | 3/3 | lengkap | — | 8 |
 | US-P2-07 | Memesan galon antar dari depot terdekat | C | 0/2 | belum | 1, 2 | 0 |
-| US-P2-08 | Kanal WhatsApp Business API dan notifikasi pelanggan | M | 3/3 | lengkap | — | 9 |
+| US-P2-08 | Kanal WhatsApp Business API dan notifikasi pelanggan | M | 3/3 | lengkap | — | 10 |
 
 ## P3 — Tahap 3: Portal Kemitraan / Frenchise
 

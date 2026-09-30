@@ -80,6 +80,28 @@ describe("M11/M9 — regresi temuan audit S5-B", () => {
     expect(expense).toBe(180_000);
   });
 
+  it("US-M11-02 KP-1 BR-33 US-M6-05 KP-2 integrasi S5-B: konfirmasi M6 bertanda adjustmentOfAutoAccepted membawa PENYESUAIAN nilai (bukan nilai penuh) → hanya selisihnya yang dijurnal, tidak membalik nilai penuh", async () => {
+    const sameId = newId();
+    const lessId = newId();
+    for (const receiptId of [sameId, lessId]) {
+      await emitEvent("water_supply.confirmed", { waterSupplyReceiptId: receiptId, outletId: outletId("D01"), volumeSentL: 5000, volumeReceivedL: 5000, transferValue: 200_000, confirmedByOperator: false, autoAccepted: true });
+    }
+    // Volume sama → penyesuaian 0: tidak ada jurnal baru, tidak masuk daftar tunggu.
+    const same = await emitEvent("water_supply.confirmed", { waterSupplyReceiptId: sameId, outletId: outletId("D01"), volumeSentL: 5000, volumeReceivedL: 5000, transferValue: 0, confirmedByOperator: true, adjustmentOfAutoAccepted: true });
+    expect(await journalOfEvent(t.db, same.id)).toBeNull();
+    expect(await queueOfEvent(t.db, same.id)).toBeNull();
+    expect(await journalsOfSource(t.db, "water_supply_receipt", sameId)).toHaveLength(1);
+    // 4.500 L → penyesuaian −20.000 dari M6: dijurnal −20.000 (sisi dibalik), bukan −220.000.
+    const less = await emitEvent("water_supply.confirmed", { waterSupplyReceiptId: lessId, outletId: outletId("D01"), volumeSentL: 5000, volumeReceivedL: 4500, transferValue: -20_000, confirmedByOperator: true, adjustmentOfAutoAccepted: true });
+    expect((await linesOf(t.db, (await journalOfEvent(t.db, less.id))!.id)).map((l) => [l.code, l.debit, l.credit])).toEqual([
+      ["4-1501", 20_000, 0],
+      ["5-1201", 0, 20_000],
+    ]);
+    let expense = 0;
+    for (const j of await journalsOfSource(t.db, "water_supply_receipt", lessId)) for (const l of await linesOf(t.db, j.id)) if (l.code === "5-1201") expense += l.debit - l.credit;
+    expect(expense).toBe(180_000);
+  });
+
   it("US-M11-01 KP-3 US-M11-10 KP-1 biaya L1 susulan setelah alokasi → sisa belum dialokasikan menahan prasyarat tutup; run tambahan mengalokasikan sisanya", async () => {
     const period = (await periodRow(t.db, THIS_PERIOD))!;
     const fa = finance();

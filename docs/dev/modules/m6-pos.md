@@ -163,7 +163,8 @@ mitra (B-07), `isShiftFullySynced` (B-04), `trip.completed` internal (B-01), sto
   bawaan 3) — ditandai `priceMismatch`; harga lain ditolak `PRICE_NOT_MASTER`; barang menunggu persetujuan ditolak
   `PRODUCT_PENDING`.
 - **BR-33**: konfirmasi operator atas pasokan yang sudah diterima otomatis (PAR-61) hanya memancarkan nilai SELISIH
-  (`adjustmentOfAutoAccepted`), tidak ada nilai transfer internal ganda.
+  (`adjustmentOfAutoAccepted`), tidak ada nilai transfer internal ganda. (Integrasi S5-B: M11 menjurnal nilai bersih per
+  penerimaan dan menghormati tanda ini — lihat hand-off M11 §13.)
 - **US-M6-05 KP-5**: harga transfer internal tidak dapat ditentukan → `water_supply.confirmed.transferPriceMissing` +
   notifikasi `water_supply.transfer_price_missing` ke Admin Keuangan.
 - **US-M4-06 KP-7 / 7.6.6**: tunai POS tersinkron setelah shift ditutup → `absorbLateCashSale`: setoran shift yang belum

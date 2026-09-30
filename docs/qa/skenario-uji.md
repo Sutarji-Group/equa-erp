@@ -122,7 +122,7 @@ Status: **Lulus** = lulus pada run penuh `pnpm test:e2e` di DB segar 30 Sep 2026
 | --- | --- | --- | --- | --- |
 | 1 | Jurnal otomatis dari transaksi skenario (pendapatan air truk, piutang, beban selisih kas D01 dari P-06) | US-M11-02 KP-1 | "Jurnal otomatis: …" | Lulus |
 | 2–3 | Jurnal akrual manual Rp 6.500.000 (> PAR-20) berlampiran → persetujuan pemilik → terposting; tinjauan pemilik | US-M11-03 KP-1, KP-2 | "Jurnal akrual gaji …", "Pemilik menandai daftar tinjauan …" | Lulus |
-| 4 | Rekonsiliasi bank (saldo rekening koran = saldo buku + item otomatis) & kas → nol selisih | US-M11-06 KP-1 | "Rekonsiliasi bank & kas periode → nol selisih" | Lulus |
+| 4 | Rekonsiliasi bank (saldo rekening koran = saldo buku + item otomatis) & kas → nol selisih; kas di tangan sopir: saldo sistem & fisik = 0 (S5-B) | US-M11-06 KP-1, KP-2 | "Rekonsiliasi bank & kas periode → nol selisih" | Lulus |
 | 5 | Laba kotor per lini "Sementara" | US-M9-02 KP-1, KP-2 | "Laba kotor bulanan per lini berstatus 'Sementara'" | Lulus |
 | 6 | Tanggal 1 bulan berikutnya: prasyarat terpenuhi → Admin Keuangan menutup → pemilik mengunci → "Final" | US-M11-10 KP-1, KP-2; US-M9-02 KP-2 | "Tanggal …: prasyarat terpenuhi …", "Pemilik mengunci periode …" | Lulus |
 | 7 | Jurnal akrual dibalik otomatis tanggal 1 periode berikutnya (job `m11.accrual.reverse`) | US-M11-03 KP-6 | "Tanggal … 00.30: jurnal akrual dibalik otomatis …" | Lulus |

@@ -189,6 +189,12 @@ Untuk paket B (B-65): `trip.completed` rit prabayar digital membawa `prepaidAmou
   `waterSupply` kini asinkron: nilai yang SUDAH dijurnal = `transferValue` event terakhir yang jurnal otomatisnya masih
   hidup untuk objek `water_supply_receipt/<id>`; yang dijurnal hanya selisihnya (0 → dilewati "sudah dijurnal", negatif →
   sisi ditukar, uraian "Penyesuaian pasokan air depot …").
+  *Integrasi S5-B:* M6 (paket A) memancarkan konfirmasi atas pasokan yang sudah diterima otomatis dengan
+  `adjustmentOfAutoAccepted: true` dan `transferValue` = PENYESUAIAN bertanda (bukan nilai penuh). `bookedWaterSupplyValue`
+  kini menjumlahkan event hidup urut `seq` (event biasa = nilai penuh → mengganti; event penyesuaian → menambah) dan
+  `waterSupply` menghitung nilai bersih = terbukukan + penyesuaian untuk event bertanda. Tanpa ini konfirmasi volume sama
+  (penyesuaian 0) membalik seluruh nilai transfer. Uji: `tests/m11-accounting/audit-s5b.test.ts` ("integrasi S5-B") &
+  `tests/m6-pos/audit-fixes.test.ts` (BR-33, jurnal bersih satu).
 - **Alokasi susulan (US-M11-01 KP-3, US-M11-10 KP-1).** `AllocationPreview` + `allocated` & `remaining`;
   `required = remaining ≠ 0`. `postCostAllocation(tx, ctx, period, kind)` (ekspor layanan): run pertama membuat baris
   `cost_allocation_runs`; run berikutnya = TAMBAHAN sebesar sisa (jurnal sendiri, uraian "— tambahan atas biaya susulan",
@@ -237,4 +243,8 @@ Untuk paket B (B-65): `trip.completed` rit prabayar digital membawa `prepaidAmou
   yang kelak hilang → daftar tunggu (perilaku lama). `listMappings` menambah `activation`. `mappingRows`/
   `mappingCompleteness` pindah ke common.ts (tetap diekspor dari mappings.ts/index). Runbook cut-over: pemilik menekan
   "Aktifkan M11" setelah pemetaan ditinjau akuntan.
+- *Integrasi S5-B — seed demo:* `pendingDriverCashJournals` (`src/db/seed/demo-m11-accounting.ts`) membukukan tunai rit &
+  pelunasan sopir di setoran demo yang belum diterima ke kas di tangan sopir (Dr 1-1102 / Cr 4-1101, 1-1401), sehingga
+  penerimaan setoran demo mengembalikan saldo ke 0 dan rekonsiliasi kas sopir (saldo sistem wajib 0) dapat nol di P-07.
+  Uji `tests/m11-accounting/demo-seed-driver-cash.test.ts`.
 - Uji: `tests/m11-accounting/audit-s5b.test.ts`.

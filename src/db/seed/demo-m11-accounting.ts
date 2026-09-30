@@ -10,7 +10,7 @@
  *    Tanggal cut-over TIDAK diisi (tetap keputusan pemilik). Seperti demo modul lain, data transaksi demo dilewati di
  *    DB uji (`VITEST`/`NODE_ENV=test`) kecuali `force`.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { REQUIRED_MAPPINGS } from "@/server/modules/m11-accounting/constants";
 
@@ -24,12 +24,15 @@ import type { DbOrTx } from "../client";
 import {
   accountingPeriods,
   accounts,
+  customerPayments,
+  deposits,
   eventAccountMappings,
   fixedAssetExtras,
   fixedAssets,
   journalLines,
   journals,
   recurringJournals,
+  tripPayments,
 } from "../schema";
 import { accountId, EVENT_MAPPING_SEEDS } from "./accounting";
 import { SEED_EFFECTIVE_FROM } from "./constants";
@@ -507,6 +510,46 @@ async function ensureDemoPeriod(
   return p && (p.status === "open" || p.status === "reopened") ? p.id : null;
 }
 
+/**
+ * Integrasi S5-B (US-M11-06 KP-2 "kas di tangan sopir harus nol setelah setoran diterima"): tunai rit & pelunasan sopir
+ * di setoran demo yang BELUM diterima (Berjalan/Diajukan, data M3/M4 demo ditulis tanpa event) dibukukan ke kas di
+ * tangan sopir seperti jurnal otomatisnya. Tanpa ini penerimaan setoran demo mengkredit kas di tangan sopir tanpa debit
+ * padanan → saldo negatif yang tidak dapat direkonsiliasi nol. Pengeluaran rit menunggu verifikasi dijurnal saat
+ * diverifikasi (M4), jadi tidak ikut di sini.
+ */
+async function pendingDriverCashJournals(tx: DbOrTx, day: number): Promise<DemoJournal[]> {
+  const pending = await tx
+    .select({ id: deposits.id })
+    .from(deposits)
+    .where(and(eq(deposits.tenantId, EQUA_TENANT_ID), eq(deposits.sourceType, "driver"), inArray(deposits.status, ["running", "submitted"])));
+  if (!pending.length) return [];
+  const ids = pending.map((d) => d.id);
+  const [trip] = await tx
+    .select({ total: sql<number>`coalesce(sum(${tripPayments.receivedAmount}), 0)::bigint` })
+    .from(tripPayments)
+    .where(and(inArray(tripPayments.depositId, ids), eq(tripPayments.method, "cash")));
+  const [collection] = await tx
+    .select({ total: sql<number>`coalesce(sum(${customerPayments.amount}), 0)::bigint` })
+    .from(customerPayments)
+    .where(and(inArray(customerPayments.depositId, ids), eq(customerPayments.method, "cash")));
+  const tripCash = Number(trip?.total ?? 0);
+  const collectionCash = Number(collection?.total ?? 0);
+  if (tripCash + collectionCash <= 0) return [];
+  const lines: DemoLine[] = [{ account: "1-1102", pc: "L2", debit: tripCash + collectionCash, memo: "Tunai di tangan sopir (setoran belum diterima)" }];
+  if (tripCash > 0) lines.push({ account: "4-1101", pc: "L2", credit: tripCash });
+  if (collectionCash > 0) lines.push({ account: "1-1401", pc: "SHARED", credit: collectionCash });
+  return [
+    {
+      key: "driver-cash-pending",
+      kind: "auto",
+      day,
+      description: "[Demo] Tunai rit & pelunasan sopir dalam setoran belum diterima",
+      sourceType: "trip.completed",
+      lines,
+    },
+  ];
+}
+
 export async function seedDemoM11Accounting(
   tx: DbOrTx,
   now: Date = new Date(),
@@ -523,7 +566,8 @@ export async function seedDemoM11Accounting(
   let created = 0;
   if (periodId) {
     const yymm = period.slice(2, 4) + period.slice(5, 7);
-    for (const [i, j] of DEMO_JOURNALS.entries()) {
+    const demoJournals = [...DEMO_JOURNALS, ...(await pendingDriverCashJournals(tx, Number(today.slice(8, 10))))];
+    for (const [i, j] of demoJournals.entries()) {
       const id = seedId(`m11:demo_journal:${period}:${j.key}`);
       const [exists] = await tx
         .select({ id: journals.id })

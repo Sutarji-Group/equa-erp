@@ -6,7 +6,7 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { customerAddresses, deposits, domainEvents, outlets, posSales, productPrices, products, shifts, waterSupplyReceipts } from "@/db/schema";
+import { customerAddresses, deposits, domainEvents, journals, outlets, posSales, productPrices, products, shifts, waterSupplyReceipts } from "@/db/schema";
 import { EQUA_TENANT_ID, internalCustomerId, outletId, userIdByUsername } from "@/db/seed";
 import { addDays, toBusinessDate } from "@/lib/time";
 import { systemContext } from "@/server/core/context";
@@ -97,6 +97,10 @@ describe("M6 — perbaikan audit S5-B", () => {
     expect(values).toHaveLength(2);
     expect(values.find((v) => v.autoAccepted)!.transferValue).toBeGreaterThan(0);
     expect(values.find((v) => v.adjustmentOfAutoAccepted)).toMatchObject({ transferValue: 0 });
+    // Integrasi S5-B (M11 menjurnal selisih per penerimaan): penyesuaian 0 tidak membuat jurnal kedua / pembalik nilai penuh.
+    const js = await t.db.select().from(journals).where(and(eq(journals.sourceObjectType, "water_supply_receipt"), eq(journals.sourceObjectId, arrived.id)));
+    expect(js).toHaveLength(1);
+    expect(js[0]!.reversalOfId).toBeNull();
   });
 
   it("US-M4-06 KP-7 7.6.6 tunai POS tersinkron setelah shift ditutup masuk setoran shift (belum diterima) atau setoran susulan (sudah diterima)", async () => {

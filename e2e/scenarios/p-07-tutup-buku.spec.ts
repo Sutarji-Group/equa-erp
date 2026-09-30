@@ -128,6 +128,11 @@ test.describe("P-07 tutup buku bulanan — jurnal otomatis, jurnal manual, rekon
       for (let i = 0; i < (await cashRows.count()); i++) {
         const row = cashRows.nth(i);
         const system = signedRupiah((await row.getByRole("cell").nth(1).textContent()) ?? "");
+        // US-M11-06 KP-2 (S5-B): kas di tangan sopir WAJIB 0 setelah setoran diterima — saldo fisik selalu 0 dan saldo
+        // sistemnya harus sudah 0 (semua setoran sopir periode ini diterima di P-01..P-06).
+        if (/Kas di tangan sopir/.test((await row.getByRole("cell").first().textContent()) ?? "")) {
+          expect(system, "saldo sistem kas di tangan sopir setelah semua setoran diterima").toBe(0);
+        }
         await row.getByLabel("Saldo fisik (Rp)").fill(String(system));
         await row.getByRole("button", { name: "Simpan" }).click();
         await expect(row).toContainText(/Nol selisih/i);

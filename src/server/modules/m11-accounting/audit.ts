@@ -26,6 +26,8 @@ export function registerAudit(): void {
     ["recurring_journal", "jurnal berulang"],
     ["retroactive_run", "jurnal retroaktif"],
     ["journal_payable", "utang jurnal manual"],
+    // Integrasi S5-B: objek persetujuan `opening_balance_adjustment` (nilai aset impor, B) tampil berlabel di /persetujuan (A).
+    ["opening_adjustment_journal", "jurnal penyesuaian saldo awal"],
   ];
   for (const [type, text] of labels) {
     registerAuditObjectLabel(type, text);

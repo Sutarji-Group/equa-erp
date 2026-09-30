@@ -21,7 +21,7 @@ import * as m5 from "@/server/modules/m5-receivables";
 
 import { TRANSFER_SOURCES_NOT_JOURNALED } from "../constants";
 import { domainEvents, journals, outlets } from "@/db/schema";
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 
 import { accountsByCode, bankGlAccountId } from "./common";
 import { eventDate, type AutoEntry, type EventJournalSpec } from "./posting";
@@ -422,10 +422,14 @@ async function supplierPayment(tx: Tx, e: Ev<"supplier_payment.recorded">): Prom
 }
 
 /**
- * Nilai transfer internal yang SUDAH dijurnal untuk satu penerimaan pasokan (per objek sumber, bukan per event): nilai
- * `transferValue` event terakhir yang jurnal otomatisnya masih hidup (tidak dibalik). Satu penerimaan dapat memancarkan
+ * Nilai transfer internal yang SUDAH dijurnal untuk satu penerimaan pasokan (per objek sumber, bukan per event), dari
+ * event yang jurnal otomatisnya masih hidup (tidak dibalik), urut `seq`. Satu penerimaan dapat memancarkan
  * `water_supply.confirmed` lebih dari sekali (diterima otomatis saat tutup shift PAR-61, lalu konfirmasi operator yang
  * dibuat luring tersinkron) — jurnal berikutnya hanya membukukan selisihnya (US-M11-02 KP-1, BR-33).
+ *
+ * Dua bentuk payload (integrasi S5-B): event biasa membawa nilai PENUH penerimaan (`transferValue` = total → nilai
+ * terbukukan diganti), sedangkan event M6 `adjustmentOfAutoAccepted` membawa PENYESUAIAN bertanda atas nilai yang sudah
+ * diterima otomatis (`transferValue` = selisih → ditambahkan). Keduanya dijumlahkan ke satu nilai bersih.
  */
 async function bookedWaterSupplyValue(tx: Tx, receiptId: string, exceptEventId: string): Promise<number> {
   const rows = await tx
@@ -442,17 +446,24 @@ async function bookedWaterSupplyValue(tx: Tx, receiptId: string, exceptEventId: 
         sql`not exists (select 1 from journals r where r.reversal_of_id = ${journals.id})`,
       ),
     )
-    .orderBy(desc(domainEvents.seq))
-    .limit(1);
-  const v = (rows[0]?.payload as { transferValue?: number } | undefined)?.transferValue;
-  return typeof v === "number" ? v : 0;
+    .orderBy(asc(domainEvents.seq));
+  let booked = 0;
+  for (const r of rows) {
+    const pl = r.payload as { transferValue?: number; adjustmentOfAutoAccepted?: boolean } | null;
+    const v = typeof pl?.transferValue === "number" ? pl.transferValue : 0;
+    booked = pl?.adjustmentOfAutoAccepted ? booked + v : v;
+  }
+  return booked;
 }
 
 async function waterSupply(tx: Tx, e: Ev<"water_supply.confirmed">): Promise<EventJournalSpec> {
   const p = e.payload;
   const booked = await bookedWaterSupplyValue(tx, p.waterSupplyReceiptId, e.id);
-  const delta = (p.transferValue ?? 0) - booked;
-  if (!p.transferValue && !booked) return skip("Pasokan tanpa nilai transfer internal (sumber lain).");
+  // Nilai bersih penerimaan setelah event ini: penyesuaian M6 (`adjustmentOfAutoAccepted`) ditambahkan ke nilai yang
+  // sudah terbukukan; event biasa membawa nilai penuh.
+  const target = p.adjustmentOfAutoAccepted ? booked + (p.transferValue ?? 0) : (p.transferValue ?? 0);
+  const delta = target - booked;
+  if (!target && !booked) return skip("Pasokan tanpa nilai transfer internal (sumber lain).");
   if (delta === 0) return skip("Penerimaan pasokan ini sudah dijurnal dengan nilai yang sama (konfirmasi setelah diterima otomatis).");
   return journal(
     "water_supply.confirmed",
